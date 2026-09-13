@@ -50,7 +50,8 @@ def env(tmp_path):
     con.close()
 
 
-def build_snapshot(con, builder, store, *, snapshot_id="snap-syn-001"):
+def build_snapshot(con, builder, store, *, snapshot_id="snap-syn-001",
+                   as_of_time: str | None = None, cutoff: str | None = None):
     doc = builder.load_manifest(EXAMPLE)
     builder.ensure_source(
         "synthetic-fixture",
@@ -70,8 +71,8 @@ def build_snapshot(con, builder, store, *, snapshot_id="snap-syn-001"):
         snapshot_id=snapshot_id,
         kind="EOD",
         data_mode=DataMode.SYNTHETIC,
-        input_cutoff_at=parse(doc["input_cutoff_at"]),
-        as_of_time=parse(doc["as_of_time"]),
+        input_cutoff_at=parse(cutoff or doc["input_cutoff_at"]),
+        as_of_time=parse(as_of_time or doc["as_of_time"]),
         created_at=utc(2026, 9, 11, 12, 30),
         published_at=parse(doc["published_at"]),
         code_version="0.1.0",

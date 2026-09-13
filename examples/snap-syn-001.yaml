@@ -38,8 +38,9 @@ instruments:
     industry_name: 合成食品饮料
     # D05 用途：历史名称/分类不被当前列表替换
     status_history:
+      # §7.1 左闭右开：旧区间"适用至 2024-06-30（含）"须写为 valid_to: 2024-07-01
       - valid_from: "2020-01-02"
-        valid_to: "2024-06-30"
+        valid_to: "2024-07-01"
         name: 合成示例·原名称
         industry_code: SW_SYN_09
         industry_name: 合成旧行业
