@@ -1,0 +1,13 @@
+resolved plan_version   : plan-8e3f753f9d3683c5
+resolved account_version: acct-630260631f727e5e
+orders                  : ['BUY SYN.A.600519 x100@129750', 'BUY SYN.A.000001 x17100@1168']
+fills                   : 2 | rejections: 0
+estimated fees          : 8567 cents
+cash after execution    : 67103849
+positions               : {'SYN.A.000001': 17100, 'SYN.A.600519': 100}
+positions value         : 32947800
+net value               : 100051649
+published               : True
+invariants all_ok       : True
+reconciled              : True | duplicate fee groups: 0
+ledger rows             : plans=1 orders=2 fills=2 fees=4 lots=2 cash=7 valuations=1
