@@ -138,6 +138,17 @@ def check_examples() -> None:
             starts = [h.get("valid_from") for h in hist]
             check(f"{f.name} {inst.get('instrument_id')} 状态历史有序",
                   starts == sorted(starts) and len(starts) == len(set(starts)))
+            # 只声明 status 而不给 status_history，会让历史时点查询返回空——
+            # 这正是 D05 要防的"用当前状态回答历史问题"。
+            check(f"{f.name} {inst.get('instrument_id')} 有状态历史",
+                  bool(hist),
+                  "declare status_history; a bare status field cannot answer historical queries")
+            # 历史必须覆盖到当下或明确结束，不能留下空洞
+            if hist:
+                covers_now = hist[-1].get("valid_to") is None
+                check(f"{f.name} {inst.get('instrument_id')} 状态历史无空洞",
+                      covers_now,
+                      "last status version must have valid_to: null")
 
         # 行情：价格单位与正数
         for q in doc.get("daily_quotes") or []:

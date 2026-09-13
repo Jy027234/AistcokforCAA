@@ -77,6 +77,13 @@ instruments:
     industry_name: 合成电子
     # §3.1 创业板可展示但不进入默认可模拟池
     simulatable: false
+    status_history:
+      - valid_from: "2021-03-15"
+        valid_to: null
+        name: 合成示例·涨停
+        status: LISTED
+        industry_code: SW_SYN_03
+        industry_name: 合成电子
 
   # S08 用途：2026-09-10 起停牌（不制造成交，估值用最近有效价 + 停牌天数）
   - instrument_id: SYN.A.600002
@@ -89,6 +96,22 @@ instruments:
     suspended_from: "2026-09-10"
     industry_code: SW_SYN_04
     industry_name: 合成医药
+    # status_history 是状态查询的唯一权威（§15.2 按有效期版本化）。
+    # 仅声明 status 字段而不给历史版本，会让历史时点查询返回空——
+    # 这正是 D05 要防的"用当前状态回答历史问题"。
+    status_history:
+      - valid_from: "2018-07-01"
+        valid_to: "2026-09-10"
+        name: 合成示例·停牌
+        status: LISTED
+        industry_code: SW_SYN_04
+        industry_name: 合成医药
+      - valid_from: "2026-09-10"
+        valid_to: null
+        name: 合成示例·停牌
+        status: SUSPENDED
+        industry_code: SW_SYN_04
+        industry_name: 合成医药
 
   # S07 用途：除权日与到账日不同日（应收与现金正确迁移，不重复计收益）
   - instrument_id: SYN.A.600003
@@ -100,6 +123,13 @@ instruments:
     status: LISTED
     industry_code: SW_SYN_05
     industry_name: 合成公用事业
+    status_history:
+      - valid_from: "2017-11-20"
+        valid_to: null
+        name: 合成示例·分红
+        status: LISTED
+        industry_code: SW_SYN_05
+        industry_name: 合成公用事业
 
 # ------------------------------------------------------------------
 # 日行情：单位统一为 股 / 元（§6.3），金额以分为最小单位存储
