@@ -1,0 +1,57 @@
+{
+  "ran_at": "2026-09-13T16:54:57.104715+00:00",
+  "daily_quotes": {
+    "ok": true,
+    "used_source_id": "tencent-ifzq",
+    "degraded": true,
+    "attempts": [
+      {
+        "source_id": "eastmoney-direct",
+        "ok": false,
+        "receipt_id": "rcpt_57f1852e44d5d7db4af98e53",
+        "detail": "RemoteDisconnected: Remote end closed connection without response (after 2 attempts)"
+      },
+      {
+        "source_id": "tencent-ifzq",
+        "ok": true,
+        "receipt_id": "rcpt_91da257b552a29ea980e9a5b",
+        "detail": null
+      }
+    ]
+  },
+  "adjusted_quotes": {
+    "ok": true,
+    "used_source_id": "tencent-ifzq",
+    "degraded": false,
+    "attempts": [
+      {
+        "source_id": "tencent-ifzq",
+        "ok": true,
+        "receipt_id": "rcpt_027b3d72938f4ccd00cbde6f",
+        "detail": null
+      }
+    ]
+  },
+  "source_health": {
+    "eastmoney-direct": "BLOCKED",
+    "tencent-ifzq": "HEALTHY",
+    "tencent-qt": "HEALTHY",
+    "sina-hq": "HEALTHY",
+    "sse-site": "HEALTHY",
+    "szse-site": "HEALTHY",
+    "cninfo": "HEALTHY"
+  },
+  "silent_mix_guard": "OK",
+  "archive": {
+    "receipts": 9,
+    "by_source_outcome": {
+      "eastmoney-direct:DENIED": 2,
+      "eastmoney-direct:TRANSPORT_ERROR": 3,
+      "tencent-ifzq:OK": 4
+    },
+    "distinct_content": {
+      "eastmoney-direct": 0,
+      "tencent-ifzq": 3
+    }
+  }
+}
