@@ -14,10 +14,12 @@ A股研究与模拟决策工作台。首期定位为**自用研究与模拟**，
 
 ## 当前状态
 
-**Q0 部分完成，存在阻塞项，未进入 Q1。** 详见 `docs/integration/q0-readiness-report.md`。
+**Q0 部分完成：正向链路已通过，但存在 1 项高危安全发现，未进入 Q1。** 详见 `docs/integration/q0-readiness-report.md`。
 
 - 基座锁定提交：`b5cad04836cf93b35750fb0116ab0c2d936d1f89`（`E:\IT\Agent`，`main`）
-- 未关闭：frontdesk HTTP 路径 tenant/product/scope 边界未通过（含伪造 tenant 落库证据）；无模型凭证；本次核验对象为本机隔离实例而非生产部署。
+- ✅ **正向闭环通过**：接入 DeepSeek 官方模型后，assist 调用返回真实回答，`status=completed`，usage 与 run_id 可核对。
+- ❌ **高危未关闭**：frontdesk HTTP 路径的 tenant/product/scope 边界在本机两种启动模式下均不生效，伪造 tenant 的 Run 真实执行完成。根因见报告 §4.4。
+- ✅ **已修复的部署坑**：基座 `lite-product-validation/assist.runtime.yaml` 缺 `frontdesk.profile` 段，会导致所有 assist 调用 400；本项目配置已补齐。
 - **主文档 §0 声明的资料包（`contracts/`、`schema/001_metadata.sql`、`CODEX_TASKS.md` 等 8 项）缺失**，见报告 §6。
 
 ## 目录

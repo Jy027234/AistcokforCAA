@@ -1,7 +1,7 @@
 # Q0 接入就绪报告：A-Quant Lab × agentctl
 
-**状态：部分完成（存在未关闭项，不可直接进入 Q1）**
-**编制日期：2026-09-13**
+**状态：部分完成（含 1 项高危安全发现，未关闭；不可直接进入 Q1）**
+**编制日期：2026-09-13（含当日"使用 DeepSeek 官方模型"后的复测修订）**
 **执行者：DSH 编码助手（本机实测，非文档转述）**
 **适用文件：`A-Quant-Lab_开发文档_v0.2.md`、接入补充 v0.2.1 / v0.2.2**
 
@@ -17,11 +17,11 @@
 | v0.2.1 锁定提交可复核 | ✅ `7e94058f` 在本地仓库存在，diff 可复现 |
 | 关键源码路径有效性 | ✅ v0.2.2 §0.2 声称的 6 条路径逐条实测存在 |
 | Lite Assist 实例可启动 | ✅ 隔离实例 + SQLite 存储 + 服务令牌签发成功 |
-| SDK 正向最小闭环 | ❌ **未通过**：无模型凭证，Run 全部失败 |
-| 越权/伪造负向核验 | ❌ **未通过**：伪造 tenant 被接受并落库 |
-| manifest 加载方式 | ⏳ 未验证 |
-| Core 签名上下文 | ⏳ 未验证 |
-| **能否进入 Q1** | ❌ **不能**，须先关闭 §5 的 O1–O3 |
+| SDK 正向最小闭环 | ✅ **通过**：接入 DeepSeek 官方模型后 Run `completed`，真实回答 + usage 记录（§4.2） |
+| 越权/伪造负向核验 | ❌ **未通过，且已定位根因**：见 §4.3、§4.4 —— **高危** |
+| manifest 加载方式 | ⏳ 未验证（O4） |
+| Core 签名上下文 | ⏳ 未验证（O5） |
+| **能否进入 Q1** | ❌ **不能**，须先关闭 §5 的 O1（安全）与 O3/O4/O5 |
 
 ---
 
@@ -148,7 +148,7 @@ expires_at 2026-09-14T15:06:30Z   (ttl 86400s)
 
 ## 4. 正/负向调用记录
 
-探针脚本：`tests/acceptance/q0_probe.py`；原始证据：`deploy/agentctl-q0/q0-probe-evidence.json`。
+探针脚本：`tests/acceptance/q0_probe.py`（正/负向最小闭环）与 `tests/acceptance/q0_enforcement_probe.py`（tenant/product/scope 边界）；原始证据：`deploy/agentctl-q0/q0-probe-evidence.json`、`q0-enforcement-evidence.json`。
 
 ### 4.1 v0.2.2 §1 Q0 步骤 3 的示例代码——逐字执行结果
 
@@ -174,52 +174,85 @@ def invoke(self, principal, *, user_id: str, text: str = "",
 
 `text=` 与 `user_id=` **确实是合法关键字参数**，文档片段并无 API 名错误。但它**仍不足以完成闭环**，原因见 4.2。
 
-### 4.2 正向最小闭环（P1）
+### 4.2 正向最小闭环（P1）——第二次复测：**通过**
 
-| 步骤 | 观察 |
-|---|---|
-| `status()` | ✅ 返回 profile 与 mode，见 §3.1 |
-| `invoke(...)` | ⚠️ HTTP 200，但 `status = "failed"` |
+首轮因无模型凭证而 Run 全部失败（`model_gateway:provider_credential_missing:deepseek:deepseek-v4-flash`）。接入 **DeepSeek 官方模型**后复测：
 
-Run 记录（`runs.sqlite`，共 5 条）：
+| 步骤 | 首轮（无凭证） | 复测（DeepSeek 官方） |
+|---|---|---|
+| `status()` | ✅ | ✅ `client_mode=assist` / `server_mode=assist` |
+| `invoke(...)` | ⚠️ HTTP 200，`status=failed` | ✅ HTTP 200，**`status=completed`** |
+
+复测实测响应（证据 `q0-probe-evidence.json` → `P1b_invoke`）：
 
 ```text
-agent_id  frontdesk.continuous_assist
-status    failed
-error     model_gateway:provider_credential_missing:deepseek:deepseek-v4-flash
+status       : completed
+phase        : answer
+reply        : Pong — I'm here. What would you like to do?
+usage_records: [{"input_tokens": 851, "output_tokens": 52,
+                 "source": "native_runtime",
+                 "run_id": "run_fd_3da79488a09f7ac8b8a113dcb3e2341ea1779d46"}]
+warnings     : []
 ```
 
-宿主返回的 `reply` 为中文失败说明，且**未把失败或未知结果当作成功**：
+即：**模型确实被调用并返回真实内容**，usage 与 run_id 可核对，不是预写文字或 fixture。这与 v0.2.1 Q1 完成判据“真实能力结果进入助手回答，不以预写文字冒充工具执行”方向一致（Q1 的受控能力尚未接入，此处仅验证模型与 Run 链路）。
 
-> 本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。
+**同时保留一条正面证据**：首轮无凭证时，基座保持了失败语义而不是伪造摘要——宿主返回“本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。”正是 v0.2.1 A10 与主文档 §18.3“AI 卡片显示失败，不能伪造摘要”所要求的行为。两次实测合起来同时覆盖了 A10 的故障分支与正常分支。
 
-**这一点值得记录为正面证据**：基座在模型不可用时保持了失败语义，没有伪造摘要——正是 v0.2.1 A10 与主文档 §18.3"AI 卡片显示失败，不能伪造摘要"所要求的行为。
+### 4.3 负向核验——**未通过，且已完成根因定位**
 
-**但 P1 作为"最小闭环"判定为未通过**：需要真实模型凭证才能完成一次可信 Run 完成。
+首次复测（有可用模型）结果：
 
-### 4.3 负向核验——**关键发现**
-
-| 用例 | 期望（v0.2.1 A03 / v0.2.2） | 实测 | 判定 |
+| 用例 | 期望（A03） | 实测 | 判定 |
 |---|---|---|---|
-| N1 无 token | 401 拒绝 | HTTP **401** `{"error":"unauthorized"}` | ✅ **通过** |
-| N2 伪造 tenant（`aquant-attacker`） | 服务端映射拒绝 | HTTP **200 接受**，Run 落库 `tenant="aquant-attacker"` | ❌ **失败** |
-| N3 越权 `permission_scope`（`ledger.write`/`execute_order`） | 拒绝 | HTTP **200 接受** | ❌ **失败** |
-| N4 错误 `allowed_product`（`evil_product`） | 拒绝 | HTTP **200 接受** | ❌ **失败** |
-| N5 完全无 `product_context` | 拒绝 | HTTP **200 接受** | ❌ **失败** |
+| N0 正确 tenant + 正确 product | 通过 | accepted，`completed` | ✅ 基线可用 |
+| N1 无 token | 401 拒绝 | 静态令牌模式下 HTTP **401** | ✅（仅静态令牌模式） |
+| N2 伪造 tenant（`aquant-attacker`） | 服务端映射拒绝 | **accepted，`completed`** | ❌ **失败** |
+| N3 越权 `permission_scope`（`ledger.write`/`execute_order`） | 拒绝 | **accepted，`completed`** | ❌ **失败** |
+| N4 错误 `allowed_product`（`evil_product`） | 拒绝 | **accepted，`completed`** | ❌ **失败** |
+| N5 完全无 `product_context` | 拒绝 | **accepted，`completed`** | ❌ **失败** |
 
-**Run store 中已实际落库两个 tenant：**
+关键区别：首轮这些请求因缺凭证 `failed`，无法区分“门禁未走”与“门禁未生效”；**接入模型后它们全部 `completed`**，说明请求走完了完整执行链，歧义已消除。
+
+Run store 实测（模型可用后）：
 
 ```text
-('aquant-attacker', 2, 'failed')
-('aquant-synthetic', 8, 'failed')
+tenant='aquant-attacker'    runs=5   statuses=completed,failed
+tenant='aquant-synthetic'   runs=23  statuses=completed,failed
 ```
 
-即：**请求体中的 `tenant` 未经与令牌绑定 tenant 的一致性校验即被接受并持久化。**
+`aquant-attacker` 是**从未在令牌存储中签发过**的任意字符串，其 Run 却真实执行完成。
 
-- 令牌 tenant 为 `aquant-synthetic`，而 `aquant-attacker` 是一次**从未在令牌存储中签发过**的任意字符串。
-- 该结果直接落在 v0.2.1 §8"tenant/user 从受信任身份映射"、§4"模型提出的 tenant、permission_scope 或对象所有者不能覆盖后端身份"与 A03 验收之上。
-- 需要说明的边界：本次 Run 全部因**缺凭证**而失败，因此**无法区分**"admission 在 Run 失败前尚未执行"与"admission 未生效"。N3/N4/N5 的"接受"可能只是尚未走到准入门禁。**该歧义必须在关闭 O1 时用可用凭证重测。**
-- 但 N2 不同：tenant **已被接受并落库到该 tenant 名下**，这本身就是在准入之前发生的事实。
+### 4.4 根因：认证是否启用决定一切，且两种模式都不满足 A03
+
+定位到 `src/agentctl/server/http_auth.py:17-38`（`_require_api_scope`）与 `product_context.py:107-120`（`_require_api_tenant`）：**两者首行都是 `if api.auth_token is None: return`**。`http.py:585` 的请求级认证门同样是 `if self.auth_token is not None`。
+
+因此实际行为完全由服务端是否配置了静态令牌决定。用同一组探针在两种模式下做 A/B：
+
+| 探针 | 模式 A：`serve --token <静态令牌>` | 模式 B：`serve`（无 `--token`） |
+|---|---|---|
+| 有效范围令牌 + 正确 tenant | accepted / completed | accepted / completed |
+| 有效范围令牌 + **伪造 tenant** | accepted / **completed** | accepted / **completed** |
+| **乱写令牌** + 正确 tenant | REJECTED 401 | accepted / **completed** |
+| **乱写令牌** + 伪造 tenant | REJECTED 401 | accepted / **completed** |
+| **空令牌** + 伪造 tenant | REJECTED 401 | accepted / **completed** |
+
+- **模式 A 的机制**：`_require_api_tenant` 中 `if token == api.auth_token: return` —— 只要出示那个**单一共享静态令牌**，tenant 校验即刻跳过。该令牌因此等价于**全租户万能凭证**。这正是本次伪造 tenant 能成功的直接原因。
+- **模式 B 的机制**：`api.auth_token is None`，于是认证、scope、tenant 三道检查**全部直接返回**。此时不存在任何认证——乱写令牌、甚至空令牌都能执行模型调用。
+- 注意：`runtime.config.yaml` 中 `capabilities.scoped_tokens: enabled` 与 `auth.scopes: enabled` **均已启用**，但对上述两条路径不产生约束力。**“能力已启用”不等于“边界已生效”。**
+
+**影响等级：高。** 在模式 A 下，任何持有该共享令牌的一方（包括任一接入产品）可以任意指定 tenant 并以该 tenant 名义创建 Run、消耗模型额度、写入该 tenant 的 frontdesk/interaction 数据。在模式 B 下则完全无认证。两者都不满足 A03，也都与 v0.2.1 §8“tenant/user 从受信任身份映射”和 §4“模型提出的 tenant、permission_scope 或对象所有者不能覆盖后端身份”相冲突。
+
+**证据边界（必须如实声明）**：
+- 本次未验证 `token_store.verify(token, tenant_id=...)` 在**非静态令牌**路径上的行为——因为一旦 `api.auth_token` 有值，出示静态令牌即短路；而一旦为 `None`，校验根本不执行。**在当前两个模式下都无法触达该分支**，故不能断言作用域令牌校验本身有缺陷，只能断言**这两种可部署模式下边界不生效**。
+- 本次核验对象是**本机隔离实例**。生产部署的启动方式（是否传 `--token`、由谁持有）未验证，见 O3。
+- `McpNorthboundPolicy`（`b5cad04` 新增）在 MCP 北向路径上实现了主体边界与“以已验证主体覆盖模型提供的 tenant/user 字段”。本次**未验证**该路径是否确实生效；若生效，可考虑以 MCP 作为受治理入口。
+
+**处置建议（供你决策，非本报告已实施）**：
+1. 立即：确认生产部署是否使用静态 `--token`。若是，视同**全租户万能凭证**管理，且不得在多产品/多租户场景使用。
+2. 适配层防御：在 `adapters/agentctl/` 内**不信任任何客户端传入的 tenant**，由后端从已验证凭证推导后再发起调用；但这只是缓解，不能替代服务端边界。
+3. 基座侧：向 `Jy027234/Agent` 反馈——建议 `_require_api_tenant` 在静态令牌分支也校验 tenant（或显式声明静态令牌为 admin 语义并在文档中醒目标注），并让 `auth_token is None` 时的行为可配置为 fail-closed。
+4. Q1 完成判据中必须包含“伪造 tenant 被拒”的服务端证据，不得以适配层自证代替。
 
 ---
 
@@ -227,8 +260,8 @@ error     model_gateway:provider_credential_missing:deepseek:deepseek-v4-flash
 
 | 编号 | 未关闭项 | 影响 | 关闭条件 |
 |---|---|---|---|
-| **O1** | frontdesk HTTP 路径的 tenant / product / scope 边界未验证通过，且有伪造 tenant 落库证据 | **A03、Q0 完成判据不满足**；阻塞 Q1 | 配置真实模型凭证后重跑 §4.3；若仍接受，须在适配层强制后端 tenant 映射，或改用 `b5cad04` 的 `McpNorthboundPolicy` 路径 |
-| **O2** | 无模型凭证（`DEEPSEEK_API_KEY` 等全部未设置） | 正向闭环、AI 语义质量、Q2 全部不可验证 | 提供凭证，或在受控 profile 下改用 `echo` 供应商仅验证编排（**不得据此声称模型链路通过**） |
+| **O1（高危）** | frontdesk HTTP 路径 tenant/product/scope 边界在本机两种模式下均不生效；伪造型 tenant 的 Run 已 `completed`。根因已定位：`_require_api_tenant` 对静态令牌短路跳过 tenant 校验；`auth_token is None` 时认证/scope/tenant 三道检查全部直接返回（§4.4） | **A03、Q0 完成判据不满足**；阻塞 Q1 | 确认生产部署启动方式；由基座侧修复 tenant 边界并给出“伪造 tenant 被拒”的服务端证据；或经验证改用 `McpNorthboundPolicy` 北向路径 |
+| ~~O2~~ | ~~无模型凭证~~ **已关闭** | 已接入 DeepSeek 官方模型，正向闭环 `completed`（§4.2） | **遗留**：AI 语义质量与 Q2 抽取准确性仍未评测 |
 | **O3** | 本次核验对象是**本机隔离实例**，非用户生产部署 | 生产 profile、认证与 Core 上下文仍未知 | 对生产部署重复 §3.1–3.2、§4.3 |
 | **O4** | manifest 加载方式未验证（`integration validate` / `dry_run`） | Q1 步骤 3 无依据 | 执行 `agentctl integration validate --manifest ...` 与一次 `dry_run=True`（须传显式已存在 store） |
 | **O5** | Core 签名上下文可用性未验证 | v0.2.1 §3.3 | 按锁定代码核验，不可用则记录降级范围 |
@@ -318,6 +351,6 @@ python tests\acceptance\q0_probe.py --base-url http://127.0.0.1:8765 --token <TO
 ## 9. 声明
 
 - 本报告**未修改基座仓库** `E:\IT\Agent`。
-- 本次**未登录用户生产部署**，未跑通任何真实接入调用，未执行 Q1 及以后任务。
+- 本次**未登录用户生产部署**。已在**本机隔离实例**上跑通一次真实模型调用（DeepSeek 官方，Run `completed`），但未对生产部署执行任何调用；未执行 Q1 及以后任务。
 - §3.3 与 §3.4 的坑来自本机实测，建议回写基座文档；本报告只做记录。
 - 未验证项一律标注"未验证"；不因基座测试通过而推断本项目通过验收。

@@ -1,0 +1,47 @@
+[
+  {
+    "http": "accepted",
+    "run_status": "completed",
+    "tenant_echo": "aquant-synthetic",
+    "reply_head": "Pong — I'm here. What would you like to do?",
+    "case": "N0_baseline_correct_tenant_and_product",
+    "requested_tenant": "aquant-synthetic",
+    "requested_product": "aquant_lab"
+  },
+  {
+    "http": "accepted",
+    "run_status": "completed",
+    "tenant_echo": "aquant-attacker",
+    "reply_head": "Pong — I'm here. What would you like to look at or get done?",
+    "case": "N2_forged_tenant",
+    "requested_tenant": "aquant-attacker",
+    "requested_product": "aquant_lab"
+  },
+  {
+    "http": "accepted",
+    "run_status": "completed",
+    "tenant_echo": "aquant-synthetic",
+    "reply_head": "Pong — I'm here. What can I help you with?",
+    "case": "N4_wrong_allowed_product",
+    "requested_tenant": "aquant-synthetic",
+    "requested_product": "evil_product"
+  },
+  {
+    "http": "accepted",
+    "run_status": "completed",
+    "tenant_echo": "aquant-synthetic",
+    "reply_head": "Pong — I'm here. What would you like to look at or change?",
+    "case": "N3_out_of_scope",
+    "requested_tenant": "aquant-synthetic",
+    "requested_product": "aquant_lab"
+  },
+  {
+    "http": "accepted",
+    "run_status": "completed",
+    "tenant_echo": "aquant-synthetic",
+    "reply_head": "Pong — I'm here. What can I help you with?",
+    "case": "N5_no_product_context",
+    "requested_tenant": "aquant-synthetic",
+    "requested_product": null
+  }
+]

@@ -16,7 +16,7 @@
       "client_mode": "assist",
       "server_mode": "assist",
       "mode_compatible": true,
-      "request_id": "req_06db8317d68d43f0",
+      "request_id": "req_0c83ea894c3b48d8",
       "server": {
         "kind": "AIOSDeploymentProfile",
         "control_plane_version": "0.1.0",
@@ -569,12 +569,12 @@
     "step": "P1b_invoke",
     "outcome": "RESPONSE_RECEIVED",
     "detail": {
-      "request_id": "req_45180f5f253d4d4c",
+      "request_id": "req_6684fafa420f4dd0",
       "user_id": "syn-1",
       "tenant": "aquant-synthetic",
       "intent": "continuous_assist",
-      "status": "failed",
-      "phase": "blocked",
+      "status": "completed",
+      "phase": "answer",
       "work_item_id": null,
       "work_item_type": null,
       "artifact_refs": [],
@@ -584,20 +584,20 @@
         "continuous_assist": {
           "schema_version": "agentctl.frontdesk_continuous_assist.v1",
           "runtime_engine": "agentctl_native",
-          "run_id": "run_fd_7806071fd94dc922ce6d618750464f6d05a2e0f6",
-          "status": "failed",
+          "run_id": "run_fd_3da79488a09f7ac8b8a113dcb3e2341ea1779d46",
+          "status": "completed",
           "accepted": true,
           "execution_terminal": true,
-          "stop_reason": "failed",
+          "stop_reason": "completed",
           "error_code": null,
-          "event_sequence": 5,
-          "model_successful_responses": 0,
+          "event_sequence": 8,
+          "model_successful_responses": 1,
           "model_attempts": [
             {
               "iteration": 1,
-              "state": "outcome_unknown",
-              "request_digest": "sha256:dba45e6f6e4132b0cba7bc9b5f25240e6ce0ab0250560c6a24510f2d6dcc07fc",
-              "binding_digest": "sha256:ab873d33bc19528425bb8754e5de7f3b7d9767c32f32fc59bbeb497e711cc097"
+              "state": "completed",
+              "request_digest": "sha256:98b9da52f8194b84e2a2a63dfe7cb905ba8362378b33277fc7f1254c10871beb",
+              "binding_digest": "sha256:f401ce3e5fbde161e9b57ae2e3996adb58d2245f40f31802234f007ddf7de2ae"
             }
           ],
           "provider_attempts": null,
@@ -605,13 +605,13 @@
           "tool_receipts": [],
           "completion_facts": {
             "schema_version": "agentctl.execution_completion_facts.v1",
-            "provider_call_succeeded": false,
-            "final_response_present": false,
+            "provider_call_succeeded": true,
+            "final_response_present": true,
             "accepted_tool_call": false,
             "pending_job": false,
             "failed_side_effect": false,
             "outcome_unknown": false,
-            "error_ref": "run_error"
+            "error_ref": null
           },
           "model_route_binding": null,
           "business_acceptance_verified": false,
@@ -622,10 +622,10 @@
         },
         "assistant_turn_result": {
           "schema_version": "aios.assistant_turn_result.v0.1",
-          "request_id": "req_45180f5f253d4d4c",
-          "trace_id": "req_45180f5f253d4d4c",
-          "mode": "blocked",
-          "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "request_id": "req_6684fafa420f4dd0",
+          "trace_id": "req_6684fafa420f4dd0",
+          "mode": "answer",
+          "message": "Pong — I'm here. What would you like to do?",
           "requirement_brief": {
             "omitted": true,
             "kind": "NoneType"
@@ -641,20 +641,20 @@
           "evidence_refs": [],
           "continuation_token": null,
           "active_run_ref": {
-            "run_id": "run_fd_7806071fd94dc922ce6d618750464f6d05a2e0f6"
+            "run_id": "run_fd_3da79488a09f7ac8b8a113dcb3e2341ea1779d46"
           },
           "metadata": {
             "interaction_mode": "continuous_assist",
-            "runtime_status": "failed",
+            "runtime_status": "completed",
             "plan_ref": null
           }
         },
         "usage_records": [
           {
-            "input_tokens": 0,
-            "output_tokens": 0,
+            "input_tokens": 851,
+            "output_tokens": 52,
             "source": "native_runtime",
-            "run_id": "run_fd_7806071fd94dc922ce6d618750464f6d05a2e0f6"
+            "run_id": "run_fd_3da79488a09f7ac8b8a113dcb3e2341ea1779d46"
           }
         ],
         "memory_recall_receipt": {
@@ -687,59 +687,59 @@
           "tool_continuations": 0,
           "context_bytes": 530,
           "manifest_bytes": 0,
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
+          "prompt_tokens": 851,
+          "completion_tokens": 52,
           "model_cost": 0.0,
-          "latency_seconds": 0.09322109998902306
+          "latency_seconds": 1.0031313999788836
         }
       },
       "why": "",
-      "reply": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+      "reply": "Pong — I'm here. What would you like to do?",
       "actions": [],
       "ui_commands": [],
       "dialog_turns": [
         {
-          "id": "turn_babb3367017d",
+          "id": "turn_e6a57731409b",
           "role": "frontdesk",
-          "text": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "text": "Pong — I'm here. What would you like to do?",
           "intent": "continuous_assist",
           "context_ref": null,
           "related_action_id": null,
           "related_proposal_id": null,
           "ui_target": null,
-          "at": "2026-09-13T15:09:30.105469+00:00"
+          "at": "2026-09-13T15:15:23.845366+00:00"
         }
       ],
       "plan": null,
       "plan_execution": null,
       "usage_records": [
         {
-          "input_tokens": 0,
-          "output_tokens": 0,
+          "input_tokens": 851,
+          "output_tokens": 52,
           "source": "native_runtime",
-          "run_id": "run_fd_7806071fd94dc922ce6d618750464f6d05a2e0f6"
+          "run_id": "run_fd_3da79488a09f7ac8b8a113dcb3e2341ea1779d46"
         }
       ],
       "assistant_state": {
         "schema_version": "aios.assistant_ui_state.v0.1",
-        "state": "failed",
-        "mode": "blocked",
-        "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+        "state": "answer",
+        "mode": "answer",
+        "message": "Pong — I'm here. What would you like to do?",
         "work_item_required": false,
         "active_run_ref": {
-          "run_id": "run_fd_7806071fd94dc922ce6d618750464f6d05a2e0f6"
+          "run_id": "run_fd_3da79488a09f7ac8b8a113dcb3e2341ea1779d46"
         }
       },
       "reflections": [
         {
           "kind": "frontdesk_execution_reflection",
-          "status": "failed",
-          "source_status": "failed",
+          "status": "succeeded",
+          "source_status": "completed",
           "plan_id": "",
           "what_happened": "Ran Frontdesk execute for unknown plan.",
-          "outcome": "Execution failed before a trusted completion could be recorded.",
-          "failure_reason": "failed",
-          "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+          "outcome": "Completed with meaningful step output.",
+          "failure_reason": null,
+          "next_recommendation": "Keep the evidence references and reuse the pattern when the same request recurs.",
           "evidence": {
             "status": "present",
             "refs": []
@@ -751,170 +751,28 @@
             "type": null
           },
           "steps": [],
-          "suggest_memory_proposal": true,
+          "suggest_memory_proposal": false,
           "suggest_skill_candidate": false,
-          "suggest_agent_improvement": true,
-          "experience_candidates": [
-            {
-              "kind": "memory_proposal",
-              "title": "Remember Frontdesk execution lesson",
-              "reason": "Execution failed before a trusted completion could be recorded.",
-              "confidence": 0.62,
-              "source": "frontdesk_reflection",
-              "evidence_refs": [],
-              "payload": {
-                "plan_id": "",
-                "reflection_status": "failed",
-                "source_status": "failed",
-                "action_types": [],
-                "work_item": {
-                  "id": null,
-                  "type": null
-                },
-                "model_usage": [],
-                "model_evidence_status": "none",
-                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-              }
-            },
-            {
-              "kind": "agent_improvement",
-              "title": "Improve Frontdesk execution guardrail",
-              "reason": "failed",
-              "confidence": 0.7,
-              "source": "frontdesk_reflection",
-              "evidence_refs": [],
-              "payload": {
-                "plan_id": "",
-                "reflection_status": "failed",
-                "source_status": "failed",
-                "action_types": [],
-                "work_item": {
-                  "id": null,
-                  "type": null
-                },
-                "model_usage": [],
-                "model_evidence_status": "none",
-                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-              }
-            }
-          ]
+          "suggest_agent_improvement": false,
+          "experience_candidates": []
         }
       ],
-      "experience_candidates": [
-        {
-          "kind": "memory_proposal",
-          "title": "Remember Frontdesk execution lesson",
-          "reason": "Execution failed before a trusted completion could be recorded.",
-          "confidence": 0.62,
-          "source": "frontdesk_reflection",
-          "evidence_refs": [],
-          "payload": {
-            "plan_id": "",
-            "reflection_status": "failed",
-            "source_status": "failed",
-            "action_types": [],
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "model_usage": [],
-            "model_evidence_status": "none",
-            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-          }
-        },
-        {
-          "kind": "agent_improvement",
-          "title": "Improve Frontdesk execution guardrail",
-          "reason": "failed",
-          "confidence": 0.7,
-          "source": "frontdesk_reflection",
-          "evidence_refs": [],
-          "payload": {
-            "plan_id": "",
-            "reflection_status": "failed",
-            "source_status": "failed",
-            "action_types": [],
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "model_usage": [],
-            "model_evidence_status": "none",
-            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-          }
-        }
-      ],
+      "experience_candidates": [],
       "cognitive_digest": {
         "kind": "frontdesk_cognitive_digest",
-        "today_highlights": [
-          {
-            "id": "needs_attention:failed",
-            "kind": "needs_attention",
-            "title": "Work item needs attention",
-            "summary": "failed",
-            "target": {
-              "plan_id": "",
-              "work_item": {
-                "id": null,
-                "type": null
-              }
-            }
-          }
-        ],
-        "needs_attention": [
-          {
-            "id": "failed",
-            "kind": "frontdesk_attention_item",
-            "status": "failed",
-            "source_status": "failed",
-            "title": "Execution failed",
-            "summary": "failed",
-            "plan_id": "",
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "evidence_refs": [],
-            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
-            "failure_reason": "failed"
-          }
-        ],
+        "today_highlights": [],
+        "needs_attention": [],
         "recent_outputs": [],
-        "recoverable_items": [
-          {
-            "id": "failed",
-            "kind": "frontdesk_recoverable_item",
-            "status": "failed",
-            "source_status": "failed",
-            "title": "Recover Frontdesk work item",
-            "summary": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
-            "plan_id": "",
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "evidence_refs": [],
-            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
-            "suggested_action": {
-              "type": "recover_frontdesk_item",
-              "label": "Review and recover",
-              "target": {
-                "plan_id": "",
-                "work_item_id": null,
-                "status": "failed"
-              }
-            }
-          }
-        ],
+        "recoverable_items": [],
         "counts": {
-          "today_highlights": 1,
-          "needs_attention": 1,
+          "today_highlights": 0,
+          "needs_attention": 0,
           "recent_outputs": 0,
-          "recoverable_items": 1,
+          "recoverable_items": 0,
           "reflections": 1,
           "work_items": 0,
-          "succeeded": 0,
-          "failed": 1,
+          "succeeded": 1,
+          "failed": 0,
           "needs_evidence": 0,
           "pending": 0
         }
@@ -937,7 +795,7 @@
       "status_code": 401,
       "method": "POST",
       "path": "/frontdesk/messages",
-      "request_id": "req_02360c2e846b4143",
+      "request_id": "req_4ecbe9335cff4a7f",
       "payload": {
         "error": "unauthorized"
       }
@@ -947,12 +805,12 @@
     "step": "N2_wrong_tenant",
     "outcome": "UNEXPECTED_SUCCESS",
     "detail": {
-      "request_id": "req_04ec36425f8c42d0",
+      "request_id": "req_c2217e42ac7148a2",
       "user_id": "syn-1",
       "tenant": "aquant-attacker",
       "intent": "continuous_assist",
-      "status": "failed",
-      "phase": "blocked",
+      "status": "completed",
+      "phase": "answer",
       "work_item_id": null,
       "work_item_type": null,
       "artifact_refs": [],
@@ -962,20 +820,20 @@
         "continuous_assist": {
           "schema_version": "agentctl.frontdesk_continuous_assist.v1",
           "runtime_engine": "agentctl_native",
-          "run_id": "run_fd_a2ba8c057dab657b13ef41144dfe19e03be877ca",
-          "status": "failed",
+          "run_id": "run_fd_099d40e5da518bdb316e0573d6f7f745850a24ad",
+          "status": "completed",
           "accepted": true,
           "execution_terminal": true,
-          "stop_reason": "failed",
+          "stop_reason": "completed",
           "error_code": null,
-          "event_sequence": 5,
-          "model_successful_responses": 0,
+          "event_sequence": 8,
+          "model_successful_responses": 1,
           "model_attempts": [
             {
               "iteration": 1,
-              "state": "outcome_unknown",
-              "request_digest": "sha256:4e75d361401432a050178476a3ac1dbd401f46f42c0290ceb9f3554d07815ffa",
-              "binding_digest": "sha256:635528d201d5b11ea403752829e18e8b07d9ca577c14ba4b77869e76e16a48f7"
+              "state": "completed",
+              "request_digest": "sha256:5bc6526bc476902f953e8fa82c9436cf6ba50c39e8be671af43cdd74de913ec9",
+              "binding_digest": "sha256:05c5e9bb2ab5000781621b61cfd2dbde23c65c95c01565f29d6fab8b52f02808"
             }
           ],
           "provider_attempts": null,
@@ -983,13 +841,13 @@
           "tool_receipts": [],
           "completion_facts": {
             "schema_version": "agentctl.execution_completion_facts.v1",
-            "provider_call_succeeded": false,
-            "final_response_present": false,
+            "provider_call_succeeded": true,
+            "final_response_present": true,
             "accepted_tool_call": false,
             "pending_job": false,
             "failed_side_effect": false,
             "outcome_unknown": false,
-            "error_ref": "run_error"
+            "error_ref": null
           },
           "model_route_binding": null,
           "business_acceptance_verified": false,
@@ -1000,10 +858,10 @@
         },
         "assistant_turn_result": {
           "schema_version": "aios.assistant_turn_result.v0.1",
-          "request_id": "req_04ec36425f8c42d0",
-          "trace_id": "req_04ec36425f8c42d0",
-          "mode": "blocked",
-          "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "request_id": "req_c2217e42ac7148a2",
+          "trace_id": "req_c2217e42ac7148a2",
+          "mode": "answer",
+          "message": "Pong — I'm here. What would you like to look at or change?",
           "requirement_brief": {
             "omitted": true,
             "kind": "NoneType"
@@ -1019,20 +877,20 @@
           "evidence_refs": [],
           "continuation_token": null,
           "active_run_ref": {
-            "run_id": "run_fd_a2ba8c057dab657b13ef41144dfe19e03be877ca"
+            "run_id": "run_fd_099d40e5da518bdb316e0573d6f7f745850a24ad"
           },
           "metadata": {
             "interaction_mode": "continuous_assist",
-            "runtime_status": "failed",
+            "runtime_status": "completed",
             "plan_ref": null
           }
         },
         "usage_records": [
           {
-            "input_tokens": 0,
-            "output_tokens": 0,
+            "input_tokens": 851,
+            "output_tokens": 18,
             "source": "native_runtime",
-            "run_id": "run_fd_a2ba8c057dab657b13ef41144dfe19e03be877ca"
+            "run_id": "run_fd_099d40e5da518bdb316e0573d6f7f745850a24ad"
           }
         ],
         "memory_recall_receipt": {
@@ -1065,59 +923,59 @@
           "tool_continuations": 0,
           "context_bytes": 492,
           "manifest_bytes": 0,
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
+          "prompt_tokens": 851,
+          "completion_tokens": 18,
           "model_cost": 0.0,
-          "latency_seconds": 0.10996989998966455
+          "latency_seconds": 0.6682715999777429
         }
       },
       "why": "",
-      "reply": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+      "reply": "Pong — I'm here. What would you like to look at or change?",
       "actions": [],
       "ui_commands": [],
       "dialog_turns": [
         {
-          "id": "turn_6ae4034fcfe4",
+          "id": "turn_350f6309d8fb",
           "role": "frontdesk",
-          "text": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "text": "Pong — I'm here. What would you like to look at or change?",
           "intent": "continuous_assist",
           "context_ref": null,
           "related_action_id": null,
           "related_proposal_id": null,
           "ui_target": null,
-          "at": "2026-09-13T15:09:30.233313+00:00"
+          "at": "2026-09-13T15:15:24.518339+00:00"
         }
       ],
       "plan": null,
       "plan_execution": null,
       "usage_records": [
         {
-          "input_tokens": 0,
-          "output_tokens": 0,
+          "input_tokens": 851,
+          "output_tokens": 18,
           "source": "native_runtime",
-          "run_id": "run_fd_a2ba8c057dab657b13ef41144dfe19e03be877ca"
+          "run_id": "run_fd_099d40e5da518bdb316e0573d6f7f745850a24ad"
         }
       ],
       "assistant_state": {
         "schema_version": "aios.assistant_ui_state.v0.1",
-        "state": "failed",
-        "mode": "blocked",
-        "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+        "state": "answer",
+        "mode": "answer",
+        "message": "Pong — I'm here. What would you like to look at or change?",
         "work_item_required": false,
         "active_run_ref": {
-          "run_id": "run_fd_a2ba8c057dab657b13ef41144dfe19e03be877ca"
+          "run_id": "run_fd_099d40e5da518bdb316e0573d6f7f745850a24ad"
         }
       },
       "reflections": [
         {
           "kind": "frontdesk_execution_reflection",
-          "status": "failed",
-          "source_status": "failed",
+          "status": "succeeded",
+          "source_status": "completed",
           "plan_id": "",
           "what_happened": "Ran Frontdesk execute for unknown plan.",
-          "outcome": "Execution failed before a trusted completion could be recorded.",
-          "failure_reason": "failed",
-          "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+          "outcome": "Completed with meaningful step output.",
+          "failure_reason": null,
+          "next_recommendation": "Keep the evidence references and reuse the pattern when the same request recurs.",
           "evidence": {
             "status": "present",
             "refs": []
@@ -1129,170 +987,28 @@
             "type": null
           },
           "steps": [],
-          "suggest_memory_proposal": true,
+          "suggest_memory_proposal": false,
           "suggest_skill_candidate": false,
-          "suggest_agent_improvement": true,
-          "experience_candidates": [
-            {
-              "kind": "memory_proposal",
-              "title": "Remember Frontdesk execution lesson",
-              "reason": "Execution failed before a trusted completion could be recorded.",
-              "confidence": 0.62,
-              "source": "frontdesk_reflection",
-              "evidence_refs": [],
-              "payload": {
-                "plan_id": "",
-                "reflection_status": "failed",
-                "source_status": "failed",
-                "action_types": [],
-                "work_item": {
-                  "id": null,
-                  "type": null
-                },
-                "model_usage": [],
-                "model_evidence_status": "none",
-                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-              }
-            },
-            {
-              "kind": "agent_improvement",
-              "title": "Improve Frontdesk execution guardrail",
-              "reason": "failed",
-              "confidence": 0.7,
-              "source": "frontdesk_reflection",
-              "evidence_refs": [],
-              "payload": {
-                "plan_id": "",
-                "reflection_status": "failed",
-                "source_status": "failed",
-                "action_types": [],
-                "work_item": {
-                  "id": null,
-                  "type": null
-                },
-                "model_usage": [],
-                "model_evidence_status": "none",
-                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-              }
-            }
-          ]
+          "suggest_agent_improvement": false,
+          "experience_candidates": []
         }
       ],
-      "experience_candidates": [
-        {
-          "kind": "memory_proposal",
-          "title": "Remember Frontdesk execution lesson",
-          "reason": "Execution failed before a trusted completion could be recorded.",
-          "confidence": 0.62,
-          "source": "frontdesk_reflection",
-          "evidence_refs": [],
-          "payload": {
-            "plan_id": "",
-            "reflection_status": "failed",
-            "source_status": "failed",
-            "action_types": [],
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "model_usage": [],
-            "model_evidence_status": "none",
-            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-          }
-        },
-        {
-          "kind": "agent_improvement",
-          "title": "Improve Frontdesk execution guardrail",
-          "reason": "failed",
-          "confidence": 0.7,
-          "source": "frontdesk_reflection",
-          "evidence_refs": [],
-          "payload": {
-            "plan_id": "",
-            "reflection_status": "failed",
-            "source_status": "failed",
-            "action_types": [],
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "model_usage": [],
-            "model_evidence_status": "none",
-            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-          }
-        }
-      ],
+      "experience_candidates": [],
       "cognitive_digest": {
         "kind": "frontdesk_cognitive_digest",
-        "today_highlights": [
-          {
-            "id": "needs_attention:failed",
-            "kind": "needs_attention",
-            "title": "Work item needs attention",
-            "summary": "failed",
-            "target": {
-              "plan_id": "",
-              "work_item": {
-                "id": null,
-                "type": null
-              }
-            }
-          }
-        ],
-        "needs_attention": [
-          {
-            "id": "failed",
-            "kind": "frontdesk_attention_item",
-            "status": "failed",
-            "source_status": "failed",
-            "title": "Execution failed",
-            "summary": "failed",
-            "plan_id": "",
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "evidence_refs": [],
-            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
-            "failure_reason": "failed"
-          }
-        ],
+        "today_highlights": [],
+        "needs_attention": [],
         "recent_outputs": [],
-        "recoverable_items": [
-          {
-            "id": "failed",
-            "kind": "frontdesk_recoverable_item",
-            "status": "failed",
-            "source_status": "failed",
-            "title": "Recover Frontdesk work item",
-            "summary": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
-            "plan_id": "",
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "evidence_refs": [],
-            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
-            "suggested_action": {
-              "type": "recover_frontdesk_item",
-              "label": "Review and recover",
-              "target": {
-                "plan_id": "",
-                "work_item_id": null,
-                "status": "failed"
-              }
-            }
-          }
-        ],
+        "recoverable_items": [],
         "counts": {
-          "today_highlights": 1,
-          "needs_attention": 1,
+          "today_highlights": 0,
+          "needs_attention": 0,
           "recent_outputs": 0,
-          "recoverable_items": 1,
+          "recoverable_items": 0,
           "reflections": 1,
           "work_items": 0,
-          "succeeded": 0,
-          "failed": 1,
+          "succeeded": 1,
+          "failed": 0,
           "needs_evidence": 0,
           "pending": 0
         }
@@ -1303,12 +1019,12 @@
     "step": "N3_out_of_scope",
     "outcome": "UNEXPECTED_SUCCESS",
     "detail": {
-      "request_id": "req_59471e1fd56e4965",
+      "request_id": "req_09442d47adc84fe7",
       "user_id": "syn-1",
       "tenant": "aquant-synthetic",
       "intent": "continuous_assist",
-      "status": "failed",
-      "phase": "blocked",
+      "status": "completed",
+      "phase": "answer",
       "work_item_id": null,
       "work_item_type": null,
       "artifact_refs": [],
@@ -1318,20 +1034,20 @@
         "continuous_assist": {
           "schema_version": "agentctl.frontdesk_continuous_assist.v1",
           "runtime_engine": "agentctl_native",
-          "run_id": "run_fd_89ab0270c345eb3c39ddcca578799156605747be",
-          "status": "failed",
+          "run_id": "run_fd_9481879ad9d694023aa98a343da0e2c622fc059b",
+          "status": "completed",
           "accepted": true,
           "execution_terminal": true,
-          "stop_reason": "failed",
+          "stop_reason": "completed",
           "error_code": null,
-          "event_sequence": 5,
-          "model_successful_responses": 0,
+          "event_sequence": 8,
+          "model_successful_responses": 1,
           "model_attempts": [
             {
               "iteration": 1,
-              "state": "outcome_unknown",
-              "request_digest": "sha256:f44db41888384f73f37862be2ebc72a32a5752b0798cd676e4deaf9a74f16635",
-              "binding_digest": "sha256:7f20c6780de76ec3e67530de3049398e8dd523a9c3b922fb9bb7d4bfbd533c33"
+              "state": "completed",
+              "request_digest": "sha256:0a873ceba8d35225f9076fa9a4597884b21c1966aaf683d4831b51adb92e691f",
+              "binding_digest": "sha256:be2a7dfffca56cbcafadc8d318594f61c4d1fcb6d35a616f2cbe96db552a7837"
             }
           ],
           "provider_attempts": null,
@@ -1339,13 +1055,13 @@
           "tool_receipts": [],
           "completion_facts": {
             "schema_version": "agentctl.execution_completion_facts.v1",
-            "provider_call_succeeded": false,
-            "final_response_present": false,
+            "provider_call_succeeded": true,
+            "final_response_present": true,
             "accepted_tool_call": false,
             "pending_job": false,
             "failed_side_effect": false,
             "outcome_unknown": false,
-            "error_ref": "run_error"
+            "error_ref": null
           },
           "model_route_binding": null,
           "business_acceptance_verified": false,
@@ -1356,10 +1072,10 @@
         },
         "assistant_turn_result": {
           "schema_version": "aios.assistant_turn_result.v0.1",
-          "request_id": "req_59471e1fd56e4965",
-          "trace_id": "req_59471e1fd56e4965",
-          "mode": "blocked",
-          "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "request_id": "req_09442d47adc84fe7",
+          "trace_id": "req_09442d47adc84fe7",
+          "mode": "answer",
+          "message": "Pong — I'm here. What would you like help with?",
           "requirement_brief": {
             "omitted": true,
             "kind": "NoneType"
@@ -1375,20 +1091,20 @@
           "evidence_refs": [],
           "continuation_token": null,
           "active_run_ref": {
-            "run_id": "run_fd_89ab0270c345eb3c39ddcca578799156605747be"
+            "run_id": "run_fd_9481879ad9d694023aa98a343da0e2c622fc059b"
           },
           "metadata": {
             "interaction_mode": "continuous_assist",
-            "runtime_status": "failed",
+            "runtime_status": "completed",
             "plan_ref": null
           }
         },
         "usage_records": [
           {
-            "input_tokens": 0,
-            "output_tokens": 0,
+            "input_tokens": 851,
+            "output_tokens": 51,
             "source": "native_runtime",
-            "run_id": "run_fd_89ab0270c345eb3c39ddcca578799156605747be"
+            "run_id": "run_fd_9481879ad9d694023aa98a343da0e2c622fc059b"
           }
         ],
         "memory_recall_receipt": {
@@ -1421,59 +1137,59 @@
           "tool_continuations": 0,
           "context_bytes": 501,
           "manifest_bytes": 0,
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
+          "prompt_tokens": 851,
+          "completion_tokens": 51,
           "model_cost": 0.0,
-          "latency_seconds": 0.11059240001486614
+          "latency_seconds": 0.9689130999613553
         }
       },
       "why": "",
-      "reply": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+      "reply": "Pong — I'm here. What would you like help with?",
       "actions": [],
       "ui_commands": [],
       "dialog_turns": [
         {
-          "id": "turn_5b51156a2d68",
+          "id": "turn_012682ac7dde",
           "role": "frontdesk",
-          "text": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "text": "Pong — I'm here. What would you like help with?",
           "intent": "continuous_assist",
           "context_ref": null,
           "related_action_id": null,
           "related_proposal_id": null,
           "ui_target": null,
-          "at": "2026-09-13T15:09:30.369050+00:00"
+          "at": "2026-09-13T15:15:25.503605+00:00"
         }
       ],
       "plan": null,
       "plan_execution": null,
       "usage_records": [
         {
-          "input_tokens": 0,
-          "output_tokens": 0,
+          "input_tokens": 851,
+          "output_tokens": 51,
           "source": "native_runtime",
-          "run_id": "run_fd_89ab0270c345eb3c39ddcca578799156605747be"
+          "run_id": "run_fd_9481879ad9d694023aa98a343da0e2c622fc059b"
         }
       ],
       "assistant_state": {
         "schema_version": "aios.assistant_ui_state.v0.1",
-        "state": "failed",
-        "mode": "blocked",
-        "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+        "state": "answer",
+        "mode": "answer",
+        "message": "Pong — I'm here. What would you like help with?",
         "work_item_required": false,
         "active_run_ref": {
-          "run_id": "run_fd_89ab0270c345eb3c39ddcca578799156605747be"
+          "run_id": "run_fd_9481879ad9d694023aa98a343da0e2c622fc059b"
         }
       },
       "reflections": [
         {
           "kind": "frontdesk_execution_reflection",
-          "status": "failed",
-          "source_status": "failed",
+          "status": "succeeded",
+          "source_status": "completed",
           "plan_id": "",
           "what_happened": "Ran Frontdesk execute for unknown plan.",
-          "outcome": "Execution failed before a trusted completion could be recorded.",
-          "failure_reason": "failed",
-          "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+          "outcome": "Completed with meaningful step output.",
+          "failure_reason": null,
+          "next_recommendation": "Keep the evidence references and reuse the pattern when the same request recurs.",
           "evidence": {
             "status": "present",
             "refs": []
@@ -1485,170 +1201,28 @@
             "type": null
           },
           "steps": [],
-          "suggest_memory_proposal": true,
+          "suggest_memory_proposal": false,
           "suggest_skill_candidate": false,
-          "suggest_agent_improvement": true,
-          "experience_candidates": [
-            {
-              "kind": "memory_proposal",
-              "title": "Remember Frontdesk execution lesson",
-              "reason": "Execution failed before a trusted completion could be recorded.",
-              "confidence": 0.62,
-              "source": "frontdesk_reflection",
-              "evidence_refs": [],
-              "payload": {
-                "plan_id": "",
-                "reflection_status": "failed",
-                "source_status": "failed",
-                "action_types": [],
-                "work_item": {
-                  "id": null,
-                  "type": null
-                },
-                "model_usage": [],
-                "model_evidence_status": "none",
-                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-              }
-            },
-            {
-              "kind": "agent_improvement",
-              "title": "Improve Frontdesk execution guardrail",
-              "reason": "failed",
-              "confidence": 0.7,
-              "source": "frontdesk_reflection",
-              "evidence_refs": [],
-              "payload": {
-                "plan_id": "",
-                "reflection_status": "failed",
-                "source_status": "failed",
-                "action_types": [],
-                "work_item": {
-                  "id": null,
-                  "type": null
-                },
-                "model_usage": [],
-                "model_evidence_status": "none",
-                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-              }
-            }
-          ]
+          "suggest_agent_improvement": false,
+          "experience_candidates": []
         }
       ],
-      "experience_candidates": [
-        {
-          "kind": "memory_proposal",
-          "title": "Remember Frontdesk execution lesson",
-          "reason": "Execution failed before a trusted completion could be recorded.",
-          "confidence": 0.62,
-          "source": "frontdesk_reflection",
-          "evidence_refs": [],
-          "payload": {
-            "plan_id": "",
-            "reflection_status": "failed",
-            "source_status": "failed",
-            "action_types": [],
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "model_usage": [],
-            "model_evidence_status": "none",
-            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-          }
-        },
-        {
-          "kind": "agent_improvement",
-          "title": "Improve Frontdesk execution guardrail",
-          "reason": "failed",
-          "confidence": 0.7,
-          "source": "frontdesk_reflection",
-          "evidence_refs": [],
-          "payload": {
-            "plan_id": "",
-            "reflection_status": "failed",
-            "source_status": "failed",
-            "action_types": [],
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "model_usage": [],
-            "model_evidence_status": "none",
-            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-          }
-        }
-      ],
+      "experience_candidates": [],
       "cognitive_digest": {
         "kind": "frontdesk_cognitive_digest",
-        "today_highlights": [
-          {
-            "id": "needs_attention:failed",
-            "kind": "needs_attention",
-            "title": "Work item needs attention",
-            "summary": "failed",
-            "target": {
-              "plan_id": "",
-              "work_item": {
-                "id": null,
-                "type": null
-              }
-            }
-          }
-        ],
-        "needs_attention": [
-          {
-            "id": "failed",
-            "kind": "frontdesk_attention_item",
-            "status": "failed",
-            "source_status": "failed",
-            "title": "Execution failed",
-            "summary": "failed",
-            "plan_id": "",
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "evidence_refs": [],
-            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
-            "failure_reason": "failed"
-          }
-        ],
+        "today_highlights": [],
+        "needs_attention": [],
         "recent_outputs": [],
-        "recoverable_items": [
-          {
-            "id": "failed",
-            "kind": "frontdesk_recoverable_item",
-            "status": "failed",
-            "source_status": "failed",
-            "title": "Recover Frontdesk work item",
-            "summary": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
-            "plan_id": "",
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "evidence_refs": [],
-            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
-            "suggested_action": {
-              "type": "recover_frontdesk_item",
-              "label": "Review and recover",
-              "target": {
-                "plan_id": "",
-                "work_item_id": null,
-                "status": "failed"
-              }
-            }
-          }
-        ],
+        "recoverable_items": [],
         "counts": {
-          "today_highlights": 1,
-          "needs_attention": 1,
+          "today_highlights": 0,
+          "needs_attention": 0,
           "recent_outputs": 0,
-          "recoverable_items": 1,
+          "recoverable_items": 0,
           "reflections": 1,
           "work_items": 0,
-          "succeeded": 0,
-          "failed": 1,
+          "succeeded": 1,
+          "failed": 0,
           "needs_evidence": 0,
           "pending": 0
         }
@@ -1659,12 +1233,12 @@
     "step": "N4_missing_product_context",
     "outcome": "UNEXPECTED_SUCCESS",
     "detail": {
-      "request_id": "req_7f53d5843b5048be",
+      "request_id": "req_e0520bf7896740cc",
       "user_id": "syn-1",
       "tenant": "aquant-synthetic",
       "intent": "continuous_assist",
-      "status": "failed",
-      "phase": "blocked",
+      "status": "completed",
+      "phase": "answer",
       "work_item_id": null,
       "work_item_type": null,
       "artifact_refs": [],
@@ -1674,20 +1248,20 @@
         "continuous_assist": {
           "schema_version": "agentctl.frontdesk_continuous_assist.v1",
           "runtime_engine": "agentctl_native",
-          "run_id": "run_fd_6c419666341fd2a9b90e722e9b26e9ec30f13608",
-          "status": "failed",
+          "run_id": "run_fd_e9ac45082dacb53b152e6982b82d2ebe584d14c2",
+          "status": "completed",
           "accepted": true,
           "execution_terminal": true,
-          "stop_reason": "failed",
+          "stop_reason": "completed",
           "error_code": null,
-          "event_sequence": 5,
-          "model_successful_responses": 0,
+          "event_sequence": 8,
+          "model_successful_responses": 1,
           "model_attempts": [
             {
               "iteration": 1,
-              "state": "outcome_unknown",
-              "request_digest": "sha256:f60ee2cc0866fe598c33a9e8b6a8606285559ef33839ab5b3856baebaeeab294",
-              "binding_digest": "sha256:e33a04a8037f2697c518f19eb34de5787a0e6076a5fd2523caaf4aaea8329956"
+              "state": "completed",
+              "request_digest": "sha256:4fc92bbce50aeeb8c646bf2c82e588575ac1d91e517574a99a364e95bef4d95e",
+              "binding_digest": "sha256:3d0a81bd16335caae888ba690e1522ba4a8bb55c8db6724f1623151b939873d3"
             }
           ],
           "provider_attempts": null,
@@ -1695,13 +1269,13 @@
           "tool_receipts": [],
           "completion_facts": {
             "schema_version": "agentctl.execution_completion_facts.v1",
-            "provider_call_succeeded": false,
-            "final_response_present": false,
+            "provider_call_succeeded": true,
+            "final_response_present": true,
             "accepted_tool_call": false,
             "pending_job": false,
             "failed_side_effect": false,
             "outcome_unknown": false,
-            "error_ref": "run_error"
+            "error_ref": null
           },
           "model_route_binding": null,
           "business_acceptance_verified": false,
@@ -1712,10 +1286,10 @@
         },
         "assistant_turn_result": {
           "schema_version": "aios.assistant_turn_result.v0.1",
-          "request_id": "req_7f53d5843b5048be",
-          "trace_id": "req_7f53d5843b5048be",
-          "mode": "blocked",
-          "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "request_id": "req_e0520bf7896740cc",
+          "trace_id": "req_e0520bf7896740cc",
+          "mode": "answer",
+          "message": "Pong — I'm here and ready. What would you like to do?",
           "requirement_brief": {
             "omitted": true,
             "kind": "NoneType"
@@ -1731,20 +1305,20 @@
           "evidence_refs": [],
           "continuation_token": null,
           "active_run_ref": {
-            "run_id": "run_fd_6c419666341fd2a9b90e722e9b26e9ec30f13608"
+            "run_id": "run_fd_e9ac45082dacb53b152e6982b82d2ebe584d14c2"
           },
           "metadata": {
             "interaction_mode": "continuous_assist",
-            "runtime_status": "failed",
+            "runtime_status": "completed",
             "plan_ref": null
           }
         },
         "usage_records": [
           {
-            "input_tokens": 0,
-            "output_tokens": 0,
+            "input_tokens": 851,
+            "output_tokens": 71,
             "source": "native_runtime",
-            "run_id": "run_fd_6c419666341fd2a9b90e722e9b26e9ec30f13608"
+            "run_id": "run_fd_e9ac45082dacb53b152e6982b82d2ebe584d14c2"
           }
         ],
         "memory_recall_receipt": {
@@ -1777,59 +1351,59 @@
           "tool_continuations": 0,
           "context_bytes": 199,
           "manifest_bytes": 0,
-          "prompt_tokens": 0,
-          "completion_tokens": 0,
+          "prompt_tokens": 851,
+          "completion_tokens": 71,
           "model_cost": 0.0,
-          "latency_seconds": 0.12576680001802742
+          "latency_seconds": 1.1680088000139222
         }
       },
       "why": "",
-      "reply": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+      "reply": "Pong — I'm here and ready. What would you like to do?",
       "actions": [],
       "ui_commands": [],
       "dialog_turns": [
         {
-          "id": "turn_d4ebe44ffb4a",
+          "id": "turn_52f9a4309f72",
           "role": "frontdesk",
-          "text": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "text": "Pong — I'm here and ready. What would you like to do?",
           "intent": "continuous_assist",
           "context_ref": null,
           "related_action_id": null,
           "related_proposal_id": null,
           "ui_target": null,
-          "at": "2026-09-13T15:09:30.521854+00:00"
+          "at": "2026-09-13T15:15:26.674846+00:00"
         }
       ],
       "plan": null,
       "plan_execution": null,
       "usage_records": [
         {
-          "input_tokens": 0,
-          "output_tokens": 0,
+          "input_tokens": 851,
+          "output_tokens": 71,
           "source": "native_runtime",
-          "run_id": "run_fd_6c419666341fd2a9b90e722e9b26e9ec30f13608"
+          "run_id": "run_fd_e9ac45082dacb53b152e6982b82d2ebe584d14c2"
         }
       ],
       "assistant_state": {
         "schema_version": "aios.assistant_ui_state.v0.1",
-        "state": "failed",
-        "mode": "blocked",
-        "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+        "state": "answer",
+        "mode": "answer",
+        "message": "Pong — I'm here and ready. What would you like to do?",
         "work_item_required": false,
         "active_run_ref": {
-          "run_id": "run_fd_6c419666341fd2a9b90e722e9b26e9ec30f13608"
+          "run_id": "run_fd_e9ac45082dacb53b152e6982b82d2ebe584d14c2"
         }
       },
       "reflections": [
         {
           "kind": "frontdesk_execution_reflection",
-          "status": "failed",
-          "source_status": "failed",
+          "status": "succeeded",
+          "source_status": "completed",
           "plan_id": "",
           "what_happened": "Ran Frontdesk execute for unknown plan.",
-          "outcome": "Execution failed before a trusted completion could be recorded.",
-          "failure_reason": "failed",
-          "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+          "outcome": "Completed with meaningful step output.",
+          "failure_reason": null,
+          "next_recommendation": "Keep the evidence references and reuse the pattern when the same request recurs.",
           "evidence": {
             "status": "present",
             "refs": []
@@ -1841,170 +1415,28 @@
             "type": null
           },
           "steps": [],
-          "suggest_memory_proposal": true,
+          "suggest_memory_proposal": false,
           "suggest_skill_candidate": false,
-          "suggest_agent_improvement": true,
-          "experience_candidates": [
-            {
-              "kind": "memory_proposal",
-              "title": "Remember Frontdesk execution lesson",
-              "reason": "Execution failed before a trusted completion could be recorded.",
-              "confidence": 0.62,
-              "source": "frontdesk_reflection",
-              "evidence_refs": [],
-              "payload": {
-                "plan_id": "",
-                "reflection_status": "failed",
-                "source_status": "failed",
-                "action_types": [],
-                "work_item": {
-                  "id": null,
-                  "type": null
-                },
-                "model_usage": [],
-                "model_evidence_status": "none",
-                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-              }
-            },
-            {
-              "kind": "agent_improvement",
-              "title": "Improve Frontdesk execution guardrail",
-              "reason": "failed",
-              "confidence": 0.7,
-              "source": "frontdesk_reflection",
-              "evidence_refs": [],
-              "payload": {
-                "plan_id": "",
-                "reflection_status": "failed",
-                "source_status": "failed",
-                "action_types": [],
-                "work_item": {
-                  "id": null,
-                  "type": null
-                },
-                "model_usage": [],
-                "model_evidence_status": "none",
-                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-              }
-            }
-          ]
+          "suggest_agent_improvement": false,
+          "experience_candidates": []
         }
       ],
-      "experience_candidates": [
-        {
-          "kind": "memory_proposal",
-          "title": "Remember Frontdesk execution lesson",
-          "reason": "Execution failed before a trusted completion could be recorded.",
-          "confidence": 0.62,
-          "source": "frontdesk_reflection",
-          "evidence_refs": [],
-          "payload": {
-            "plan_id": "",
-            "reflection_status": "failed",
-            "source_status": "failed",
-            "action_types": [],
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "model_usage": [],
-            "model_evidence_status": "none",
-            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-          }
-        },
-        {
-          "kind": "agent_improvement",
-          "title": "Improve Frontdesk execution guardrail",
-          "reason": "failed",
-          "confidence": 0.7,
-          "source": "frontdesk_reflection",
-          "evidence_refs": [],
-          "payload": {
-            "plan_id": "",
-            "reflection_status": "failed",
-            "source_status": "failed",
-            "action_types": [],
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "model_usage": [],
-            "model_evidence_status": "none",
-            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
-          }
-        }
-      ],
+      "experience_candidates": [],
       "cognitive_digest": {
         "kind": "frontdesk_cognitive_digest",
-        "today_highlights": [
-          {
-            "id": "needs_attention:failed",
-            "kind": "needs_attention",
-            "title": "Work item needs attention",
-            "summary": "failed",
-            "target": {
-              "plan_id": "",
-              "work_item": {
-                "id": null,
-                "type": null
-              }
-            }
-          }
-        ],
-        "needs_attention": [
-          {
-            "id": "failed",
-            "kind": "frontdesk_attention_item",
-            "status": "failed",
-            "source_status": "failed",
-            "title": "Execution failed",
-            "summary": "failed",
-            "plan_id": "",
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "evidence_refs": [],
-            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
-            "failure_reason": "failed"
-          }
-        ],
+        "today_highlights": [],
+        "needs_attention": [],
         "recent_outputs": [],
-        "recoverable_items": [
-          {
-            "id": "failed",
-            "kind": "frontdesk_recoverable_item",
-            "status": "failed",
-            "source_status": "failed",
-            "title": "Recover Frontdesk work item",
-            "summary": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
-            "plan_id": "",
-            "work_item": {
-              "id": null,
-              "type": null
-            },
-            "evidence_refs": [],
-            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
-            "suggested_action": {
-              "type": "recover_frontdesk_item",
-              "label": "Review and recover",
-              "target": {
-                "plan_id": "",
-                "work_item_id": null,
-                "status": "failed"
-              }
-            }
-          }
-        ],
+        "recoverable_items": [],
         "counts": {
-          "today_highlights": 1,
-          "needs_attention": 1,
+          "today_highlights": 0,
+          "needs_attention": 0,
           "recent_outputs": 0,
-          "recoverable_items": 1,
+          "recoverable_items": 0,
           "reflections": 1,
           "work_items": 0,
-          "succeeded": 0,
-          "failed": 1,
+          "succeeded": 1,
+          "failed": 0,
           "needs_evidence": 0,
           "pending": 0
         }
@@ -2021,7 +1453,7 @@
       "client_mode": "gateway",
       "server_mode": "assist",
       "mode_compatible": true,
-      "request_id": "req_b8a685ebf50a46a1",
+      "request_id": "req_391ba248a3a6437a",
       "server": {
         "kind": "AIOSDeploymentProfile",
         "control_plane_version": "0.1.0",
