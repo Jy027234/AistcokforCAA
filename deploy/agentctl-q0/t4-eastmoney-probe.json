@@ -1,0 +1,83 @@
+{
+  "kind": "AQuantDataCapabilityProbe",
+  "source_id": "eastmoney-direct",
+  "probed_at": "2026-09-13T16:46:52.366962+00:00",
+  "cost_model": "FREE",
+  "auth_required": false,
+  "universe": {
+    "total": 5913,
+    "sample_rows": 10,
+    "fields_present": [
+      "f100",
+      "f12",
+      "f13",
+      "f14",
+      "f2",
+      "f20",
+      "f21",
+      "f26",
+      "f3"
+    ],
+    "sample": [
+      {
+        "f2": 11.29,
+        "f3": -1.57,
+        "f12": "920992",
+        "f13": 0,
+        "f14": "中科美菱",
+        "f20": 1092092245,
+        "f21": 553405125,
+        "f26": 20221018,
+        "f100": "医疗器械"
+      },
+      {
+        "f2": 4.56,
+        "f3": -1.72,
+        "f12": "920985",
+        "f13": 0,
+        "f14": "海泰新能",
+        "f20": 1411211472,
+        "f21": 1000089437,
+        "f26": 20220808,
+        "f100": "光伏设备"
+      },
+      {
+        "f2": 114.4,
+        "f3": -2.64,
+        "f12": "920982",
+        "f13": 0,
+        "f14": "锦波生物",
+        "f20": 13163474896,
+        "f21": 6345208126,
+        "f26": 20230720,
+        "f100": "医疗美容"
+      }
+    ],
+    "notes": "f13=市场(0深/1沪), f12=代码, f14=名称, f100=行业, f26=上市日期, f20=总市值"
+  },
+  "ohlcv": {
+    "symbol": "600519",
+    "secid": "1.600519",
+    "range": [
+      "20200101",
+      "20260912"
+    ],
+    "none": {
+      "error": "RuntimeError: gave up after 4 attempts: Remote end closed connection without response"
+    },
+    "qfq": {
+      "error": "RuntimeError: gave up after 4 attempts: Remote end closed connection without response"
+    },
+    "hfq": {
+      "error": "RuntimeError: gave up after 4 attempts: Remote end closed connection without response"
+    },
+    "adjustment_differs": null,
+    "fields": "f51日期,f52开,f53收,f54高,f55低,f56量(手),f57额(元),f58振幅,f59涨跌幅,f60涨跌额,f61换手率"
+  },
+  "calendar": {
+    "error": "gave up after 4 attempts: Remote end closed connection without response"
+  },
+  "pit": {
+    "error": "gave up after 4 attempts: Remote end closed connection without response"
+  }
+}

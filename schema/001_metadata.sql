@@ -253,10 +253,35 @@ CREATE TABLE IF NOT EXISTS snapshot_blocking_issue (
     PRIMARY KEY (snapshot_id, issue_seq)
 );
 
--- 已发布快照不可变：禁止 UPDATE/DELETE（由触发器强制）
+-- 已发布快照不可变：禁止 UPDATE/DELETE（由触发器强制）。
+--
+-- 唯一允许的转移是 PUBLISHED -> SUPERSEDED，且只在发布一条 supersedes 它的新快照时发生；
+-- 该转移不得改动任何内容字段。除此之外一律拒绝（§15.4）。
 CREATE TRIGGER IF NOT EXISTS trg_snapshot_published_immutable_update
 BEFORE UPDATE ON snapshot
 WHEN OLD.status IN ('PUBLISHED','SUPERSEDED')
+     AND NOT (
+         OLD.status = 'PUBLISHED'
+         AND NEW.status = 'SUPERSEDED'
+         AND NEW.snapshot_id     IS OLD.snapshot_id
+         AND NEW.kind            IS OLD.kind
+         AND NEW.data_mode       IS OLD.data_mode
+         AND NEW.input_cutoff_at IS OLD.input_cutoff_at
+         AND NEW.as_of_time      IS OLD.as_of_time
+         AND NEW.published_at    IS OLD.published_at
+         AND NEW.created_at      IS OLD.created_at
+         AND NEW.parent_snapshot_id IS OLD.parent_snapshot_id
+         AND NEW.supersedes      IS OLD.supersedes
+         AND NEW.watermark       IS OLD.watermark
+         AND NEW.code_version    IS OLD.code_version
+         AND NEW.data_version    IS OLD.data_version
+         AND NEW.strategy_version IS OLD.strategy_version
+         AND NEW.feature_version IS OLD.feature_version
+         AND NEW.rule_version    IS OLD.rule_version
+         AND NEW.fee_version     IS OLD.fee_version
+         AND NEW.quality_status  IS OLD.quality_status
+         AND NEW.pool_hash       IS OLD.pool_hash
+     )
 BEGIN
     SELECT RAISE(ABORT, 'published snapshot is immutable; create a new snapshot with supersedes');
 END;
