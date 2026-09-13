@@ -1,0 +1,53 @@
+{
+  "probed_at": "2026-09-13T17:18:06.164222+00:00",
+  "sse": {
+    "endpoint": "sse-query",
+    "status": 200,
+    "error": null,
+    "bytes": 610,
+    "has_publish_field": false,
+    "sample": "jsonpCallback({\"BULLETIN_TYPE\":null,\"END_DATE\":null,\"SECURITY_CODE\":null,\"START_DATE\":null,\"TITLE\":null,\"beginDate\":\"2026-09-01\",\"endDate\":\"2026-09-12\",\"isNew\":null,\"isPagination\":\"true\",\"jsonCallBack\":\"jsonpCallback\",\"keyWord\":null,\"pageHelp\":{\"beginPage\":1,\"cacheSize\":5,\"data\":[],\"endDate\":null,\"endPage\":null,\"objectResult\":null,\"pageCount\":null,\"pageNo\":1,\"pageSize\":10,\"pageSizeWithOutLimit\":10"
+  },
+  "szse": {
+    "endpoint": "szse-annList",
+    "status": 500,
+    "error": "HTTP 500",
+    "bytes": 0,
+    "sample": ""
+  },
+  "cninfo": {
+    "endpoint": "cninfo-hisAnnouncement",
+    "status": 200,
+    "bytes": 3866,
+    "count": 5,
+    "keys": [
+      "adjunctSize",
+      "adjunctType",
+      "adjunctUrl",
+      "announcementContent",
+      "announcementId",
+      "announcementTime",
+      "announcementTitle",
+      "announcementType",
+      "announcementTypeName",
+      "associateAnnouncement",
+      "batchNum",
+      "columnId",
+      "id",
+      "important",
+      "orgId",
+      "orgName",
+      "pageColumn",
+      "secCode",
+      "secName",
+      "secNameList",
+      "shortTitle",
+      "storageTime",
+      "tileSecName"
+    ],
+    "time_fields": {
+      "announcementTime": 1789142400000,
+      "storageTime": null
+    }
+  }
+}
