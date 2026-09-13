@@ -1,0 +1,181 @@
+# A-Quant Lab 首期研究与模拟配置示例
+# 主文档 §11.2 初始研究参数 / §12 模拟器规则 / §8.1 日程
+#
+# 重要（主文档 §11.2、§21）：以下数值是"软件研究初始参数"，属于某个实验版本，
+# 不是投资建议，也不是预期收益。用户修改应产生新的策略/实验版本，绝不原地覆盖。
+#
+# 费用文件说明（§12.6）：本配置引用的费率表是**合成测试费率**，
+# 明确禁止用于真实数据的正式研究。M0 必须另行构建经核验的费用表。
+
+schema_version: aquant.research_config.v1
+config_version: research-example-v1
+updated_at: "2026-09-13T00:00:00Z"
+
+# ---------------------------------------------------------------
+# 模拟器与规则版本
+# ---------------------------------------------------------------
+simulation:
+  # §12.2 规则按 交易所+板块+证券状态+生效日 匹配，禁止硬编码"ST 恒为 5%"
+  rule_version: rule-syn-v1
+  board_rules:
+    - exchange: SSE
+      board: MAIN
+      price_limit_pct: 10.0
+      lot_size: 100
+      effective_from: "2026-07-06"   # S16 上交所修订实施日
+      effective_to: null
+    - exchange: SZSE
+      board: MAIN
+      price_limit_pct: 10.0
+      lot_size: 100
+      effective_from: "2026-07-06"
+      effective_to: null
+  # §12.3 成交约定
+  fill_convention:
+    price_basis: OPEN
+    slippage_bps_buy: 5
+    slippage_bps_sell: 5
+    # 意图价越过法定边界 -> 不可成交，禁止夹到边界
+    clamp_to_limit: false
+    # 开盘涨停买入 / 跌停卖出默认不成交
+    no_fill_on_limit_open: true
+    # 停牌、无有效开盘价、状态未知 -> 不成交
+    no_fill_on_suspension: true
+  # §12.4 资金与成交量
+  sizing:
+    order_participation_cap_of_adv: 0.001     # 过去 20 日平均成交量的 0.1%
+    volume_lookback_days: 20
+    process_sells_before_buys: true
+    # §12.4 必须提供"仅用盘前现金"的保守对照模式，并报告两种假设的差异
+    conservative_cash_mode_available: true
+    default_assume_same_day_sell_proceeds: true
+  # §12.5 T+1
+  settlement:
+    t_plus: 1
+    integer_lots_only: true
+    odd_lot_sell_supported: false
+  # §12.6 费用（合成测试费率，禁止用于正式研究）
+  fees:
+    fee_version: fee-syn-v1
+    synthetic_test_rate: true
+    prohibited_for_production_research: true
+    commission_rate: 0.00025
+    commission_min_cents: 500
+    stamp_duty_rate_sell: 0.0005
+    stamp_duty_effective_from: "2023-08-28"   # S17 印花税减半
+    transfer_fee_rate: 0.00001
+
+# ---------------------------------------------------------------
+# 首个阶段不承诺免费或固定低价（§6.4）
+# 数据源状态四态（§6.2）：PLANNED / CREDENTIALS_CONFIGURED / TEST_PASSED / IN_PRODUCTION_USE
+# ---------------------------------------------------------------
+data_sources:
+  - source_id: eastmoney-direct
+    display_name: 东方财富行情接口（直连，免费无需密钥）
+    domains: [daily_quotes, calendar_identity, industry_constituents]
+    cost_model: FREE
+    integration_state: TEST_PASSED
+    pit_available: NO            # §7.1 不提供历史时点版本
+    pit_basis: UNKNOWN
+    rights:
+      research_use: UNKNOWN      # §17.2 未确认前默认不开放对应能力
+      local_storage: UNKNOWN
+      model_processing: UNKNOWN
+      excerpt_display: UNKNOWN
+      third_party_redistribution: UNKNOWN
+      commercial_use: UNKNOWN
+    notes: >
+      公开可访问不等于允许批量抓取（§17.2）。接入前须逐项确认权利；
+      抓取器必须限制域名、协议、重定向与文件大小，并阻止内网与云元数据地址（§17.3）。
+
+# ---------------------------------------------------------------
+# 组合构建与研究参数（§11.2）——全部属于实验版本
+# ---------------------------------------------------------------
+portfolio_construction:
+  initial_capital_cents: 100000000        # 1,000,000.00 元
+  max_holdings: 20
+  max_total_equity_pct: 80.0
+  max_single_name_pct: 10.0
+  max_single_industry_pct: 30.0
+  exclude_listing_days: 120               # 上市未满 120 个交易日排除
+  liquidity_min_avg_amount_cents: 5000000000   # 近 20 日均成交额 ≥ 5,000 万元
+  liquidity_lookback_days: 20
+  rebalance_frequency: WEEKLY_FIRST_TRADING_DAY
+
+strategy:
+  # §10.3 S1 趋势-低波动基线
+  s1:
+    strategy_version: S1-syn-v1
+    formula: "signal_rank = 0.5 * mean(rank(F01), rank(F02)) + 0.5 * rank(-F04)"
+    tie_break: instrument_id            # 稳定排序，避免不确定性
+    retention_buffer_top_n: 30          # §10.3 缓冲：仍在 top 30 的既有持仓优先保留
+    keep_no_buffer_variant: true        # 无缓冲版本保留为独立实验，结果不佳后不得偷换
+
+features:
+  # §10.1 十个特征不是十个独立盈利因子；窗口按交易日计
+  factor_version: F-syn-v1
+  definitions:
+    F01: { name: 20日动量, formula: "P_t / P_(t-20) - 1", min_valid_points: 21 }
+    F02: { name: 60日动量跳过最近5日, formula: "P_(t-5) / P_(t-60) - 1", min_valid_points: 61 }
+    F03: { name: 行业相对动量, formula: "F01 - 同期PIT行业组合收益", requires: historical_industry_membership }
+    F04: { name: 20日波动率, formula: "std(log returns, 20) * sqrt(252)", min_valid_points: 21 }
+    F05: { name: 换手率比, formula: "mean(turnover,5) / mean(turnover,20)", min_valid_points: 21 }
+    F06: { name: 20日平均成交金额, formula: "mean(amount, 20)", unit: CNY, min_valid_points: 20 }
+    F07: { name: ROE_TTM, formula: "归母净利润TTM / 期初期末平均归母权益", requires: pit_financials }
+    F08: { name: 现金质量, formula: "经营现金流净额TTM / 合并净利润TTM", requires: pit_financials }
+    F09: { name: 营收TTM同比, formula: "营收TTM_t / 营收TTM_(t-4) - 1", requires: pit_financials }
+    F10: { name: 盈利收益率, formula: "归母净利润TTM / 时点总市值", requires: pit_financials }
+  # §10.2 缺失值不得填 0
+  missing_value_policy: EXPLICIT_REASON_NEVER_ZERO
+  # §10.2 需要拟合的变换只在训练集上拟合
+  fitted_transforms_train_only: true
+  # F07–F10 依赖 PIT 财务数据；未通过验证前默认不启用（§10.4、§7.4）
+  pit_dependent_factors_enabled: false
+
+# ---------------------------------------------------------------
+# 每日日程（§8.1）——产品默认值，不是交易建议；修改必须版本化
+# ---------------------------------------------------------------
+schedule:
+  timezone: Asia/Shanghai
+  eod_input_cutoff: "20:30"
+  preopen_final_snapshot: "08:45"
+  plan_freeze: "08:55"
+  version: schedule-v1
+  # 08:45 关键快照迟到时，08:55 不产生新订单，且不得静默回退到旧快照
+  late_snapshot_behavior: NO_NEW_ORDERS_NO_SILENT_FALLBACK
+
+# ---------------------------------------------------------------
+# AI 与预算（§9.6、§14.5）
+# ---------------------------------------------------------------
+ai:
+  daily_cost_cap_cents: 5000          # 用户可设上限
+  daily_material_cap: 200
+  # §14.5 未经授权不得升级到更贵模型
+  allow_model_upgrade_without_authorization: false
+  # §17.2 研究账户与个人信息默认不进入模型上下文
+  include_account_data_in_context: false
+  # §7.6 用当前模型重新解释历史材料时必须标注回溯风险
+  mark_retrospective_as_risk: true
+
+# ---------------------------------------------------------------
+# 助手工具白名单（§16.3）
+# 默认没有 execute_order / write_ledger / run_shell / raw_sql / fetch_arbitrary_url
+# 冻结模拟计划通过用户界面确认的服务执行，不把确认权限交给模型
+# ---------------------------------------------------------------
+assistant:
+  allowed_tools:
+    - get_snapshot
+    - query_research_card
+    - get_event_evidence
+    - compare_instruments
+    - explain_factor
+    - get_portfolio
+    - get_decision_history
+    - preview_simulation_plan
+  forbidden_tools:
+    - execute_order
+    - write_ledger
+    - run_shell
+    - raw_sql
+    - fetch_arbitrary_url
+    - freeze_plan

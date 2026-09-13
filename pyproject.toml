@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aquant-lab"
+version = "0.1.0"
+description = "A-Quant Lab：A股研究与模拟决策工作台（研究与模拟，不连接券商、不自动交易）"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+
+# 首期依赖刻意保持最小。主文档 §14.1 要求"按性能验证再优化"，
+# §14.5 要求"版本在依赖解析与 CI 验证后锁定，不在文档中猜测最新版本"。
+dependencies = [
+    "pydantic>=2.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+# 数值与列式读取：M1/M2 才真正需要，届时按实测锁定版本
+numerics = ["numpy>=1.26", "pandas>=2.1"]
+columnar = ["pyarrow>=15", "duckdb>=0.10"]
+# 数据接入候选（T4 评估，不在首期硬依赖里）
+datasources = ["akshare>=1.12", "baostock>=0.8", "requests>=2.31"]
+web = ["fastapi>=0.110", "uvicorn>=0.29"]
+dev = ["pytest>=8.0", "jsonschema>=4.20"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# 确定性优先：不依赖网络、不依赖模型密钥的用例是默认集合
+addopts = "-q"
+markers = [
+    "requires_network: 需要外网的数据源验证用例（默认跳过）",
+    "requires_model_key: 需要模型密钥的用例（默认跳过）",
+    "slow: 长耗时用例",
+]

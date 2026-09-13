@@ -1,0 +1,192 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aquant.local/contracts/event.schema.json",
+  "title": "事件与证据契约",
+  "description": "主文档 §9.2/§15.3。契约验证只解决类型与必填字段；服务还必须核验引用存在、金额单位、实体真实、时序合理、来源权利适用。",
+  "type": "object",
+  "required": [
+    "event_id", "documents", "citations", "event_category", "subjects",
+    "fact_summary", "event_time", "verification_status", "market_direction",
+    "counter_evidence", "unknowns", "research_window"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "event_id": { "type": "string", "pattern": "^evt-[a-z0-9][a-z0-9-]{2,60}$" },
+    "event_category": {
+      "enum": [
+        "ANNOUNCEMENT", "EARNINGS", "DIVIDEND", "CAPITAL_ACTION", "REGULATORY",
+        "MANAGEMENT_CHANGE", "INDUSTRY_POLICY", "MACRO", "NEWS", "OTHER"
+      ]
+    },
+    "subjects": {
+      "type": "array",
+      "minItems": 1,
+      "description": "§15.2 关联实体必须真实存在，不能仅凭文本猜测",
+      "items": {
+        "type": "object",
+        "required": ["subject_type", "subject_id"],
+        "properties": {
+          "subject_type": { "enum": ["INSTRUMENT", "INDUSTRY", "MACRO_INDICATOR", "OTHER"] },
+          "subject_id": { "type": "string" },
+          "role": { "enum": ["PRIMARY", "RELATED", "AFFECTED", "COUNTERPARTY"] }
+        }
+      }
+    },
+    "fact_summary": {
+      "type": "string",
+      "minLength": 1,
+      "description": "事实摘要。与\"该公司可能受益\"的解释必须分开存储（§9.2）。"
+    },
+    "event_time": {
+      "type": ["object", "null"],
+      "description": "§7.1 事件自身发生时间，可与公开时间不同",
+      "required": ["value", "precision"],
+      "properties": {
+        "value": { "type": ["string", "null"] },
+        "precision": { "$ref": "common.schema.json#/definitions/timestampPrecision" }
+      }
+    },
+    "source_published_at": {
+      "type": ["object", "null"],
+      "description": "§7.1 来源公开时间。DATE 精度时禁止假定当日开盘前可用。",
+      "required": ["value", "precision"],
+      "properties": {
+        "value": { "type": ["string", "null"] },
+        "precision": { "$ref": "common.schema.json#/definitions/timestampPrecision" }
+      }
+    },
+    "source_published_date": { "$ref": "common.schema.json#/definitions/calendarDate" },
+    "first_seen_at": {
+      "$ref": "common.schema.json#/definitions/utcInstant",
+      "description": "§7.2 本系统首次抓取时间。历史重建时保持为今天，禁止伪造到过去。"
+    },
+    "ingested_at": { "$ref": "common.schema.json#/definitions/utcInstant" },
+    "available_at": {
+      "$ref": "common.schema.json#/definitions/utcInstant",
+      "description": "§7.1 可用于决策的时点。这是 PIT 门禁的唯一判据。"
+    },
+    "available_basis": { "$ref": "common.schema.json#/definitions/availabilityBasis" },
+    "pit_mode": { "$ref": "common.schema.json#/definitions/pitMode" },
+    "valid_from": { "$ref": "common.schema.json#/definitions/utcInstant" },
+    "valid_to": { "type": ["string", "null"], "description": "左闭右开（§7.1）" },
+    "supersedes_id": { "type": ["string", "null"] },
+    "verification_status": { "$ref": "common.schema.json#/definitions/verificationStatus" },
+    "market_direction": { "$ref": "common.schema.json#/definitions/marketDirection" },
+    "documents": {
+      "type": "array",
+      "minItems": 1,
+      "description": "§9.1 转载共享事件但保持独立文档记录；同一原始消息转载 50 次算 1 个事实事件。",
+      "items": {
+        "type": "object",
+        "required": ["document_id", "origin", "is_original"],
+        "properties": {
+          "document_id": { "type": "string" },
+          "origin": { "type": "string", "description": "原始来源标识" },
+          "url": { "type": ["string", "null"] },
+          "is_original": { "type": "boolean" },
+          "repost_of": { "type": ["string", "null"], "description": "转载指向原始 document_id" },
+          "content_hash": { "$ref": "common.schema.json#/definitions/contentHash" },
+          "withdrawn_at": { "type": ["string", "null"], "description": "§D08 撤回产生新状态，旧判断仍可回看" },
+          "license_status": { "enum": ["PERMITTED", "EXCERPT_ONLY", "INDEX_ONLY", "UNKNOWN"] }
+        }
+      }
+    },
+    "citations": {
+      "type": "array",
+      "minItems": 1,
+      "description": "§15.3 引用片段必须能在原材料中定位。不可定位则不得发布。",
+      "items": {
+        "type": "object",
+        "required": ["document_id", "quote", "locator"],
+        "properties": {
+          "document_id": { "type": "string" },
+          "quote": { "type": "string", "minLength": 1 },
+          "locator": {
+            "type": "object",
+            "description": "定位方式，供自动校验使用",
+            "required": ["kind"],
+            "properties": {
+              "kind": { "enum": ["CHAR_OFFSET", "PAGE_LINE", "SECTION", "EXACT_MATCH"] },
+              "start": { "type": ["integer", "null"] },
+              "end": { "type": ["integer", "null"] },
+              "page": { "type": ["integer", "null"] },
+              "line": { "type": ["integer", "null"] },
+              "section": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "structured_values": {
+      "type": "array",
+      "description": "§15.3 金额必须带单位；§6.3 原始单位同时保留",
+      "items": {
+        "type": "object",
+        "required": ["name", "value", "unit"],
+        "properties": {
+          "name": { "type": "string" },
+          "value": { "type": ["string", "number", "null"] },
+          "unit": { "type": "string", "description": "例如 CNY / CNY_10000 / PERCENT / SHARE" },
+          "raw_value": { "type": ["string", "null"] },
+          "raw_unit": { "type": ["string", "null"] },
+          "currency": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "impact_hypotheses": {
+      "type": "array",
+      "description": "§9.2 影响路径假设；与事实分开存储",
+      "items": {
+        "type": "object",
+        "required": ["hypothesis", "direction"],
+        "properties": {
+          "hypothesis": { "type": "string" },
+          "direction": { "$ref": "common.schema.json#/definitions/marketDirection" },
+          "transmission_path": { "type": ["string", "null"] },
+          "is_model_generated": { "type": "boolean" }
+        }
+      }
+    },
+    "counter_evidence": {
+      "type": "array",
+      "description": "§5.3 研究卡要求至少 1 条反证或显式\"未发现\"。事件同样保留反证。",
+      "items": {
+        "type": "object",
+        "required": ["statement"],
+        "properties": {
+          "statement": { "type": "string" },
+          "citation_ref": { "type": ["string", "null"] },
+          "none_found": { "type": "boolean" }
+        }
+      }
+    },
+    "unknowns": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "§9.2 未知项必须显式列出，不得用推断填充"
+    },
+    "research_window": {
+      "type": "object",
+      "required": ["start_date", "end_date"],
+      "properties": {
+        "start_date": { "$ref": "common.schema.json#/definitions/calendarDate" },
+        "end_date": { "$ref": "common.schema.json#/definitions/calendarDate" }
+      }
+    },
+    "model_provenance": {
+      "type": ["object", "null"],
+      "description": "§7.6 历史模型输出必须标注回溯风险",
+      "required": ["model_version", "prompt_version", "raw_output_hash"],
+      "properties": {
+        "model_version": { "type": "string" },
+        "prompt_version": { "type": "string" },
+        "raw_output_hash": { "$ref": "common.schema.json#/definitions/contentHash" },
+        "llm_retrospective_risk": {
+          "type": "boolean",
+          "description": "§7.6 用当前大模型重新解释旧材料时必须为 true"
+        },
+        "generated_at": { "$ref": "common.schema.json#/definitions/utcInstant" }
+      }
+    }
+  }
+}

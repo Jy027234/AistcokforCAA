@@ -1,0 +1,232 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aquant.local/contracts/ledger.schema.json",
+  "title": "模拟账户账本契约",
+  "description": "主文档 §12/§15.1。这是 A-Quant 自有账本，与 agentctl 的运行/用量 Ledger 无关（v0.2.1 §7.3）。只有 simulation 域可提交模拟成交与会计分录。所有金额为定点十进制字符串。",
+  "$defs": {},
+  "definitions": {
+    "portfolio": {
+      "type": "object",
+      "required": ["portfolio_id", "kind", "account_type", "base_currency", "opened_at"],
+      "additionalProperties": false,
+      "properties": {
+        "portfolio_id": { "type": "string", "pattern": "^pf-[a-z0-9][a-z0-9-]{2,60}$" },
+        "kind": {
+          "enum": ["M", "E", "H", "B"],
+          "description": "§13.1 四类对照：M=固定 S1 模型基线，E=基线+E1 事件规则，H=用户显式选择，B=同池基准+大盘参考"
+        },
+        "account_type": { "const": "SIMULATED", "description": "§16.2 必须明确模拟账户标识" },
+        "base_currency": { "const": "CNY" },
+        "initial_cash": { "$ref": "common.schema.json#/definitions/money" },
+        "opened_at": { "$ref": "common.schema.json#/definitions/utcInstant" },
+        "experiment_id": { "type": ["string", "null"], "description": "§13.1 账户属于某个实验版本" },
+        "external_information_used": {
+          "type": "boolean",
+          "description": "§8.2 人工使用未归档外部信息时必须为 true，该账户不再属严格同信息比较"
+        }
+      }
+    },
+    "order": {
+      "type": "object",
+      "required": [
+        "order_id", "portfolio_id", "plan_id", "snapshot_id", "instrument_id",
+        "side", "quantity", "limit_price", "status", "created_at", "idempotency_key"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "order_id": { "type": "string" },
+        "portfolio_id": { "type": "string" },
+        "plan_id": { "type": "string", "description": "必须来自已冻结计划" },
+        "snapshot_id": { "type": "string" },
+        "instrument_id": { "$ref": "common.schema.json#/definitions/instrumentId" },
+        "side": { "enum": ["BUY", "SELL"] },
+        "quantity": { "$ref": "common.schema.json#/definitions/shareCount" },
+        "limit_price": {
+          "type": ["string", "null"],
+          "description": "§12.3 意图价。若越过当日法定价格边界则不可成交，禁止夹到边界制造成交。"
+        },
+        "status": {
+          "enum": ["PENDING", "REJECTED", "NO_FILL", "PARTIAL", "FILLED", "CANCELLED"],
+          "description": "§12.3 开盘涨停买入/跌停卖出默认不成交；停牌、无有效开盘价、状态未知均不成交。"
+        },
+        "created_at": { "$ref": "common.schema.json#/definitions/utcInstant" },
+        "trading_day": { "$ref": "common.schema.json#/definitions/calendarDate" },
+        "idempotency_key": {
+          "type": "string",
+          "description": "§8.4 幂等键 = 作业类型 + 交易日 + 配置版本 + 输入快照；数据库唯一约束保证 S05 重试只记一次"
+        },
+        "reject_reason": { "type": ["string", "null"] },
+        "sequence": {
+          "type": ["integer", "null"],
+          "description": "§12.4 先处理卖单（稳定序），再处理买单（稳定序）"
+        },
+        "declared_rule_version": { "type": ["string", "null"] },
+        "declared_fee_version": { "type": ["string", "null"] }
+      }
+    },
+    "fill": {
+      "type": "object",
+      "required": [
+        "fill_id", "order_id", "portfolio_id", "instrument_id", "side",
+        "quantity", "price", "fees_total", "trading_day", "filled_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "fill_id": { "type": "string" },
+        "order_id": { "type": "string" },
+        "portfolio_id": { "type": "string" },
+        "instrument_id": { "$ref": "common.schema.json#/definitions/instrumentId" },
+        "side": { "enum": ["BUY", "SELL"] },
+        "quantity": { "$ref": "common.schema.json#/definitions/shareCount" },
+        "price": { "$ref": "common.schema.json#/definitions/money", "description": "§12.3 买入=开盘+滑点，卖出=开盘-滑点" },
+        "gross_amount": { "$ref": "common.schema.json#/definitions/money" },
+        "fees_total": { "$ref": "common.schema.json#/definitions/money" },
+        "fee_breakdown": {
+          "type": "array",
+          "description": "§12.6 费用按日期生效版本；最低佣金不得漏计，同一订单多次查看不得重复计费",
+          "items": {
+            "type": "object",
+            "required": ["fee_code", "amount", "fee_version"],
+            "properties": {
+              "fee_code": { "enum": ["COMMISSION", "MIN_COMMISSION_TOPUP", "STAMP_DUTY", "TRANSFER_FEE", "OTHER"] },
+              "amount": { "$ref": "common.schema.json#/definitions/money" },
+              "fee_version": { "type": "string" },
+              "rate_basis": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "trading_day": { "$ref": "common.schema.json#/definitions/calendarDate" },
+        "filled_at": { "$ref": "common.schema.json#/definitions/utcInstant" },
+        "lot_id": { "type": ["string", "null"], "description": "买入成交生成持仓批次；卖出成交不新建批次" },
+        "reversal_of": {
+          "type": ["string", "null"],
+          "description": "§11.4 已入账成交不得物理删除；更正使用冲正 + 新版本"
+        }
+      }
+    },
+    "positionLot": {
+      "type": "object",
+      "required": [
+        "lot_id", "portfolio_id", "instrument_id", "acquired_trading_day",
+        "earliest_sellable_day", "quantity_original", "quantity_remaining", "cost_basis"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "lot_id": { "type": "string" },
+        "portfolio_id": { "type": "string" },
+        "instrument_id": { "$ref": "common.schema.json#/definitions/instrumentId" },
+        "acquired_trading_day": { "$ref": "common.schema.json#/definitions/calendarDate" },
+        "earliest_sellable_day": {
+          "$ref": "common.schema.json#/definitions/calendarDate",
+          "description": "§12.5 / S01 T+1：当日买入批次最早可卖日为下一交易日；旧批次单独处理"
+        },
+        "quantity_original": { "$ref": "common.schema.json#/definitions/shareCount" },
+        "quantity_remaining": { "$ref": "common.schema.json#/definitions/shareCount" },
+        "cost_basis": { "$ref": "common.schema.json#/definitions/money", "description": "含费用的单位成本" },
+        "adjusted_cost_basis": {
+          "type": ["string", "null"],
+          "description": "§12.7 送转/配股后的成本调整；与原始成本分开保存"
+        }
+      }
+    },
+    "cashEntry": {
+      "type": "object",
+      "required": ["entry_id", "portfolio_id", "entry_type", "amount", "trading_day", "occurred_at"],
+      "additionalProperties": false,
+      "properties": {
+        "entry_id": { "type": "string" },
+        "portfolio_id": { "type": "string" },
+        "entry_type": {
+          "enum": [
+            "INITIAL_DEPOSIT", "TRADE_SETTLEMENT", "COMMISSION", "STAMP_DUTY",
+            "TRANSFER_FEE", "DIVIDEND_RECEIVABLE_RECOGNIZED", "DIVIDEND_RECEIVABLE_SETTLED",
+            "DIVIDEND_TAX", "REVERSAL", "OTHER"
+          ],
+          "description": "§12.7 除权日确认应收与价格影响，到账日应收转现金，不得重复计入收益"
+        },
+        "amount": { "$ref": "common.schema.json#/definitions/money", "description": "分录金额，符号表示方向" },
+        "trading_day": { "$ref": "common.schema.json#/definitions/calendarDate" },
+        "occurred_at": { "$ref": "common.schema.json#/definitions/utcInstant" },
+        "related_fill_id": { "type": ["string", "null"] },
+        "related_instrument_id": { "type": ["string", "null"] },
+        "reversal_of": { "type": ["string", "null"] },
+        "note": { "type": ["string", "null"] }
+      }
+    },
+    "receivable": {
+      "type": "object",
+      "required": ["receivable_id", "portfolio_id", "instrument_id", "amount", "kind", "recognized_on", "expected_settlement_on", "status"],
+      "additionalProperties": false,
+      "properties": {
+        "receivable_id": { "type": "string" },
+        "portfolio_id": { "type": "string" },
+        "instrument_id": { "$ref": "common.schema.json#/definitions/instrumentId" },
+        "kind": { "enum": ["DIVIDEND", "OTHER"] },
+        "amount": { "$ref": "common.schema.json#/definitions/money" },
+        "tax_treatment": {
+          "enum": ["PRE_TAX", "CONSERVATIVE", "VERIFIED"],
+          "description": "§12.6 未实现完整红利税处理前，必须显式标注为 PRE_TAX 或 CONSERVATIVE，不得称为精确税后"
+        },
+        "recognized_on": { "$ref": "common.schema.json#/definitions/calendarDate" },
+        "expected_settlement_on": { "$ref": "common.schema.json#/definitions/calendarDate" },
+        "settled_on": { "type": ["string", "null"] },
+        "status": { "enum": ["RECOGNIZED", "SETTLED", "REVERSED"] }
+      }
+    },
+    "valuation": {
+      "type": "object",
+      "required": [
+        "valuation_id", "portfolio_id", "trading_day", "cash_available",
+        "cash_frozen", "receivables", "positions_value", "payables", "net_value"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "valuation_id": { "type": "string" },
+        "portfolio_id": { "type": "string" },
+        "trading_day": { "$ref": "common.schema.json#/definitions/calendarDate" },
+        "cash_available": { "$ref": "common.schema.json#/definitions/money" },
+        "cash_frozen": { "$ref": "common.schema.json#/definitions/money" },
+        "receivables": { "$ref": "common.schema.json#/definitions/money" },
+        "positions_value": { "$ref": "common.schema.json#/definitions/money" },
+        "payables": { "$ref": "common.schema.json#/definitions/money" },
+        "net_value": {
+          "$ref": "common.schema.json#/definitions/money",
+          "description": "§12.8 每日净值 = 可用及冻结现金 + 支持的应收项目 + 持仓估值 − 应付项目"
+        },
+        "positions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["instrument_id", "quantity", "price", "price_basis", "staleness_days"],
+            "properties": {
+              "instrument_id": { "$ref": "common.schema.json#/definitions/instrumentId" },
+              "quantity": { "$ref": "common.schema.json#/definitions/shareCount" },
+              "price": { "$ref": "common.schema.json#/definitions/money" },
+              "price_basis": { "enum": ["CLOSE", "SUSPENDED_LAST_VALID", "UNSUPPORTED"] },
+              "staleness_days": { "type": "integer", "minimum": 0, "description": "§12.8 停牌股票用显式记录的最近有效价并标注停牌天数" },
+              "value": { "$ref": "common.schema.json#/definitions/money" }
+            }
+          }
+        },
+        "invariants": {
+          "type": "object",
+          "description": "§12.8 不变量失败必须阻断净值发布，而不是仅打印告警",
+          "required": ["cash_not_overdrawn", "positions_not_negative", "shares_match_lots", "fill_le_order", "fees_booked_once", "cash_lines_sum_to_balance"],
+          "properties": {
+            "cash_not_overdrawn": { "type": "boolean" },
+            "positions_not_negative": { "type": "boolean" },
+            "shares_match_lots": { "type": "boolean" },
+            "fill_le_order": { "type": "boolean" },
+            "fees_booked_once": { "type": "boolean" },
+            "cash_lines_sum_to_balance": { "type": "boolean" },
+            "violations": { "type": "array", "items": { "$ref": "common.schema.json#/definitions/errorEnvelope" } }
+          }
+        },
+        "published": {
+          "type": "boolean",
+          "description": "任一不变量为 false 时必须为 false；净值不得发布"
+        }
+      }
+    }
+  }
+}

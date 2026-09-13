@@ -1,0 +1,111 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://aquant.local/contracts/snapshot.schema.json",
+  "title": "快照契约",
+  "description": "主文档 §8.3/§15.4。快照是研究的唯一输入基准；已发布快照不可变，修正通过新 ID + supersedes。",
+  "type": "object",
+  "required": [
+    "snapshot_id", "kind", "data_mode", "status", "input_cutoff_at",
+    "created_at", "datasets", "versions", "quality"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "^snap-[a-z0-9][a-z0-9-]{2,60}$",
+      "description": "不可变标识。发布后不得复用，修正必须产生新 ID。"
+    },
+    "kind": {
+      "enum": ["EOD", "PREOPEN", "ADHOC"],
+      "description": "§8.1：20:30 收盘后快照(EOD)；次日 08:45 盘前最终输入快照(PREOPEN)；研究用临时快照(ADHOC)。"
+    },
+    "data_mode": { "$ref": "common.schema.json#/definitions/dataMode" },
+    "status": { "$ref": "common.schema.json#/definitions/snapshotStatus" },
+    "input_cutoff_at": {
+      "$ref": "common.schema.json#/definitions/utcInstant",
+      "description": "输入截止时点。此后到达的数据不得进入本快照。"
+    },
+    "published_at": {
+      "$ref": "common.schema.json#/definitions/utcInstant",
+      "description": "实际发布时间。§8.1 要求与计划时点区分；延迟发布不得静默回退到旧快照。"
+    },
+    "created_at": { "$ref": "common.schema.json#/definitions/utcInstant" },
+    "as_of_time": {
+      "$ref": "common.schema.json#/definitions/utcInstant",
+      "description": "研究语义上的\"截止时点\"，供 page 展示与 PIT 门禁使用"
+    },
+    "parent_snapshot_id": {
+      "type": ["string", "null"],
+      "description": "派生关系。不得用它表达\"修正\"。"
+    },
+    "supersedes": {
+      "type": ["string", "null"],
+      "description": "§15.4 修正关系：新快照 supersedes 旧快照；旧快照与其历史实验哈希保持不变。"
+    },
+    "watermark": { "$ref": "common.schema.json#/definitions/watermark" },
+    "datasets": {
+      "type": "array",
+      "minItems": 1,
+      "description": "§15.4 每个数据集必须带路径、哈希、记录数与质量信息。",
+      "items": {
+        "type": "object",
+        "required": ["name", "path", "sha256", "record_count", "as_of_upper_bound", "quality"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "enum": [
+              "instruments", "trading_calendar", "daily_quotes", "adjust_factors",
+              "corporate_actions", "industry_membership", "financials",
+              "announcements", "macro", "news", "derived_features"
+            ]
+          },
+          "path": { "type": "string", "minLength": 1, "description": "相对快照根目录的路径" },
+          "sha256": { "$ref": "common.schema.json#/definitions/contentHash" },
+          "record_count": { "type": "integer", "minimum": 0 },
+          "as_of_upper_bound": {
+            "$ref": "common.schema.json#/definitions/utcInstant",
+            "description": "该数据集内记录的可用时点上界。不得晚于 input_cutoff_at。"
+          },
+          "quality": {
+            "type": "object",
+            "required": ["coverage_ratio", "missing_key_fields", "notes"],
+            "properties": {
+              "coverage_ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+              "missing_key_fields": { "type": "array", "items": { "type": "string" } },
+              "notes": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "versions": { "$ref": "common.schema.json#/definitions/versions" },
+    "universe": {
+      "type": "object",
+      "description": "§3.1 可模拟证券池必须显式声明，且与观察范围区分。",
+      "required": ["pool_hash", "simulatable_count", "observed_count"],
+      "properties": {
+        "pool_hash": { "$ref": "common.schema.json#/definitions/contentHash" },
+        "simulatable_count": { "type": "integer", "minimum": 0 },
+        "observed_count": { "type": "integer", "minimum": 0 },
+        "exclusion_reasons": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 },
+          "description": "§18.4 覆盖率以实际应有记录为分母，并按停牌等状态解释"
+        }
+      }
+    },
+    "quality": {
+      "type": "object",
+      "required": ["status", "blocking_issues"],
+      "properties": {
+        "status": { "enum": ["OK", "DEGRADED", "BLOCKING"] },
+        "blocking_issues": {
+          "type": "array",
+          "description": "§9 ADR-009：数据或费用不完整时阻断，不得用虚假精确结果取代真实缺口。",
+          "items": { "$ref": "common.schema.json#/definitions/errorEnvelope" }
+        },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}
