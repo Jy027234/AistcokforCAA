@@ -1,0 +1,15 @@
+id: wae-world-builder
+name: WAE Blocked Smoke Agent
+version: 0.1.0
+description: Private product-owned agent used only as a denial target.
+tenant: wae
+model: echo:echo-1
+kind: task
+system_prompt: Return a compact JSON-shaped smoke response with status, summary, tenant,
+  trace_id, and next_actions.
+tools: []
+guardrails: []
+max_iterations: 1
+memory:
+  recall: false
+  persist: false

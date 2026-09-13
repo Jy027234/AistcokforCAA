@@ -1,0 +1,2573 @@
+[
+  {
+    "step": "P0_v022_snippet_verbatim",
+    "outcome": "UNEXPECTED_SUCCESS",
+    "detail": {
+      "note": "v0.2.2 snippet ran as printed"
+    }
+  },
+  {
+    "step": "P1a_status",
+    "outcome": "OK",
+    "detail": {
+      "kind": "AgentctlPreferredClientStatus",
+      "schema_version": "agentctl.preferred_sdk.status.v1",
+      "connected": true,
+      "client_mode": "assist",
+      "server_mode": "assist",
+      "mode_compatible": true,
+      "request_id": "req_06db8317d68d43f0",
+      "server": {
+        "kind": "AIOSDeploymentProfile",
+        "control_plane_version": "0.1.0",
+        "contract_version": "0.2.0b5",
+        "schema_version": "aios.v0.1",
+        "active_profile": "lite",
+        "descriptor": {
+          "profile": "lite",
+          "label": "agentctl Lite",
+          "target": "SMB pilots, single-product embedding, and traditional IT AI enablement",
+          "deployment_shape": "single node with SQLite stores, persisted scoped tokens, and real provider configuration",
+          "governance_depth": "stable baseline with minimal operational overhead",
+          "recommended_components": [
+            "SQLite runstore",
+            "SQLite ledger",
+            "SQLite runtime dispatch",
+            "SQLite product integration registry",
+            "SQLite token store",
+            "real model provider",
+            "product adapter smoke"
+          ],
+          "requirements": [
+            {
+              "id": "runstore.sqlite",
+              "category": "store",
+              "title": "Run store is persistent",
+              "expected": "runstore.kind: sqlite",
+              "remediation": "Configure runstore.kind: sqlite."
+            },
+            {
+              "id": "ledger.sqlite",
+              "category": "store",
+              "title": "Action ledger is persistent",
+              "expected": "ledger.kind: sqlite",
+              "remediation": "Configure ledger.kind: sqlite."
+            },
+            {
+              "id": "runtime_dispatch.sqlite",
+              "category": "runtime",
+              "title": "Runtime dispatch store is persistent",
+              "expected": "runtime_dispatch.store.kind: sqlite",
+              "remediation": "Configure runtime_dispatch.store.kind: sqlite."
+            },
+            {
+              "id": "auth.token_store.sqlite",
+              "category": "auth",
+              "title": "Scoped token store is persistent",
+              "expected": "auth.token_store.kind: sqlite",
+              "remediation": "Configure auth.token_store.kind: sqlite."
+            },
+            {
+              "id": "product_integration.sqlite",
+              "category": "product",
+              "title": "Product Integration registry is persistent",
+              "expected": "product_integration.store.kind: sqlite",
+              "remediation": "Configure product_integration.store.kind: sqlite."
+            },
+            {
+              "id": "model_gateway.real_provider",
+              "category": "model_gateway",
+              "title": "At least one real model provider is configured",
+              "expected": "providers contains a provider outside echo/scripted",
+              "remediation": "Add deepseek, qwen, openai-compatible, openai, doubao, zhipu, or another production provider."
+            },
+            {
+              "id": "auth.scopes.enabled",
+              "category": "auth",
+              "title": "Scoped API authorization is enabled",
+              "expected": "auth.scopes is enabled or omitted",
+              "remediation": "Set auth.scopes: enabled or true."
+            }
+          ]
+        },
+        "evaluation": {
+          "kind": "DeploymentProfileEvaluation",
+          "profile": "lite",
+          "descriptor": {
+            "profile": "lite",
+            "label": "agentctl Lite",
+            "target": "SMB pilots, single-product embedding, and traditional IT AI enablement",
+            "deployment_shape": "single node with SQLite stores, persisted scoped tokens, and real provider configuration",
+            "governance_depth": "stable baseline with minimal operational overhead",
+            "recommended_components": [
+              "SQLite runstore",
+              "SQLite ledger",
+              "SQLite runtime dispatch",
+              "SQLite product integration registry",
+              "SQLite token store",
+              "real model provider",
+              "product adapter smoke"
+            ],
+            "requirements": [
+              {
+                "id": "runstore.sqlite",
+                "category": "store",
+                "title": "Run store is persistent",
+                "expected": "runstore.kind: sqlite",
+                "remediation": "Configure runstore.kind: sqlite."
+              },
+              {
+                "id": "ledger.sqlite",
+                "category": "store",
+                "title": "Action ledger is persistent",
+                "expected": "ledger.kind: sqlite",
+                "remediation": "Configure ledger.kind: sqlite."
+              },
+              {
+                "id": "runtime_dispatch.sqlite",
+                "category": "runtime",
+                "title": "Runtime dispatch store is persistent",
+                "expected": "runtime_dispatch.store.kind: sqlite",
+                "remediation": "Configure runtime_dispatch.store.kind: sqlite."
+              },
+              {
+                "id": "auth.token_store.sqlite",
+                "category": "auth",
+                "title": "Scoped token store is persistent",
+                "expected": "auth.token_store.kind: sqlite",
+                "remediation": "Configure auth.token_store.kind: sqlite."
+              },
+              {
+                "id": "product_integration.sqlite",
+                "category": "product",
+                "title": "Product Integration registry is persistent",
+                "expected": "product_integration.store.kind: sqlite",
+                "remediation": "Configure product_integration.store.kind: sqlite."
+              },
+              {
+                "id": "model_gateway.real_provider",
+                "category": "model_gateway",
+                "title": "At least one real model provider is configured",
+                "expected": "providers contains a provider outside echo/scripted",
+                "remediation": "Add deepseek, qwen, openai-compatible, openai, doubao, zhipu, or another production provider."
+              },
+              {
+                "id": "auth.scopes.enabled",
+                "category": "auth",
+                "title": "Scoped API authorization is enabled",
+                "expected": "auth.scopes is enabled or omitted",
+                "remediation": "Set auth.scopes: enabled or true."
+              }
+            ]
+          },
+          "status": "pass",
+          "checks": [
+            {
+              "id": "deployment_profile.valid",
+              "category": "profile",
+              "title": "Known deployment profile",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "deployment_profile is dev, lite, or enterprise",
+              "actual": "lite",
+              "remediation": "Set deployment_profile to dev, lite, or enterprise."
+            },
+            {
+              "id": "runstore.sqlite",
+              "category": "store",
+              "title": "Run store is persistent",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "runstore.kind: sqlite",
+              "actual": "sqlite",
+              "remediation": "Configure runstore.kind: sqlite."
+            },
+            {
+              "id": "ledger.sqlite",
+              "category": "store",
+              "title": "Action ledger is persistent",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "ledger.kind: sqlite",
+              "actual": "sqlite",
+              "remediation": "Configure ledger.kind: sqlite."
+            },
+            {
+              "id": "runtime_dispatch.sqlite",
+              "category": "runtime",
+              "title": "Runtime dispatch store is persistent",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "runtime_dispatch.store.kind: sqlite",
+              "actual": "sqlite",
+              "remediation": "Configure runtime_dispatch.store.kind: sqlite."
+            },
+            {
+              "id": "product_integration.sqlite",
+              "category": "product",
+              "title": "Product Integration registry is persistent",
+              "passed": true,
+              "required": false,
+              "severity": "warning",
+              "expected": "product_integration.store.kind: sqlite",
+              "actual": "sqlite",
+              "remediation": "Configure product_integration.store.kind: sqlite."
+            },
+            {
+              "id": "auth.token_store.sqlite",
+              "category": "auth",
+              "title": "Scoped token store is persistent",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "auth.token_store.kind: sqlite",
+              "actual": "sqlite",
+              "remediation": "Configure auth.token_store.kind: sqlite."
+            },
+            {
+              "id": "model_gateway.real_provider",
+              "category": "model_gateway",
+              "title": "At least one real model provider is configured",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "providers contains a provider outside echo/scripted",
+              "actual": "deepseek, echo",
+              "remediation": "Add a real provider such as deepseek, qwen, openai-compatible, openai, doubao, or zhipu."
+            },
+            {
+              "id": "auth.scopes.enabled",
+              "category": "auth",
+              "title": "Scoped API authorization is enabled",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "auth.scopes is enabled or omitted",
+              "actual": "enabled",
+              "remediation": "Set auth.scopes: enabled or true."
+            }
+          ],
+          "summary": {
+            "passed": 8,
+            "failed": 0,
+            "required_failed": [],
+            "warnings": []
+          }
+        },
+        "lite_runtime": {
+          "mode": "assist",
+          "status": "fail",
+          "blocking_states": [
+            "missing_config",
+            "misconfigured"
+          ],
+          "blocking_capabilities": [
+            "frontdesk"
+          ],
+          "deployment_profile": {
+            "declared": "lite",
+            "state": "configured",
+            "reason": "deployment_profile is explicitly lite",
+            "remediation": null
+          },
+          "capability_matrix": {
+            "model_gateway": {
+              "policy": "enabled",
+              "state": "configured",
+              "enabled_by_policy": true,
+              "expected_sections": [
+                "providers"
+              ],
+              "configured_sections": [
+                "providers"
+              ],
+              "missing_sections": [],
+              "reason": "1 production provider(s) configured out of 2",
+              "remediation": null
+            },
+            "ledger": {
+              "policy": "enabled",
+              "state": "configured",
+              "enabled_by_policy": true,
+              "expected_sections": [
+                "ledger"
+              ],
+              "configured_sections": [
+                "ledger"
+              ],
+              "missing_sections": [],
+              "reason": "ledger store is configured",
+              "remediation": null
+            },
+            "scoped_tokens": {
+              "policy": "enabled",
+              "state": "configured",
+              "enabled_by_policy": true,
+              "expected_sections": [
+                "auth.scopes",
+                "auth.token_store"
+              ],
+              "configured_sections": [
+                "auth.scopes",
+                "auth.token_store"
+              ],
+              "missing_sections": [],
+              "reason": "scoped token auth and persistent token store are configured",
+              "remediation": null
+            },
+            "product_context_admission": {
+              "policy": "enabled",
+              "state": "configured",
+              "enabled_by_policy": true,
+              "expected_sections": [
+                "product_integration.store",
+                "product_integration.admission"
+              ],
+              "configured_sections": [
+                "product_integration.store",
+                "product_integration.admission"
+              ],
+              "missing_sections": [],
+              "reason": "product context admission is configured",
+              "remediation": null
+            },
+            "frontdesk": {
+              "policy": "enabled",
+              "state": "missing_config",
+              "enabled_by_policy": true,
+              "expected_sections": [
+                "integration",
+                "frontdesk",
+                "interaction",
+                "autonomy",
+                "frontdesk.representative_memory.store"
+              ],
+              "configured_sections": [
+                "integration",
+                "frontdesk",
+                "interaction",
+                "autonomy"
+              ],
+              "missing_sections": [
+                "frontdesk.representative_memory.store"
+              ],
+              "reason": "standalone Frontdesk requires a persistent representative-memory store",
+              "remediation": "Configure frontdesk.representative_memory.store or use a fully configured core_connected profile."
+            },
+            "agent_directory": {
+              "policy": "read_only",
+              "state": "configured",
+              "enabled_by_policy": true,
+              "expected_sections": [
+                "control_plane.store"
+              ],
+              "configured_sections": [
+                "control_plane.store"
+              ],
+              "missing_sections": [],
+              "reason": "control-plane catalog store is configured for agent directory records",
+              "remediation": null
+            },
+            "agent_growth": {
+              "policy": "disabled",
+              "state": "disabled_by_design",
+              "enabled_by_policy": false,
+              "expected_sections": [],
+              "configured_sections": [],
+              "missing_sections": [],
+              "reason": "lite_mode assist disables agent_growth",
+              "remediation": null
+            },
+            "memory": {
+              "policy": "disabled",
+              "state": "disabled_by_design",
+              "enabled_by_policy": false,
+              "expected_sections": [
+                "memory_plane.store"
+              ],
+              "configured_sections": [],
+              "missing_sections": [],
+              "reason": "lite_mode assist disables memory",
+              "remediation": null
+            },
+            "knowledge": {
+              "policy": "disabled",
+              "state": "disabled_by_design",
+              "enabled_by_policy": false,
+              "expected_sections": [
+                "rag"
+              ],
+              "configured_sections": [],
+              "missing_sections": [],
+              "reason": "lite_mode assist disables knowledge",
+              "remediation": null
+            },
+            "automation": {
+              "policy": "disabled",
+              "state": "disabled_by_design",
+              "enabled_by_policy": false,
+              "expected_sections": [
+                "automation"
+              ],
+              "configured_sections": [],
+              "missing_sections": [],
+              "reason": "lite_mode assist disables automation",
+              "remediation": null
+            },
+            "enterprise_evidence": {
+              "policy": "disabled",
+              "state": "disabled_by_design",
+              "enabled_by_policy": false,
+              "expected_sections": [],
+              "configured_sections": [],
+              "missing_sections": [],
+              "reason": "lite_mode assist disables enterprise_evidence",
+              "remediation": null
+            }
+          },
+          "capability_summary": {
+            "configured": [
+              "agent_directory",
+              "ledger",
+              "model_gateway",
+              "product_context_admission",
+              "scoped_tokens"
+            ],
+            "missing_config": [
+              "frontdesk"
+            ],
+            "disabled_by_design": [
+              "agent_growth",
+              "automation",
+              "enterprise_evidence",
+              "knowledge",
+              "memory"
+            ]
+          }
+        },
+        "lite_baseline": {
+          "mode": "assist",
+          "status": "pass",
+          "warnings": [],
+          "failures": [],
+          "thresholds": {
+            "route_count": {
+              "expected": 40
+            },
+            "build_runtime_ms": {
+              "warn_max": 1800.0,
+              "fail_max": 3600.0
+            },
+            "http_api_init_ms": {
+              "warn_max": 1200.0,
+              "fail_max": 2400.0
+            },
+            "total_startup_ms": {
+              "warn_max": 3000.0,
+              "fail_max": 6000.0
+            },
+            "rss_mb": {
+              "warn_max": 640.0,
+              "fail_max": 896.0
+            }
+          },
+          "assessments": {
+            "route_count": {
+              "metric": "route_count",
+              "status": "pass",
+              "value": 40.0,
+              "unit": "routes",
+              "thresholds": {
+                "expected": 40
+              },
+              "detail": "route_count=40routes matches expected 40routes"
+            },
+            "build_runtime_ms": {
+              "metric": "build_runtime_ms",
+              "status": "unavailable",
+              "value": null,
+              "unit": "ms",
+              "thresholds": {
+                "warn_max": 1800.0,
+                "fail_max": 3600.0
+              },
+              "detail": "metric is unavailable in the current environment"
+            },
+            "http_api_init_ms": {
+              "metric": "http_api_init_ms",
+              "status": "unavailable",
+              "value": null,
+              "unit": "ms",
+              "thresholds": {
+                "warn_max": 1200.0,
+                "fail_max": 2400.0
+              },
+              "detail": "metric is unavailable in the current environment"
+            },
+            "total_startup_ms": {
+              "metric": "total_startup_ms",
+              "status": "unavailable",
+              "value": null,
+              "unit": "ms",
+              "thresholds": {
+                "warn_max": 3000.0,
+                "fail_max": 6000.0
+              },
+              "detail": "metric is unavailable in the current environment"
+            },
+            "rss_mb": {
+              "metric": "rss_mb",
+              "status": "unavailable",
+              "value": null,
+              "unit": "MB",
+              "thresholds": {
+                "warn_max": 640.0,
+                "fail_max": 896.0
+              },
+              "detail": "metric is unavailable in the current environment"
+            }
+          },
+          "route_surface": {
+            "mode": "assist",
+            "route_count": 40,
+            "route_groups": {
+              "aios": 2,
+              "auth": 5,
+              "frontdesk": 19,
+              "model_gateway": 4,
+              "runs": 5,
+              "runspecs": 1,
+              "system": 4
+            },
+            "surface_summary": {
+              "gateway": 9,
+              "runtime": 6,
+              "model_gateway": 4,
+              "platform": 2,
+              "frontdesk": 19
+            },
+            "allowed_route_groups": [
+              "system",
+              "auth"
+            ],
+            "optional_route_surfaces": []
+          },
+          "process": {
+            "rss_bytes": null,
+            "rss_mb": null
+          },
+          "startup": {}
+        }
+      }
+    }
+  },
+  {
+    "step": "P1b_invoke",
+    "outcome": "RESPONSE_RECEIVED",
+    "detail": {
+      "request_id": "req_45180f5f253d4d4c",
+      "user_id": "syn-1",
+      "tenant": "aquant-synthetic",
+      "intent": "continuous_assist",
+      "status": "failed",
+      "phase": "blocked",
+      "work_item_id": null,
+      "work_item_type": null,
+      "artifact_refs": [],
+      "warnings": [],
+      "model_routes": [],
+      "evidence": {
+        "continuous_assist": {
+          "schema_version": "agentctl.frontdesk_continuous_assist.v1",
+          "runtime_engine": "agentctl_native",
+          "run_id": "run_fd_7806071fd94dc922ce6d618750464f6d05a2e0f6",
+          "status": "failed",
+          "accepted": true,
+          "execution_terminal": true,
+          "stop_reason": "failed",
+          "error_code": null,
+          "event_sequence": 5,
+          "model_successful_responses": 0,
+          "model_attempts": [
+            {
+              "iteration": 1,
+              "state": "outcome_unknown",
+              "request_digest": "sha256:dba45e6f6e4132b0cba7bc9b5f25240e6ce0ab0250560c6a24510f2d6dcc07fc",
+              "binding_digest": "sha256:ab873d33bc19528425bb8754e5de7f3b7d9767c32f32fc59bbeb497e711cc097"
+            }
+          ],
+          "provider_attempts": null,
+          "provider_attempts_source": "provider telemetry required; not inferred from responses",
+          "tool_receipts": [],
+          "completion_facts": {
+            "schema_version": "agentctl.execution_completion_facts.v1",
+            "provider_call_succeeded": false,
+            "final_response_present": false,
+            "accepted_tool_call": false,
+            "pending_job": false,
+            "failed_side_effect": false,
+            "outcome_unknown": false,
+            "error_ref": "run_error"
+          },
+          "model_route_binding": null,
+          "business_acceptance_verified": false,
+          "semantic_truth_verified": false,
+          "pending_question_set": null,
+          "plan_binding": null,
+          "execution_receipt_verified": false
+        },
+        "assistant_turn_result": {
+          "schema_version": "aios.assistant_turn_result.v0.1",
+          "request_id": "req_45180f5f253d4d4c",
+          "trace_id": "req_45180f5f253d4d4c",
+          "mode": "blocked",
+          "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "requirement_brief": {
+            "omitted": true,
+            "kind": "NoneType"
+          },
+          "clarification_decision": null,
+          "proposed_invocations": [],
+          "confirmation_requirement": null,
+          "work_item_required": false,
+          "work_item_id": null,
+          "citations": [],
+          "artifact_refs": [],
+          "inline_file_mentions": [],
+          "evidence_refs": [],
+          "continuation_token": null,
+          "active_run_ref": {
+            "run_id": "run_fd_7806071fd94dc922ce6d618750464f6d05a2e0f6"
+          },
+          "metadata": {
+            "interaction_mode": "continuous_assist",
+            "runtime_status": "failed",
+            "plan_ref": null
+          }
+        },
+        "usage_records": [
+          {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "source": "native_runtime",
+            "run_id": "run_fd_7806071fd94dc922ce6d618750464f6d05a2e0f6"
+          }
+        ],
+        "memory_recall_receipt": {
+          "schema_version": "agentctl.frontdesk_memory_recall_receipt.v1",
+          "status": "skipped",
+          "namespaces": [],
+          "item_refs": [],
+          "source_refs": [],
+          "filter_reasons": [
+            "validated_context_required"
+          ],
+          "budget": {
+            "max_items": 0,
+            "max_characters": 0,
+            "used_characters": 0
+          }
+        },
+        "memory_persist_receipt": {
+          "schema_version": "agentctl.frontdesk_memory_persist_receipt.v1",
+          "status": "skipped",
+          "node_ref": null,
+          "reason": "automatic_raw_episode_persist_disabled"
+        },
+        "frontdesk_request_baseline": {
+          "schema_version": "aios.frontdesk_request_baseline.v0.1",
+          "semantic_decision_calls": 0,
+          "preclassifier_calls": 0,
+          "planner_calls": 0,
+          "duplicate_semantic_decision": false,
+          "tool_continuations": 0,
+          "context_bytes": 530,
+          "manifest_bytes": 0,
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "model_cost": 0.0,
+          "latency_seconds": 0.09322109998902306
+        }
+      },
+      "why": "",
+      "reply": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+      "actions": [],
+      "ui_commands": [],
+      "dialog_turns": [
+        {
+          "id": "turn_babb3367017d",
+          "role": "frontdesk",
+          "text": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "intent": "continuous_assist",
+          "context_ref": null,
+          "related_action_id": null,
+          "related_proposal_id": null,
+          "ui_target": null,
+          "at": "2026-09-13T15:09:30.105469+00:00"
+        }
+      ],
+      "plan": null,
+      "plan_execution": null,
+      "usage_records": [
+        {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "source": "native_runtime",
+          "run_id": "run_fd_7806071fd94dc922ce6d618750464f6d05a2e0f6"
+        }
+      ],
+      "assistant_state": {
+        "schema_version": "aios.assistant_ui_state.v0.1",
+        "state": "failed",
+        "mode": "blocked",
+        "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+        "work_item_required": false,
+        "active_run_ref": {
+          "run_id": "run_fd_7806071fd94dc922ce6d618750464f6d05a2e0f6"
+        }
+      },
+      "reflections": [
+        {
+          "kind": "frontdesk_execution_reflection",
+          "status": "failed",
+          "source_status": "failed",
+          "plan_id": "",
+          "what_happened": "Ran Frontdesk execute for unknown plan.",
+          "outcome": "Execution failed before a trusted completion could be recorded.",
+          "failure_reason": "failed",
+          "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+          "evidence": {
+            "status": "present",
+            "refs": []
+          },
+          "model_usage": [],
+          "model_evidence_status": "none",
+          "work_item": {
+            "id": null,
+            "type": null
+          },
+          "steps": [],
+          "suggest_memory_proposal": true,
+          "suggest_skill_candidate": false,
+          "suggest_agent_improvement": true,
+          "experience_candidates": [
+            {
+              "kind": "memory_proposal",
+              "title": "Remember Frontdesk execution lesson",
+              "reason": "Execution failed before a trusted completion could be recorded.",
+              "confidence": 0.62,
+              "source": "frontdesk_reflection",
+              "evidence_refs": [],
+              "payload": {
+                "plan_id": "",
+                "reflection_status": "failed",
+                "source_status": "failed",
+                "action_types": [],
+                "work_item": {
+                  "id": null,
+                  "type": null
+                },
+                "model_usage": [],
+                "model_evidence_status": "none",
+                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+              }
+            },
+            {
+              "kind": "agent_improvement",
+              "title": "Improve Frontdesk execution guardrail",
+              "reason": "failed",
+              "confidence": 0.7,
+              "source": "frontdesk_reflection",
+              "evidence_refs": [],
+              "payload": {
+                "plan_id": "",
+                "reflection_status": "failed",
+                "source_status": "failed",
+                "action_types": [],
+                "work_item": {
+                  "id": null,
+                  "type": null
+                },
+                "model_usage": [],
+                "model_evidence_status": "none",
+                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+              }
+            }
+          ]
+        }
+      ],
+      "experience_candidates": [
+        {
+          "kind": "memory_proposal",
+          "title": "Remember Frontdesk execution lesson",
+          "reason": "Execution failed before a trusted completion could be recorded.",
+          "confidence": 0.62,
+          "source": "frontdesk_reflection",
+          "evidence_refs": [],
+          "payload": {
+            "plan_id": "",
+            "reflection_status": "failed",
+            "source_status": "failed",
+            "action_types": [],
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "model_usage": [],
+            "model_evidence_status": "none",
+            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+          }
+        },
+        {
+          "kind": "agent_improvement",
+          "title": "Improve Frontdesk execution guardrail",
+          "reason": "failed",
+          "confidence": 0.7,
+          "source": "frontdesk_reflection",
+          "evidence_refs": [],
+          "payload": {
+            "plan_id": "",
+            "reflection_status": "failed",
+            "source_status": "failed",
+            "action_types": [],
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "model_usage": [],
+            "model_evidence_status": "none",
+            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+          }
+        }
+      ],
+      "cognitive_digest": {
+        "kind": "frontdesk_cognitive_digest",
+        "today_highlights": [
+          {
+            "id": "needs_attention:failed",
+            "kind": "needs_attention",
+            "title": "Work item needs attention",
+            "summary": "failed",
+            "target": {
+              "plan_id": "",
+              "work_item": {
+                "id": null,
+                "type": null
+              }
+            }
+          }
+        ],
+        "needs_attention": [
+          {
+            "id": "failed",
+            "kind": "frontdesk_attention_item",
+            "status": "failed",
+            "source_status": "failed",
+            "title": "Execution failed",
+            "summary": "failed",
+            "plan_id": "",
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "evidence_refs": [],
+            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+            "failure_reason": "failed"
+          }
+        ],
+        "recent_outputs": [],
+        "recoverable_items": [
+          {
+            "id": "failed",
+            "kind": "frontdesk_recoverable_item",
+            "status": "failed",
+            "source_status": "failed",
+            "title": "Recover Frontdesk work item",
+            "summary": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+            "plan_id": "",
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "evidence_refs": [],
+            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+            "suggested_action": {
+              "type": "recover_frontdesk_item",
+              "label": "Review and recover",
+              "target": {
+                "plan_id": "",
+                "work_item_id": null,
+                "status": "failed"
+              }
+            }
+          }
+        ],
+        "counts": {
+          "today_highlights": 1,
+          "needs_attention": 1,
+          "recent_outputs": 0,
+          "recoverable_items": 1,
+          "reflections": 1,
+          "work_items": 0,
+          "succeeded": 0,
+          "failed": 1,
+          "needs_evidence": 0,
+          "pending": 0
+        }
+      }
+    }
+  },
+  {
+    "step": "P1_corrected_minimum_loop",
+    "outcome": "COMPLETED",
+    "detail": {
+      "note": "see P1a/P1b"
+    }
+  },
+  {
+    "step": "N1_no_token",
+    "outcome": "REJECTED",
+    "detail": {
+      "exception": "AgentctlHTTPError",
+      "message": "agentctl request failed: POST /frontdesk/messages returned HTTP 401",
+      "status_code": 401,
+      "method": "POST",
+      "path": "/frontdesk/messages",
+      "request_id": "req_02360c2e846b4143",
+      "payload": {
+        "error": "unauthorized"
+      }
+    }
+  },
+  {
+    "step": "N2_wrong_tenant",
+    "outcome": "UNEXPECTED_SUCCESS",
+    "detail": {
+      "request_id": "req_04ec36425f8c42d0",
+      "user_id": "syn-1",
+      "tenant": "aquant-attacker",
+      "intent": "continuous_assist",
+      "status": "failed",
+      "phase": "blocked",
+      "work_item_id": null,
+      "work_item_type": null,
+      "artifact_refs": [],
+      "warnings": [],
+      "model_routes": [],
+      "evidence": {
+        "continuous_assist": {
+          "schema_version": "agentctl.frontdesk_continuous_assist.v1",
+          "runtime_engine": "agentctl_native",
+          "run_id": "run_fd_a2ba8c057dab657b13ef41144dfe19e03be877ca",
+          "status": "failed",
+          "accepted": true,
+          "execution_terminal": true,
+          "stop_reason": "failed",
+          "error_code": null,
+          "event_sequence": 5,
+          "model_successful_responses": 0,
+          "model_attempts": [
+            {
+              "iteration": 1,
+              "state": "outcome_unknown",
+              "request_digest": "sha256:4e75d361401432a050178476a3ac1dbd401f46f42c0290ceb9f3554d07815ffa",
+              "binding_digest": "sha256:635528d201d5b11ea403752829e18e8b07d9ca577c14ba4b77869e76e16a48f7"
+            }
+          ],
+          "provider_attempts": null,
+          "provider_attempts_source": "provider telemetry required; not inferred from responses",
+          "tool_receipts": [],
+          "completion_facts": {
+            "schema_version": "agentctl.execution_completion_facts.v1",
+            "provider_call_succeeded": false,
+            "final_response_present": false,
+            "accepted_tool_call": false,
+            "pending_job": false,
+            "failed_side_effect": false,
+            "outcome_unknown": false,
+            "error_ref": "run_error"
+          },
+          "model_route_binding": null,
+          "business_acceptance_verified": false,
+          "semantic_truth_verified": false,
+          "pending_question_set": null,
+          "plan_binding": null,
+          "execution_receipt_verified": false
+        },
+        "assistant_turn_result": {
+          "schema_version": "aios.assistant_turn_result.v0.1",
+          "request_id": "req_04ec36425f8c42d0",
+          "trace_id": "req_04ec36425f8c42d0",
+          "mode": "blocked",
+          "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "requirement_brief": {
+            "omitted": true,
+            "kind": "NoneType"
+          },
+          "clarification_decision": null,
+          "proposed_invocations": [],
+          "confirmation_requirement": null,
+          "work_item_required": false,
+          "work_item_id": null,
+          "citations": [],
+          "artifact_refs": [],
+          "inline_file_mentions": [],
+          "evidence_refs": [],
+          "continuation_token": null,
+          "active_run_ref": {
+            "run_id": "run_fd_a2ba8c057dab657b13ef41144dfe19e03be877ca"
+          },
+          "metadata": {
+            "interaction_mode": "continuous_assist",
+            "runtime_status": "failed",
+            "plan_ref": null
+          }
+        },
+        "usage_records": [
+          {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "source": "native_runtime",
+            "run_id": "run_fd_a2ba8c057dab657b13ef41144dfe19e03be877ca"
+          }
+        ],
+        "memory_recall_receipt": {
+          "schema_version": "agentctl.frontdesk_memory_recall_receipt.v1",
+          "status": "skipped",
+          "namespaces": [],
+          "item_refs": [],
+          "source_refs": [],
+          "filter_reasons": [
+            "validated_context_required"
+          ],
+          "budget": {
+            "max_items": 0,
+            "max_characters": 0,
+            "used_characters": 0
+          }
+        },
+        "memory_persist_receipt": {
+          "schema_version": "agentctl.frontdesk_memory_persist_receipt.v1",
+          "status": "skipped",
+          "node_ref": null,
+          "reason": "automatic_raw_episode_persist_disabled"
+        },
+        "frontdesk_request_baseline": {
+          "schema_version": "aios.frontdesk_request_baseline.v0.1",
+          "semantic_decision_calls": 0,
+          "preclassifier_calls": 0,
+          "planner_calls": 0,
+          "duplicate_semantic_decision": false,
+          "tool_continuations": 0,
+          "context_bytes": 492,
+          "manifest_bytes": 0,
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "model_cost": 0.0,
+          "latency_seconds": 0.10996989998966455
+        }
+      },
+      "why": "",
+      "reply": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+      "actions": [],
+      "ui_commands": [],
+      "dialog_turns": [
+        {
+          "id": "turn_6ae4034fcfe4",
+          "role": "frontdesk",
+          "text": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "intent": "continuous_assist",
+          "context_ref": null,
+          "related_action_id": null,
+          "related_proposal_id": null,
+          "ui_target": null,
+          "at": "2026-09-13T15:09:30.233313+00:00"
+        }
+      ],
+      "plan": null,
+      "plan_execution": null,
+      "usage_records": [
+        {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "source": "native_runtime",
+          "run_id": "run_fd_a2ba8c057dab657b13ef41144dfe19e03be877ca"
+        }
+      ],
+      "assistant_state": {
+        "schema_version": "aios.assistant_ui_state.v0.1",
+        "state": "failed",
+        "mode": "blocked",
+        "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+        "work_item_required": false,
+        "active_run_ref": {
+          "run_id": "run_fd_a2ba8c057dab657b13ef41144dfe19e03be877ca"
+        }
+      },
+      "reflections": [
+        {
+          "kind": "frontdesk_execution_reflection",
+          "status": "failed",
+          "source_status": "failed",
+          "plan_id": "",
+          "what_happened": "Ran Frontdesk execute for unknown plan.",
+          "outcome": "Execution failed before a trusted completion could be recorded.",
+          "failure_reason": "failed",
+          "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+          "evidence": {
+            "status": "present",
+            "refs": []
+          },
+          "model_usage": [],
+          "model_evidence_status": "none",
+          "work_item": {
+            "id": null,
+            "type": null
+          },
+          "steps": [],
+          "suggest_memory_proposal": true,
+          "suggest_skill_candidate": false,
+          "suggest_agent_improvement": true,
+          "experience_candidates": [
+            {
+              "kind": "memory_proposal",
+              "title": "Remember Frontdesk execution lesson",
+              "reason": "Execution failed before a trusted completion could be recorded.",
+              "confidence": 0.62,
+              "source": "frontdesk_reflection",
+              "evidence_refs": [],
+              "payload": {
+                "plan_id": "",
+                "reflection_status": "failed",
+                "source_status": "failed",
+                "action_types": [],
+                "work_item": {
+                  "id": null,
+                  "type": null
+                },
+                "model_usage": [],
+                "model_evidence_status": "none",
+                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+              }
+            },
+            {
+              "kind": "agent_improvement",
+              "title": "Improve Frontdesk execution guardrail",
+              "reason": "failed",
+              "confidence": 0.7,
+              "source": "frontdesk_reflection",
+              "evidence_refs": [],
+              "payload": {
+                "plan_id": "",
+                "reflection_status": "failed",
+                "source_status": "failed",
+                "action_types": [],
+                "work_item": {
+                  "id": null,
+                  "type": null
+                },
+                "model_usage": [],
+                "model_evidence_status": "none",
+                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+              }
+            }
+          ]
+        }
+      ],
+      "experience_candidates": [
+        {
+          "kind": "memory_proposal",
+          "title": "Remember Frontdesk execution lesson",
+          "reason": "Execution failed before a trusted completion could be recorded.",
+          "confidence": 0.62,
+          "source": "frontdesk_reflection",
+          "evidence_refs": [],
+          "payload": {
+            "plan_id": "",
+            "reflection_status": "failed",
+            "source_status": "failed",
+            "action_types": [],
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "model_usage": [],
+            "model_evidence_status": "none",
+            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+          }
+        },
+        {
+          "kind": "agent_improvement",
+          "title": "Improve Frontdesk execution guardrail",
+          "reason": "failed",
+          "confidence": 0.7,
+          "source": "frontdesk_reflection",
+          "evidence_refs": [],
+          "payload": {
+            "plan_id": "",
+            "reflection_status": "failed",
+            "source_status": "failed",
+            "action_types": [],
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "model_usage": [],
+            "model_evidence_status": "none",
+            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+          }
+        }
+      ],
+      "cognitive_digest": {
+        "kind": "frontdesk_cognitive_digest",
+        "today_highlights": [
+          {
+            "id": "needs_attention:failed",
+            "kind": "needs_attention",
+            "title": "Work item needs attention",
+            "summary": "failed",
+            "target": {
+              "plan_id": "",
+              "work_item": {
+                "id": null,
+                "type": null
+              }
+            }
+          }
+        ],
+        "needs_attention": [
+          {
+            "id": "failed",
+            "kind": "frontdesk_attention_item",
+            "status": "failed",
+            "source_status": "failed",
+            "title": "Execution failed",
+            "summary": "failed",
+            "plan_id": "",
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "evidence_refs": [],
+            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+            "failure_reason": "failed"
+          }
+        ],
+        "recent_outputs": [],
+        "recoverable_items": [
+          {
+            "id": "failed",
+            "kind": "frontdesk_recoverable_item",
+            "status": "failed",
+            "source_status": "failed",
+            "title": "Recover Frontdesk work item",
+            "summary": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+            "plan_id": "",
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "evidence_refs": [],
+            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+            "suggested_action": {
+              "type": "recover_frontdesk_item",
+              "label": "Review and recover",
+              "target": {
+                "plan_id": "",
+                "work_item_id": null,
+                "status": "failed"
+              }
+            }
+          }
+        ],
+        "counts": {
+          "today_highlights": 1,
+          "needs_attention": 1,
+          "recent_outputs": 0,
+          "recoverable_items": 1,
+          "reflections": 1,
+          "work_items": 0,
+          "succeeded": 0,
+          "failed": 1,
+          "needs_evidence": 0,
+          "pending": 0
+        }
+      }
+    }
+  },
+  {
+    "step": "N3_out_of_scope",
+    "outcome": "UNEXPECTED_SUCCESS",
+    "detail": {
+      "request_id": "req_59471e1fd56e4965",
+      "user_id": "syn-1",
+      "tenant": "aquant-synthetic",
+      "intent": "continuous_assist",
+      "status": "failed",
+      "phase": "blocked",
+      "work_item_id": null,
+      "work_item_type": null,
+      "artifact_refs": [],
+      "warnings": [],
+      "model_routes": [],
+      "evidence": {
+        "continuous_assist": {
+          "schema_version": "agentctl.frontdesk_continuous_assist.v1",
+          "runtime_engine": "agentctl_native",
+          "run_id": "run_fd_89ab0270c345eb3c39ddcca578799156605747be",
+          "status": "failed",
+          "accepted": true,
+          "execution_terminal": true,
+          "stop_reason": "failed",
+          "error_code": null,
+          "event_sequence": 5,
+          "model_successful_responses": 0,
+          "model_attempts": [
+            {
+              "iteration": 1,
+              "state": "outcome_unknown",
+              "request_digest": "sha256:f44db41888384f73f37862be2ebc72a32a5752b0798cd676e4deaf9a74f16635",
+              "binding_digest": "sha256:7f20c6780de76ec3e67530de3049398e8dd523a9c3b922fb9bb7d4bfbd533c33"
+            }
+          ],
+          "provider_attempts": null,
+          "provider_attempts_source": "provider telemetry required; not inferred from responses",
+          "tool_receipts": [],
+          "completion_facts": {
+            "schema_version": "agentctl.execution_completion_facts.v1",
+            "provider_call_succeeded": false,
+            "final_response_present": false,
+            "accepted_tool_call": false,
+            "pending_job": false,
+            "failed_side_effect": false,
+            "outcome_unknown": false,
+            "error_ref": "run_error"
+          },
+          "model_route_binding": null,
+          "business_acceptance_verified": false,
+          "semantic_truth_verified": false,
+          "pending_question_set": null,
+          "plan_binding": null,
+          "execution_receipt_verified": false
+        },
+        "assistant_turn_result": {
+          "schema_version": "aios.assistant_turn_result.v0.1",
+          "request_id": "req_59471e1fd56e4965",
+          "trace_id": "req_59471e1fd56e4965",
+          "mode": "blocked",
+          "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "requirement_brief": {
+            "omitted": true,
+            "kind": "NoneType"
+          },
+          "clarification_decision": null,
+          "proposed_invocations": [],
+          "confirmation_requirement": null,
+          "work_item_required": false,
+          "work_item_id": null,
+          "citations": [],
+          "artifact_refs": [],
+          "inline_file_mentions": [],
+          "evidence_refs": [],
+          "continuation_token": null,
+          "active_run_ref": {
+            "run_id": "run_fd_89ab0270c345eb3c39ddcca578799156605747be"
+          },
+          "metadata": {
+            "interaction_mode": "continuous_assist",
+            "runtime_status": "failed",
+            "plan_ref": null
+          }
+        },
+        "usage_records": [
+          {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "source": "native_runtime",
+            "run_id": "run_fd_89ab0270c345eb3c39ddcca578799156605747be"
+          }
+        ],
+        "memory_recall_receipt": {
+          "schema_version": "agentctl.frontdesk_memory_recall_receipt.v1",
+          "status": "skipped",
+          "namespaces": [],
+          "item_refs": [],
+          "source_refs": [],
+          "filter_reasons": [
+            "validated_context_required"
+          ],
+          "budget": {
+            "max_items": 0,
+            "max_characters": 0,
+            "used_characters": 0
+          }
+        },
+        "memory_persist_receipt": {
+          "schema_version": "agentctl.frontdesk_memory_persist_receipt.v1",
+          "status": "skipped",
+          "node_ref": null,
+          "reason": "automatic_raw_episode_persist_disabled"
+        },
+        "frontdesk_request_baseline": {
+          "schema_version": "aios.frontdesk_request_baseline.v0.1",
+          "semantic_decision_calls": 0,
+          "preclassifier_calls": 0,
+          "planner_calls": 0,
+          "duplicate_semantic_decision": false,
+          "tool_continuations": 0,
+          "context_bytes": 501,
+          "manifest_bytes": 0,
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "model_cost": 0.0,
+          "latency_seconds": 0.11059240001486614
+        }
+      },
+      "why": "",
+      "reply": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+      "actions": [],
+      "ui_commands": [],
+      "dialog_turns": [
+        {
+          "id": "turn_5b51156a2d68",
+          "role": "frontdesk",
+          "text": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "intent": "continuous_assist",
+          "context_ref": null,
+          "related_action_id": null,
+          "related_proposal_id": null,
+          "ui_target": null,
+          "at": "2026-09-13T15:09:30.369050+00:00"
+        }
+      ],
+      "plan": null,
+      "plan_execution": null,
+      "usage_records": [
+        {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "source": "native_runtime",
+          "run_id": "run_fd_89ab0270c345eb3c39ddcca578799156605747be"
+        }
+      ],
+      "assistant_state": {
+        "schema_version": "aios.assistant_ui_state.v0.1",
+        "state": "failed",
+        "mode": "blocked",
+        "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+        "work_item_required": false,
+        "active_run_ref": {
+          "run_id": "run_fd_89ab0270c345eb3c39ddcca578799156605747be"
+        }
+      },
+      "reflections": [
+        {
+          "kind": "frontdesk_execution_reflection",
+          "status": "failed",
+          "source_status": "failed",
+          "plan_id": "",
+          "what_happened": "Ran Frontdesk execute for unknown plan.",
+          "outcome": "Execution failed before a trusted completion could be recorded.",
+          "failure_reason": "failed",
+          "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+          "evidence": {
+            "status": "present",
+            "refs": []
+          },
+          "model_usage": [],
+          "model_evidence_status": "none",
+          "work_item": {
+            "id": null,
+            "type": null
+          },
+          "steps": [],
+          "suggest_memory_proposal": true,
+          "suggest_skill_candidate": false,
+          "suggest_agent_improvement": true,
+          "experience_candidates": [
+            {
+              "kind": "memory_proposal",
+              "title": "Remember Frontdesk execution lesson",
+              "reason": "Execution failed before a trusted completion could be recorded.",
+              "confidence": 0.62,
+              "source": "frontdesk_reflection",
+              "evidence_refs": [],
+              "payload": {
+                "plan_id": "",
+                "reflection_status": "failed",
+                "source_status": "failed",
+                "action_types": [],
+                "work_item": {
+                  "id": null,
+                  "type": null
+                },
+                "model_usage": [],
+                "model_evidence_status": "none",
+                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+              }
+            },
+            {
+              "kind": "agent_improvement",
+              "title": "Improve Frontdesk execution guardrail",
+              "reason": "failed",
+              "confidence": 0.7,
+              "source": "frontdesk_reflection",
+              "evidence_refs": [],
+              "payload": {
+                "plan_id": "",
+                "reflection_status": "failed",
+                "source_status": "failed",
+                "action_types": [],
+                "work_item": {
+                  "id": null,
+                  "type": null
+                },
+                "model_usage": [],
+                "model_evidence_status": "none",
+                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+              }
+            }
+          ]
+        }
+      ],
+      "experience_candidates": [
+        {
+          "kind": "memory_proposal",
+          "title": "Remember Frontdesk execution lesson",
+          "reason": "Execution failed before a trusted completion could be recorded.",
+          "confidence": 0.62,
+          "source": "frontdesk_reflection",
+          "evidence_refs": [],
+          "payload": {
+            "plan_id": "",
+            "reflection_status": "failed",
+            "source_status": "failed",
+            "action_types": [],
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "model_usage": [],
+            "model_evidence_status": "none",
+            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+          }
+        },
+        {
+          "kind": "agent_improvement",
+          "title": "Improve Frontdesk execution guardrail",
+          "reason": "failed",
+          "confidence": 0.7,
+          "source": "frontdesk_reflection",
+          "evidence_refs": [],
+          "payload": {
+            "plan_id": "",
+            "reflection_status": "failed",
+            "source_status": "failed",
+            "action_types": [],
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "model_usage": [],
+            "model_evidence_status": "none",
+            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+          }
+        }
+      ],
+      "cognitive_digest": {
+        "kind": "frontdesk_cognitive_digest",
+        "today_highlights": [
+          {
+            "id": "needs_attention:failed",
+            "kind": "needs_attention",
+            "title": "Work item needs attention",
+            "summary": "failed",
+            "target": {
+              "plan_id": "",
+              "work_item": {
+                "id": null,
+                "type": null
+              }
+            }
+          }
+        ],
+        "needs_attention": [
+          {
+            "id": "failed",
+            "kind": "frontdesk_attention_item",
+            "status": "failed",
+            "source_status": "failed",
+            "title": "Execution failed",
+            "summary": "failed",
+            "plan_id": "",
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "evidence_refs": [],
+            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+            "failure_reason": "failed"
+          }
+        ],
+        "recent_outputs": [],
+        "recoverable_items": [
+          {
+            "id": "failed",
+            "kind": "frontdesk_recoverable_item",
+            "status": "failed",
+            "source_status": "failed",
+            "title": "Recover Frontdesk work item",
+            "summary": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+            "plan_id": "",
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "evidence_refs": [],
+            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+            "suggested_action": {
+              "type": "recover_frontdesk_item",
+              "label": "Review and recover",
+              "target": {
+                "plan_id": "",
+                "work_item_id": null,
+                "status": "failed"
+              }
+            }
+          }
+        ],
+        "counts": {
+          "today_highlights": 1,
+          "needs_attention": 1,
+          "recent_outputs": 0,
+          "recoverable_items": 1,
+          "reflections": 1,
+          "work_items": 0,
+          "succeeded": 0,
+          "failed": 1,
+          "needs_evidence": 0,
+          "pending": 0
+        }
+      }
+    }
+  },
+  {
+    "step": "N4_missing_product_context",
+    "outcome": "UNEXPECTED_SUCCESS",
+    "detail": {
+      "request_id": "req_7f53d5843b5048be",
+      "user_id": "syn-1",
+      "tenant": "aquant-synthetic",
+      "intent": "continuous_assist",
+      "status": "failed",
+      "phase": "blocked",
+      "work_item_id": null,
+      "work_item_type": null,
+      "artifact_refs": [],
+      "warnings": [],
+      "model_routes": [],
+      "evidence": {
+        "continuous_assist": {
+          "schema_version": "agentctl.frontdesk_continuous_assist.v1",
+          "runtime_engine": "agentctl_native",
+          "run_id": "run_fd_6c419666341fd2a9b90e722e9b26e9ec30f13608",
+          "status": "failed",
+          "accepted": true,
+          "execution_terminal": true,
+          "stop_reason": "failed",
+          "error_code": null,
+          "event_sequence": 5,
+          "model_successful_responses": 0,
+          "model_attempts": [
+            {
+              "iteration": 1,
+              "state": "outcome_unknown",
+              "request_digest": "sha256:f60ee2cc0866fe598c33a9e8b6a8606285559ef33839ab5b3856baebaeeab294",
+              "binding_digest": "sha256:e33a04a8037f2697c518f19eb34de5787a0e6076a5fd2523caaf4aaea8329956"
+            }
+          ],
+          "provider_attempts": null,
+          "provider_attempts_source": "provider telemetry required; not inferred from responses",
+          "tool_receipts": [],
+          "completion_facts": {
+            "schema_version": "agentctl.execution_completion_facts.v1",
+            "provider_call_succeeded": false,
+            "final_response_present": false,
+            "accepted_tool_call": false,
+            "pending_job": false,
+            "failed_side_effect": false,
+            "outcome_unknown": false,
+            "error_ref": "run_error"
+          },
+          "model_route_binding": null,
+          "business_acceptance_verified": false,
+          "semantic_truth_verified": false,
+          "pending_question_set": null,
+          "plan_binding": null,
+          "execution_receipt_verified": false
+        },
+        "assistant_turn_result": {
+          "schema_version": "aios.assistant_turn_result.v0.1",
+          "request_id": "req_7f53d5843b5048be",
+          "trace_id": "req_7f53d5843b5048be",
+          "mode": "blocked",
+          "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "requirement_brief": {
+            "omitted": true,
+            "kind": "NoneType"
+          },
+          "clarification_decision": null,
+          "proposed_invocations": [],
+          "confirmation_requirement": null,
+          "work_item_required": false,
+          "work_item_id": null,
+          "citations": [],
+          "artifact_refs": [],
+          "inline_file_mentions": [],
+          "evidence_refs": [],
+          "continuation_token": null,
+          "active_run_ref": {
+            "run_id": "run_fd_6c419666341fd2a9b90e722e9b26e9ec30f13608"
+          },
+          "metadata": {
+            "interaction_mode": "continuous_assist",
+            "runtime_status": "failed",
+            "plan_ref": null
+          }
+        },
+        "usage_records": [
+          {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "source": "native_runtime",
+            "run_id": "run_fd_6c419666341fd2a9b90e722e9b26e9ec30f13608"
+          }
+        ],
+        "memory_recall_receipt": {
+          "schema_version": "agentctl.frontdesk_memory_recall_receipt.v1",
+          "status": "skipped",
+          "namespaces": [],
+          "item_refs": [],
+          "source_refs": [],
+          "filter_reasons": [
+            "validated_context_required"
+          ],
+          "budget": {
+            "max_items": 0,
+            "max_characters": 0,
+            "used_characters": 0
+          }
+        },
+        "memory_persist_receipt": {
+          "schema_version": "agentctl.frontdesk_memory_persist_receipt.v1",
+          "status": "skipped",
+          "node_ref": null,
+          "reason": "automatic_raw_episode_persist_disabled"
+        },
+        "frontdesk_request_baseline": {
+          "schema_version": "aios.frontdesk_request_baseline.v0.1",
+          "semantic_decision_calls": 0,
+          "preclassifier_calls": 0,
+          "planner_calls": 0,
+          "duplicate_semantic_decision": false,
+          "tool_continuations": 0,
+          "context_bytes": 199,
+          "manifest_bytes": 0,
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "model_cost": 0.0,
+          "latency_seconds": 0.12576680001802742
+        }
+      },
+      "why": "",
+      "reply": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+      "actions": [],
+      "ui_commands": [],
+      "dialog_turns": [
+        {
+          "id": "turn_d4ebe44ffb4a",
+          "role": "frontdesk",
+          "text": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "intent": "continuous_assist",
+          "context_ref": null,
+          "related_action_id": null,
+          "related_proposal_id": null,
+          "ui_target": null,
+          "at": "2026-09-13T15:09:30.521854+00:00"
+        }
+      ],
+      "plan": null,
+      "plan_execution": null,
+      "usage_records": [
+        {
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "source": "native_runtime",
+          "run_id": "run_fd_6c419666341fd2a9b90e722e9b26e9ec30f13608"
+        }
+      ],
+      "assistant_state": {
+        "schema_version": "aios.assistant_ui_state.v0.1",
+        "state": "failed",
+        "mode": "blocked",
+        "message": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+        "work_item_required": false,
+        "active_run_ref": {
+          "run_id": "run_fd_6c419666341fd2a9b90e722e9b26e9ec30f13608"
+        }
+      },
+      "reflections": [
+        {
+          "kind": "frontdesk_execution_reflection",
+          "status": "failed",
+          "source_status": "failed",
+          "plan_id": "",
+          "what_happened": "Ran Frontdesk execute for unknown plan.",
+          "outcome": "Execution failed before a trusted completion could be recorded.",
+          "failure_reason": "failed",
+          "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+          "evidence": {
+            "status": "present",
+            "refs": []
+          },
+          "model_usage": [],
+          "model_evidence_status": "none",
+          "work_item": {
+            "id": null,
+            "type": null
+          },
+          "steps": [],
+          "suggest_memory_proposal": true,
+          "suggest_skill_candidate": false,
+          "suggest_agent_improvement": true,
+          "experience_candidates": [
+            {
+              "kind": "memory_proposal",
+              "title": "Remember Frontdesk execution lesson",
+              "reason": "Execution failed before a trusted completion could be recorded.",
+              "confidence": 0.62,
+              "source": "frontdesk_reflection",
+              "evidence_refs": [],
+              "payload": {
+                "plan_id": "",
+                "reflection_status": "failed",
+                "source_status": "failed",
+                "action_types": [],
+                "work_item": {
+                  "id": null,
+                  "type": null
+                },
+                "model_usage": [],
+                "model_evidence_status": "none",
+                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+              }
+            },
+            {
+              "kind": "agent_improvement",
+              "title": "Improve Frontdesk execution guardrail",
+              "reason": "failed",
+              "confidence": 0.7,
+              "source": "frontdesk_reflection",
+              "evidence_refs": [],
+              "payload": {
+                "plan_id": "",
+                "reflection_status": "failed",
+                "source_status": "failed",
+                "action_types": [],
+                "work_item": {
+                  "id": null,
+                  "type": null
+                },
+                "model_usage": [],
+                "model_evidence_status": "none",
+                "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+              }
+            }
+          ]
+        }
+      ],
+      "experience_candidates": [
+        {
+          "kind": "memory_proposal",
+          "title": "Remember Frontdesk execution lesson",
+          "reason": "Execution failed before a trusted completion could be recorded.",
+          "confidence": 0.62,
+          "source": "frontdesk_reflection",
+          "evidence_refs": [],
+          "payload": {
+            "plan_id": "",
+            "reflection_status": "failed",
+            "source_status": "failed",
+            "action_types": [],
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "model_usage": [],
+            "model_evidence_status": "none",
+            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+          }
+        },
+        {
+          "kind": "agent_improvement",
+          "title": "Improve Frontdesk execution guardrail",
+          "reason": "failed",
+          "confidence": 0.7,
+          "source": "frontdesk_reflection",
+          "evidence_refs": [],
+          "payload": {
+            "plan_id": "",
+            "reflection_status": "failed",
+            "source_status": "failed",
+            "action_types": [],
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "model_usage": [],
+            "model_evidence_status": "none",
+            "lesson": "Fix the reported failure reason, rerun, and keep the new evidence with the result."
+          }
+        }
+      ],
+      "cognitive_digest": {
+        "kind": "frontdesk_cognitive_digest",
+        "today_highlights": [
+          {
+            "id": "needs_attention:failed",
+            "kind": "needs_attention",
+            "title": "Work item needs attention",
+            "summary": "failed",
+            "target": {
+              "plan_id": "",
+              "work_item": {
+                "id": null,
+                "type": null
+              }
+            }
+          }
+        ],
+        "needs_attention": [
+          {
+            "id": "failed",
+            "kind": "frontdesk_attention_item",
+            "status": "failed",
+            "source_status": "failed",
+            "title": "Execution failed",
+            "summary": "failed",
+            "plan_id": "",
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "evidence_refs": [],
+            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+            "failure_reason": "failed"
+          }
+        ],
+        "recent_outputs": [],
+        "recoverable_items": [
+          {
+            "id": "failed",
+            "kind": "frontdesk_recoverable_item",
+            "status": "failed",
+            "source_status": "failed",
+            "title": "Recover Frontdesk work item",
+            "summary": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+            "plan_id": "",
+            "work_item": {
+              "id": null,
+              "type": null
+            },
+            "evidence_refs": [],
+            "next_recommendation": "Fix the reported failure reason, rerun, and keep the new evidence with the result.",
+            "suggested_action": {
+              "type": "recover_frontdesk_item",
+              "label": "Review and recover",
+              "target": {
+                "plan_id": "",
+                "work_item_id": null,
+                "status": "failed"
+              }
+            }
+          }
+        ],
+        "counts": {
+          "today_highlights": 1,
+          "needs_attention": 1,
+          "recent_outputs": 0,
+          "recoverable_items": 1,
+          "reflections": 1,
+          "work_items": 0,
+          "succeeded": 0,
+          "failed": 1,
+          "needs_evidence": 0,
+          "pending": 0
+        }
+      }
+    }
+  },
+  {
+    "step": "A01_gateway_status",
+    "outcome": "CALLED",
+    "detail": {
+      "kind": "AgentctlPreferredClientStatus",
+      "schema_version": "agentctl.preferred_sdk.status.v1",
+      "connected": true,
+      "client_mode": "gateway",
+      "server_mode": "assist",
+      "mode_compatible": true,
+      "request_id": "req_b8a685ebf50a46a1",
+      "server": {
+        "kind": "AIOSDeploymentProfile",
+        "control_plane_version": "0.1.0",
+        "contract_version": "0.2.0b5",
+        "schema_version": "aios.v0.1",
+        "active_profile": "lite",
+        "descriptor": {
+          "profile": "lite",
+          "label": "agentctl Lite",
+          "target": "SMB pilots, single-product embedding, and traditional IT AI enablement",
+          "deployment_shape": "single node with SQLite stores, persisted scoped tokens, and real provider configuration",
+          "governance_depth": "stable baseline with minimal operational overhead",
+          "recommended_components": [
+            "SQLite runstore",
+            "SQLite ledger",
+            "SQLite runtime dispatch",
+            "SQLite product integration registry",
+            "SQLite token store",
+            "real model provider",
+            "product adapter smoke"
+          ],
+          "requirements": [
+            {
+              "id": "runstore.sqlite",
+              "category": "store",
+              "title": "Run store is persistent",
+              "expected": "runstore.kind: sqlite",
+              "remediation": "Configure runstore.kind: sqlite."
+            },
+            {
+              "id": "ledger.sqlite",
+              "category": "store",
+              "title": "Action ledger is persistent",
+              "expected": "ledger.kind: sqlite",
+              "remediation": "Configure ledger.kind: sqlite."
+            },
+            {
+              "id": "runtime_dispatch.sqlite",
+              "category": "runtime",
+              "title": "Runtime dispatch store is persistent",
+              "expected": "runtime_dispatch.store.kind: sqlite",
+              "remediation": "Configure runtime_dispatch.store.kind: sqlite."
+            },
+            {
+              "id": "auth.token_store.sqlite",
+              "category": "auth",
+              "title": "Scoped token store is persistent",
+              "expected": "auth.token_store.kind: sqlite",
+              "remediation": "Configure auth.token_store.kind: sqlite."
+            },
+            {
+              "id": "product_integration.sqlite",
+              "category": "product",
+              "title": "Product Integration registry is persistent",
+              "expected": "product_integration.store.kind: sqlite",
+              "remediation": "Configure product_integration.store.kind: sqlite."
+            },
+            {
+              "id": "model_gateway.real_provider",
+              "category": "model_gateway",
+              "title": "At least one real model provider is configured",
+              "expected": "providers contains a provider outside echo/scripted",
+              "remediation": "Add deepseek, qwen, openai-compatible, openai, doubao, zhipu, or another production provider."
+            },
+            {
+              "id": "auth.scopes.enabled",
+              "category": "auth",
+              "title": "Scoped API authorization is enabled",
+              "expected": "auth.scopes is enabled or omitted",
+              "remediation": "Set auth.scopes: enabled or true."
+            }
+          ]
+        },
+        "evaluation": {
+          "kind": "DeploymentProfileEvaluation",
+          "profile": "lite",
+          "descriptor": {
+            "profile": "lite",
+            "label": "agentctl Lite",
+            "target": "SMB pilots, single-product embedding, and traditional IT AI enablement",
+            "deployment_shape": "single node with SQLite stores, persisted scoped tokens, and real provider configuration",
+            "governance_depth": "stable baseline with minimal operational overhead",
+            "recommended_components": [
+              "SQLite runstore",
+              "SQLite ledger",
+              "SQLite runtime dispatch",
+              "SQLite product integration registry",
+              "SQLite token store",
+              "real model provider",
+              "product adapter smoke"
+            ],
+            "requirements": [
+              {
+                "id": "runstore.sqlite",
+                "category": "store",
+                "title": "Run store is persistent",
+                "expected": "runstore.kind: sqlite",
+                "remediation": "Configure runstore.kind: sqlite."
+              },
+              {
+                "id": "ledger.sqlite",
+                "category": "store",
+                "title": "Action ledger is persistent",
+                "expected": "ledger.kind: sqlite",
+                "remediation": "Configure ledger.kind: sqlite."
+              },
+              {
+                "id": "runtime_dispatch.sqlite",
+                "category": "runtime",
+                "title": "Runtime dispatch store is persistent",
+                "expected": "runtime_dispatch.store.kind: sqlite",
+                "remediation": "Configure runtime_dispatch.store.kind: sqlite."
+              },
+              {
+                "id": "auth.token_store.sqlite",
+                "category": "auth",
+                "title": "Scoped token store is persistent",
+                "expected": "auth.token_store.kind: sqlite",
+                "remediation": "Configure auth.token_store.kind: sqlite."
+              },
+              {
+                "id": "product_integration.sqlite",
+                "category": "product",
+                "title": "Product Integration registry is persistent",
+                "expected": "product_integration.store.kind: sqlite",
+                "remediation": "Configure product_integration.store.kind: sqlite."
+              },
+              {
+                "id": "model_gateway.real_provider",
+                "category": "model_gateway",
+                "title": "At least one real model provider is configured",
+                "expected": "providers contains a provider outside echo/scripted",
+                "remediation": "Add deepseek, qwen, openai-compatible, openai, doubao, zhipu, or another production provider."
+              },
+              {
+                "id": "auth.scopes.enabled",
+                "category": "auth",
+                "title": "Scoped API authorization is enabled",
+                "expected": "auth.scopes is enabled or omitted",
+                "remediation": "Set auth.scopes: enabled or true."
+              }
+            ]
+          },
+          "status": "pass",
+          "checks": [
+            {
+              "id": "deployment_profile.valid",
+              "category": "profile",
+              "title": "Known deployment profile",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "deployment_profile is dev, lite, or enterprise",
+              "actual": "lite",
+              "remediation": "Set deployment_profile to dev, lite, or enterprise."
+            },
+            {
+              "id": "runstore.sqlite",
+              "category": "store",
+              "title": "Run store is persistent",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "runstore.kind: sqlite",
+              "actual": "sqlite",
+              "remediation": "Configure runstore.kind: sqlite."
+            },
+            {
+              "id": "ledger.sqlite",
+              "category": "store",
+              "title": "Action ledger is persistent",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "ledger.kind: sqlite",
+              "actual": "sqlite",
+              "remediation": "Configure ledger.kind: sqlite."
+            },
+            {
+              "id": "runtime_dispatch.sqlite",
+              "category": "runtime",
+              "title": "Runtime dispatch store is persistent",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "runtime_dispatch.store.kind: sqlite",
+              "actual": "sqlite",
+              "remediation": "Configure runtime_dispatch.store.kind: sqlite."
+            },
+            {
+              "id": "product_integration.sqlite",
+              "category": "product",
+              "title": "Product Integration registry is persistent",
+              "passed": true,
+              "required": false,
+              "severity": "warning",
+              "expected": "product_integration.store.kind: sqlite",
+              "actual": "sqlite",
+              "remediation": "Configure product_integration.store.kind: sqlite."
+            },
+            {
+              "id": "auth.token_store.sqlite",
+              "category": "auth",
+              "title": "Scoped token store is persistent",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "auth.token_store.kind: sqlite",
+              "actual": "sqlite",
+              "remediation": "Configure auth.token_store.kind: sqlite."
+            },
+            {
+              "id": "model_gateway.real_provider",
+              "category": "model_gateway",
+              "title": "At least one real model provider is configured",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "providers contains a provider outside echo/scripted",
+              "actual": "deepseek, echo",
+              "remediation": "Add a real provider such as deepseek, qwen, openai-compatible, openai, doubao, or zhipu."
+            },
+            {
+              "id": "auth.scopes.enabled",
+              "category": "auth",
+              "title": "Scoped API authorization is enabled",
+              "passed": true,
+              "required": true,
+              "severity": "required",
+              "expected": "auth.scopes is enabled or omitted",
+              "actual": "enabled",
+              "remediation": "Set auth.scopes: enabled or true."
+            }
+          ],
+          "summary": {
+            "passed": 8,
+            "failed": 0,
+            "required_failed": [],
+            "warnings": []
+          }
+        },
+        "lite_runtime": {
+          "mode": "assist",
+          "status": "fail",
+          "blocking_states": [
+            "missing_config",
+            "misconfigured"
+          ],
+          "blocking_capabilities": [
+            "frontdesk"
+          ],
+          "deployment_profile": {
+            "declared": "lite",
+            "state": "configured",
+            "reason": "deployment_profile is explicitly lite",
+            "remediation": null
+          },
+          "capability_matrix": {
+            "model_gateway": {
+              "policy": "enabled",
+              "state": "configured",
+              "enabled_by_policy": true,
+              "expected_sections": [
+                "providers"
+              ],
+              "configured_sections": [
+                "providers"
+              ],
+              "missing_sections": [],
+              "reason": "1 production provider(s) configured out of 2",
+              "remediation": null
+            },
+            "ledger": {
+              "policy": "enabled",
+              "state": "configured",
+              "enabled_by_policy": true,
+              "expected_sections": [
+                "ledger"
+              ],
+              "configured_sections": [
+                "ledger"
+              ],
+              "missing_sections": [],
+              "reason": "ledger store is configured",
+              "remediation": null
+            },
+            "scoped_tokens": {
+              "policy": "enabled",
+              "state": "configured",
+              "enabled_by_policy": true,
+              "expected_sections": [
+                "auth.scopes",
+                "auth.token_store"
+              ],
+              "configured_sections": [
+                "auth.scopes",
+                "auth.token_store"
+              ],
+              "missing_sections": [],
+              "reason": "scoped token auth and persistent token store are configured",
+              "remediation": null
+            },
+            "product_context_admission": {
+              "policy": "enabled",
+              "state": "configured",
+              "enabled_by_policy": true,
+              "expected_sections": [
+                "product_integration.store",
+                "product_integration.admission"
+              ],
+              "configured_sections": [
+                "product_integration.store",
+                "product_integration.admission"
+              ],
+              "missing_sections": [],
+              "reason": "product context admission is configured",
+              "remediation": null
+            },
+            "frontdesk": {
+              "policy": "enabled",
+              "state": "missing_config",
+              "enabled_by_policy": true,
+              "expected_sections": [
+                "integration",
+                "frontdesk",
+                "interaction",
+                "autonomy",
+                "frontdesk.representative_memory.store"
+              ],
+              "configured_sections": [
+                "integration",
+                "frontdesk",
+                "interaction",
+                "autonomy"
+              ],
+              "missing_sections": [
+                "frontdesk.representative_memory.store"
+              ],
+              "reason": "standalone Frontdesk requires a persistent representative-memory store",
+              "remediation": "Configure frontdesk.representative_memory.store or use a fully configured core_connected profile."
+            },
+            "agent_directory": {
+              "policy": "read_only",
+              "state": "configured",
+              "enabled_by_policy": true,
+              "expected_sections": [
+                "control_plane.store"
+              ],
+              "configured_sections": [
+                "control_plane.store"
+              ],
+              "missing_sections": [],
+              "reason": "control-plane catalog store is configured for agent directory records",
+              "remediation": null
+            },
+            "agent_growth": {
+              "policy": "disabled",
+              "state": "disabled_by_design",
+              "enabled_by_policy": false,
+              "expected_sections": [],
+              "configured_sections": [],
+              "missing_sections": [],
+              "reason": "lite_mode assist disables agent_growth",
+              "remediation": null
+            },
+            "memory": {
+              "policy": "disabled",
+              "state": "disabled_by_design",
+              "enabled_by_policy": false,
+              "expected_sections": [
+                "memory_plane.store"
+              ],
+              "configured_sections": [],
+              "missing_sections": [],
+              "reason": "lite_mode assist disables memory",
+              "remediation": null
+            },
+            "knowledge": {
+              "policy": "disabled",
+              "state": "disabled_by_design",
+              "enabled_by_policy": false,
+              "expected_sections": [
+                "rag"
+              ],
+              "configured_sections": [],
+              "missing_sections": [],
+              "reason": "lite_mode assist disables knowledge",
+              "remediation": null
+            },
+            "automation": {
+              "policy": "disabled",
+              "state": "disabled_by_design",
+              "enabled_by_policy": false,
+              "expected_sections": [
+                "automation"
+              ],
+              "configured_sections": [],
+              "missing_sections": [],
+              "reason": "lite_mode assist disables automation",
+              "remediation": null
+            },
+            "enterprise_evidence": {
+              "policy": "disabled",
+              "state": "disabled_by_design",
+              "enabled_by_policy": false,
+              "expected_sections": [],
+              "configured_sections": [],
+              "missing_sections": [],
+              "reason": "lite_mode assist disables enterprise_evidence",
+              "remediation": null
+            }
+          },
+          "capability_summary": {
+            "configured": [
+              "agent_directory",
+              "ledger",
+              "model_gateway",
+              "product_context_admission",
+              "scoped_tokens"
+            ],
+            "missing_config": [
+              "frontdesk"
+            ],
+            "disabled_by_design": [
+              "agent_growth",
+              "automation",
+              "enterprise_evidence",
+              "knowledge",
+              "memory"
+            ]
+          }
+        },
+        "lite_baseline": {
+          "mode": "assist",
+          "status": "pass",
+          "warnings": [],
+          "failures": [],
+          "thresholds": {
+            "route_count": {
+              "expected": 40
+            },
+            "build_runtime_ms": {
+              "warn_max": 1800.0,
+              "fail_max": 3600.0
+            },
+            "http_api_init_ms": {
+              "warn_max": 1200.0,
+              "fail_max": 2400.0
+            },
+            "total_startup_ms": {
+              "warn_max": 3000.0,
+              "fail_max": 6000.0
+            },
+            "rss_mb": {
+              "warn_max": 640.0,
+              "fail_max": 896.0
+            }
+          },
+          "assessments": {
+            "route_count": {
+              "metric": "route_count",
+              "status": "pass",
+              "value": 40.0,
+              "unit": "routes",
+              "thresholds": {
+                "expected": 40
+              },
+              "detail": "route_count=40routes matches expected 40routes"
+            },
+            "build_runtime_ms": {
+              "metric": "build_runtime_ms",
+              "status": "unavailable",
+              "value": null,
+              "unit": "ms",
+              "thresholds": {
+                "warn_max": 1800.0,
+                "fail_max": 3600.0
+              },
+              "detail": "metric is unavailable in the current environment"
+            },
+            "http_api_init_ms": {
+              "metric": "http_api_init_ms",
+              "status": "unavailable",
+              "value": null,
+              "unit": "ms",
+              "thresholds": {
+                "warn_max": 1200.0,
+                "fail_max": 2400.0
+              },
+              "detail": "metric is unavailable in the current environment"
+            },
+            "total_startup_ms": {
+              "metric": "total_startup_ms",
+              "status": "unavailable",
+              "value": null,
+              "unit": "ms",
+              "thresholds": {
+                "warn_max": 3000.0,
+                "fail_max": 6000.0
+              },
+              "detail": "metric is unavailable in the current environment"
+            },
+            "rss_mb": {
+              "metric": "rss_mb",
+              "status": "unavailable",
+              "value": null,
+              "unit": "MB",
+              "thresholds": {
+                "warn_max": 640.0,
+                "fail_max": 896.0
+              },
+              "detail": "metric is unavailable in the current environment"
+            }
+          },
+          "route_surface": {
+            "mode": "assist",
+            "route_count": 40,
+            "route_groups": {
+              "aios": 2,
+              "auth": 5,
+              "frontdesk": 19,
+              "model_gateway": 4,
+              "runs": 5,
+              "runspecs": 1,
+              "system": 4
+            },
+            "surface_summary": {
+              "gateway": 9,
+              "runtime": 6,
+              "model_gateway": 4,
+              "platform": 2,
+              "frontdesk": 19
+            },
+            "allowed_route_groups": [
+              "system",
+              "auth"
+            ],
+            "optional_route_surfaces": []
+          },
+          "process": {
+            "rss_bytes": null,
+            "rss_mb": null
+          },
+          "startup": {}
+        }
+      }
+    }
+  }
+]

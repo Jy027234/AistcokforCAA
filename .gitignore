@@ -1,0 +1,40 @@
+# --- 环境与密钥（永不提交） ---
+.env
+*.env
+!.env.example
+.secrets/
+*.pem
+*.key
+
+# --- agentctl Q0 隔离实例运行数据 ---
+# SQLite 存储可随时由 bootstrap 重建；其中可能含令牌与 Run 记录
+deploy/agentctl-q0/.agentctl/
+deploy/agentctl-q0/*.sqlite
+deploy/agentctl-q0/*.sqlite-shm
+deploy/agentctl-q0/*.sqlite-wal
+
+# --- 产品数据（主文档 §14.4：不提交真实数据、密钥或私人账户记录） ---
+data/
+*.parquet
+*.duckdb
+*.duckdb.wal
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- 前端 ---
+node_modules/
+dist/
+.vite/
+
+# --- 编辑器 / 系统 ---
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

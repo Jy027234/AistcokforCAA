@@ -1,0 +1,130 @@
+deployment_profile: lite
+lite_mode: assist
+capabilities:
+  model_gateway: enabled
+  ledger: enabled
+  scoped_tokens: enabled
+  product_context_admission: enabled
+  frontdesk: enabled
+  agent_directory: read_only
+  agent_growth: disabled
+  memory: disabled
+  knowledge: disabled
+  automation: disabled
+  enterprise_evidence: disabled
+paths:
+  data_dir: .agentctl/data
+  log_dir: .agentctl/logs
+  backup_dir: .agentctl/backups
+providers:
+- id: echo-local
+  provider: echo
+  model: echo-1
+  capabilities:
+  - chat
+  default: false
+- id: deepseek-deepseek-v4-flash
+  provider: deepseek
+  model: deepseek-v4-flash
+  api_key_env: DEEPSEEK_API_KEY
+  base_url_env: DEEPSEEK_BASE_URL
+  capabilities:
+  - chat
+  - json
+  context_window: 131072
+  max_output_tokens: 4096
+  regions:
+  - cn
+  compliance_tags:
+  - enterprise-managed
+  default: true
+runstore:
+  kind: sqlite
+  path: .agentctl/data/runs.sqlite
+ledger:
+  kind: sqlite
+  path: .agentctl/data/ledger.sqlite
+meta:
+  kind: sqlite
+  path: .agentctl/data/meta.sqlite
+runtime_dispatch:
+  store:
+    kind: sqlite
+    path: .agentctl/data/runtime_dispatch.sqlite
+product_integration:
+  store:
+    kind: sqlite
+    path: .agentctl/data/product_integration.sqlite
+  admission:
+    enabled: true
+    required_stage: pilot_ready
+    require_product_context: true
+    enforce_bindings: true
+    operations:
+    - agent.run
+    - runspec.run
+    - model_gateway.complete
+    - runtime.dispatch.create_job
+    - product_adapter.events.ingest
+    - memory.export
+    - memory.evidence_package
+    - memory.forget
+    - memory.retention
+auth:
+  scopes: enabled
+  token_store:
+    kind: sqlite
+    path: .agentctl/data/tokens.sqlite
+model_gateway:
+  default_data_sensitivity: D2
+  allow_cloud_direct_sensitivities:
+  - D0
+  - D1
+  local_providers:
+  - echo
+  - scripted
+  - ollama
+  - vllm
+  cloud_providers:
+  - openai
+  - openai-compatible
+  - anthropic
+  - qwen
+  - deepseek
+  - doubao
+  - zhipu
+  default_timeout_seconds: 60
+  circuit_breaker_failure_threshold: 3
+  circuit_breaker_cooldown_seconds: 60
+  provider_timeouts_seconds:
+    deepseek: 60
+  fallback_model_hints:
+    deepseek: echo:echo-1
+integration:
+  store:
+    kind: sqlite
+    path: .agentctl/data/integration.sqlite
+frontdesk:
+  store:
+    kind: sqlite
+    path: .agentctl/data/frontdesk.sqlite
+  profile:
+    name: coordinator_v2
+    core_state_mode: standalone
+  features:
+    coordinator_v2: true
+    semantic_shadow: false
+    progressive_capability_context: true
+interaction:
+  store:
+    kind: sqlite
+    path: .agentctl/data/interaction.sqlite
+autonomy:
+  store:
+    kind: sqlite
+    path: .agentctl/data/autonomy.sqlite
+control_plane:
+  store:
+    kind: sqlite
+    path: .agentctl/data/control_plane.sqlite
+

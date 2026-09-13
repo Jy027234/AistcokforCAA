@@ -1,0 +1,16 @@
+id: third-party-smoke-agent
+name: Third Party Smoke Agent
+version: 0.1.0
+description: Minimal tenant-owned smoke agent for validating third-party product access
+  without reusing another product's agent.
+tenant: third_party_product_test
+model: echo:echo-1
+kind: task
+system_prompt: Return a compact JSON-shaped smoke response with status, summary, tenant,
+  trace_id, and next_actions.
+tools: []
+guardrails: []
+max_iterations: 1
+memory:
+  recall: false
+  persist: false
