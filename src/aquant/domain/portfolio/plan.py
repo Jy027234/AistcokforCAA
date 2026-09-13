@@ -582,6 +582,68 @@ class PlanService:
             "lots_created": [l.lot_id for l in result.lots_created],
         }
 
+    # ------------------------------------------------------------ value
+    def value(
+        self,
+        *,
+        portfolio_id: str,
+        snapshot_id: str,
+        trading_day: date,
+        as_of: datetime,
+        lots: list[Lot],
+        cash_available_cents: int,
+    ) -> dict:
+        """日终估值并落库。不变量失败则 published=0，净值不得发布（§12.8）。"""
+
+        from .construction import compute_valuation, value_positions
+
+        ids = sorted({l.instrument_id for l in lots if l.quantity_remaining > 0})
+        bars = self._bars(snapshot_id, trading_day, as_of, ids)
+
+        # 停牌时使用此前最后一个有效收盘价，并显式记录其日期以计算停牌天数
+        last_valid: dict[str, tuple[int, date]] = {}
+        for iid in ids:
+            rows = self.reader.daily_quotes(snapshot_id, as_of=as_of,
+                                            instrument_id=iid, end=trading_day)
+            history = [r for r in rows]
+            if history:
+                last_valid[iid] = (history[-1].close_cents, history[-1].trading_day)
+
+        positions, issues = value_positions(lots=lots, bars=bars,
+                                            last_valid_price=last_valid,
+                                            trading_day=trading_day)
+        result = compute_valuation(
+            trading_day=trading_day, cash_available_cents=cash_available_cents,
+            positions=positions, lots=lots, extra_issues=issues,
+        )
+
+        now = datetime.now(timezone.utc)
+        inv = result.invariants
+        with write_tx(self.con):
+            self.con.execute(
+                "INSERT OR REPLACE INTO valuation (valuation_id,portfolio_id,trading_day,"
+                "cash_available_cents,cash_frozen_cents,receivables_cents,"
+                "positions_value_cents,payables_cents,net_value_cents,"
+                "invariant_cash_not_overdrawn,invariant_positions_not_negative,"
+                "invariant_shares_match_lots,invariant_fill_le_order,"
+                "invariant_fees_booked_once,invariant_cash_lines_sum,published,"
+                "violations_json,computed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (f"val-{portfolio_id}-{trading_day.isoformat()}", portfolio_id,
+                 trading_day.isoformat(), result.cash_available_cents,
+                 result.cash_frozen_cents, result.receivables_cents,
+                 result.positions_value_cents, result.payables_cents,
+                 result.net_value_cents,
+                 1 if inv["cash_not_overdrawn"] else 0,
+                 1 if inv["positions_not_negative"] else 0,
+                 1 if inv["shares_match_lots"] else 0,
+                 1 if inv["fill_le_order"] else 0,
+                 1 if inv["fees_booked_once"] else 0,
+                 1 if inv["cash_lines_sum_to_balance"] else 0,
+                 1 if result.published else 0,
+                 json.dumps(inv["violations"], ensure_ascii=False), _iso(now)),
+            )
+        return result.as_dict()
+
     # ------------------------------------------------------------ reconcile
     def reconcile(self, *, portfolio_id: str) -> dict:
         """§15.1 从期初到期末逐项对账。"""

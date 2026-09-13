@@ -113,7 +113,20 @@ def test_full_loop_from_snapshot_to_reconciliation(world):
     assert ex["fills"], "冻结的计划应当成交"
     assert lots, "成交应产生批次"
 
-    # 5. 对账
+    # 5. 日终估值（落库；不变量全过才允许发布）
+    cash_after = 100_000_000 + sum(e["amount_cents"] for e in ex["cash_entries"])
+    val = svc.value(portfolio_id="pf-syn-m", snapshot_id="snap-syn-001",
+                    trading_day=TRADING_DAY, as_of=AS_OF, lots=lots,
+                    cash_available_cents=cash_after)
+    assert val["published"] is True, val["invariants"]["violations"]
+    assert val["net_value_cents"] > 0
+    stored = con.execute(
+        "SELECT published, net_value_cents FROM valuation WHERE portfolio_id=?",
+        ("pf-syn-m",)).fetchone()
+    assert stored["published"] == 1, "不变量全过时净值应当已发布"
+    assert stored["net_value_cents"] == val["net_value_cents"]
+
+    # 6. 对账
     rec = svc.reconcile(portfolio_id="pf-syn-m")
     assert rec["fill_count"] == len(ex["fills"])
     assert rec["duplicate_fee_groups"] == 0, "同一成交同一费用码不得重复计费"
