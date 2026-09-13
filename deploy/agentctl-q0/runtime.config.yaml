@@ -127,4 +127,35 @@ control_plane:
   store:
     kind: sqlite
     path: .agentctl/data/control_plane.sqlite
+# --- Runtime protocol governance (integration doctor assurance checks) -------
+# Declares what may leave the product boundary. This is the machine-readable
+# counterpart of main doc 17.2 (per-source rights) and 9.6 (what the model may
+# see). Reviewed values only; no provider credential appears here.
+runtime_protocol:
+  assurance_profile: governed_execution
+  config_provenance:
+    source: file
+    ref: config://deploy/agentctl-q0/runtime.config.yaml
+    version: q0-v1
+    loader: agentctl.config.load_runtime_config
+    secret_refs:
+    - env:DEEPSEEK_API_KEY
+  data_egress_declarations:
+  - destination: deepseek
+    channel: model
+    purpose: research_assist_and_evidence_extraction
+    data_categories:
+    - instrument_id
+    - factor_values
+    - licensed_material_excerpt
+    max_sensitivity: D1
+    tenant_boundary: same_tenant
+    region: cn
+    retention: provider_contract
+    training_use: false
+    legal_basis_ref: config://aquant/source-registry/M0
+    owner: aquant_lab
+    review_version: q0-v1
+    decision: allow
+
 

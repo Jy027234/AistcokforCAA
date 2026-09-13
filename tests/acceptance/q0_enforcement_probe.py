@@ -1,14 +1,39 @@
-"""Q0 negative/positive enforcement probe: tenant, product, scope boundaries.
+"""Tenant / product / scope boundary probe with CI-grade exit codes.
 
-Determines whether a forged tenant, wrong allowed_product, out-of-scope
-permission_scope, or a missing product_context are rejected by the server, and
-whether the tenant that reaches the runstore still matches the token's tenant.
+Declares an EXPECTED outcome per case and exits non-zero when any case deviates,
+so a permissive server cannot be mistaken for a passing one.
 
-The token is read from the AGENTCTL_SERVICE_TOKEN environment variable and is
-never written to disk, logs or the JSON evidence file.
+Three separate things are tested here, and they are NOT the same thing:
 
-  $env:AGENTCTL_SERVICE_TOKEN='agt_...'
-  python tests/acceptance/q0_enforcement_probe.py --json-out deploy/agentctl-q0/q0-enforcement-evidence.json
+1. Tenant boundary    -- a forged tenant must be refused.
+2. Product admission  -- an unregistered product, a wrong product and a missing
+   product_context must be refused (policy enforce_bindings: true).
+3. Actor boundary     -- a product backend acting for an end user must present a
+   signed context envelope.
+
+What is deliberately NOT asserted as a rejection:
+   the permission_scope field of a frontdesk message is the caller REQUESTED
+   scope, not the source of authority. The server derives granted authority from
+   the verified token record (http_auth._require_api_scope), so asking for more
+   than the token holds is not itself an escalation. What matters is that a
+   token lacking a required scope cannot reach the operation that needs it.
+   That is what the X-series below checks.
+
+Token topology matters and is asserted:
+  * the server static --token / --token-env is a MASTER credential
+    (subject "master", scopes ["*"]). Presenting it short-circuits tenant
+    verification BY DESIGN, so it must never be handed to a product.
+  * the product must use a SEPARATELY issued scoped token, which goes through
+    token_store.verify(token, tenant_id=...).
+
+The runstore assertion inspects only rows created during THIS run, so historical
+rows from earlier misconfigured probes cannot mask a current leak.
+
+Exit codes: 0 = all expectations met, 1 = deviation found, 2 = setup error.
+
+  $env:AGENTCTL_SERVICE_TOKEN=agt_...
+  $env:AGENTCTL_PLATFORM_CONTEXT_HMAC_KEY=...
+  python tests/acceptance/q0_enforcement_probe.py --json-out <path>
 """
 
 from __future__ import annotations
@@ -18,80 +43,137 @@ import json
 import os
 import sqlite3
 import sys
+import time
+import uuid
 from pathlib import Path
 
+from agentctl.aios import ContextEnvelope
 from agentctl.embed import connect, static_tenant
+from agentctl.platform_context_guard import (
+    FRONTDESK_CONTEXT_AUDIENCE,
+    PLATFORM_CORE_CONTEXT_ISSUER,
+    sign_platform_tool_context,
+)
 from agentctl.sdk.client import AgentctlHTTPError
 
 TENANT = "aquant-synthetic"
 PRODUCT = "aquant_lab"
+SCOPE = ["frontdesk.message", "model_gateway.complete"]
+END_USER = "syn-1"
+
+CASES = [
+    ("N0_baseline_correct", "accept", dict(tenant=TENANT, product=PRODUCT)),
+    ("N2_forged_tenant", "reject", dict(tenant="aquant-attacker", product=PRODUCT)),
+    ("N4_wrong_allowed_product", "reject", dict(tenant=TENANT, product="evil_product")),
+    ("N5_missing_product_context", "reject", dict(tenant=TENANT, product=None)),
+]
 
 
-def probe(base: str, token: str, tenant: str, product: str | None, scopes: list[str]) -> dict:
+def envelope(key: str, request_id: str, conversation_id: str, tenant: str,
+             scopes: list[str]) -> dict:
+    env = ContextEnvelope.new(
+        tenant_id=tenant, user_id=END_USER,
+        conversation_id=conversation_id, request_id=request_id, trace_id=request_id,
+        issuer=PLATFORM_CORE_CONTEXT_ISSUER, audience=FRONTDESK_CONTEXT_AUDIENCE,
+        grants=list(scopes), entitlements={"product_id": PRODUCT},
+        data_sensitivity="D1", risk_ceiling="R1", autonomy_ceiling="L1",
+    )
+    payload = env.to_dict()
+    payload["platform_context_signature"] = sign_platform_tool_context(payload, key=key)
+    return payload
+
+
+def run(base: str, token: str, hmac_key: str, tenant: str, product) -> dict:
+    rid = "q0-req-" + uuid.uuid4().hex[:12]
+    cid = "q0-conv-" + uuid.uuid4().hex[:8]
     try:
         c = connect(base, mode="assist", api_key=token,
                     tenant_resolver=static_tenant(tenant), source_product=product)
-        resp = c.invoke({"user_id": "syn-1"}, user_id="syn-1", text="ping",
-                        permission_scope=scopes)
+        r = c.invoke({"user_id": END_USER}, user_id=END_USER, text="ping",
+                     permission_scope=SCOPE, conversation_id=cid, request_id=rid,
+                     context_envelope=envelope(hmac_key, rid, cid, tenant, SCOPE))
         c.close()
-        return {
-            "http": "accepted",
-            "run_status": resp.get("status"),
-            "tenant_echo": resp.get("tenant"),
-            "reply_head": str(resp.get("reply") or "")[:160],
-        }
+        return {"http": "accepted", "run_status": r.get("status")}
     except AgentctlHTTPError as exc:
-        return {"http": "REJECTED", "status_code": exc.status_code,
+        return {"http": "rejected", "status_code": exc.status_code,
                 "payload": dict(exc.payload or {})}
     except Exception as exc:  # noqa: BLE001
-        return {"http": "ERROR", "type": type(exc).__name__, "message": str(exc)[:300]}
+        return {"http": "error", "type": type(exc).__name__, "message": str(exc)[:300]}
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--base-url", default=os.environ.get("AGENTCTL_BASE_URL", "http://127.0.0.1:8765"))
+    ap.add_argument("--base-url",
+                    default=os.environ.get("AGENTCTL_BASE_URL", "http://127.0.0.1:8765"))
     ap.add_argument("--runs-db", default="deploy/agentctl-q0/.agentctl/data/runs.sqlite")
+    ap.add_argument("--low-scope-token", default=os.environ.get("AGENTCTL_LOW_SCOPE_TOKEN", ""))
     ap.add_argument("--json-out", default="")
     args = ap.parse_args()
 
     token = os.environ.get("AGENTCTL_SERVICE_TOKEN", "").strip()
-    if not token:
-        print("AGENTCTL_SERVICE_TOKEN is required", file=sys.stderr)
+    hmac_key = os.environ.get("AGENTCTL_PLATFORM_CONTEXT_HMAC_KEY", "").strip()
+    if not token or not hmac_key:
+        print("AGENTCTL_SERVICE_TOKEN and AGENTCTL_PLATFORM_CONTEXT_HMAC_KEY are required",
+              file=sys.stderr)
         return 2
 
-    cases = [
-        ("N0_baseline_correct_tenant_and_product", TENANT, PRODUCT, ["model_gateway.complete"]),
-        ("N2_forged_tenant", "aquant-attacker", PRODUCT, ["model_gateway.complete"]),
-        ("N4_wrong_allowed_product", TENANT, "evil_product", ["model_gateway.complete"]),
-        ("N3_out_of_scope", TENANT, PRODUCT, ["ledger.write", "execute_order"]),
-        ("N5_no_product_context", TENANT, None, ["model_gateway.complete"]),
-    ]
+    started = time.time()
+    results, unmet = [], []
 
-    results = []
-    for label, tenant, product, scopes in cases:
-        out = probe(args.base_url, token, tenant, product, scopes)
-        out.update({"case": label, "requested_tenant": tenant, "requested_product": product})
-        results.append(out)
-        print(f"{label:<44} -> {out['http']:<9} {out.get('run_status') or out.get('status_code') or ''}")
+    for cid_, expect, kw in CASES:
+        out = run(args.base_url, token, hmac_key, **kw)
+        got = out["http"]
+        ok = (got == "rejected") if expect == "reject" else (
+            got == "accepted" and out.get("run_status") == "completed")
+        if not ok:
+            unmet.append(cid_)
+        results.append({"case": cid_, "expect": expect, "got": got, "ok": ok, "detail": out})
+        print(f"[{'PASS' if ok else 'FAIL'}] {cid_:<44} expect={expect:<6} got={got}"
+              + ("" if ok else f"  run_status={out.get('run_status')}"))
+
+    xid = "X1_token_without_frontdesk_message_rejected"
+    if args.low_scope_token:
+        out = run(args.base_url, args.low_scope_token, hmac_key, TENANT, PRODUCT)
+        ok = out["http"] == "rejected"
+        if not ok:
+            unmet.append(xid)
+        results.append({"case": xid, "expect": "reject", "got": out["http"],
+                        "ok": ok, "detail": out})
+        print(f"[{'PASS' if ok else 'FAIL'}] {xid:<44} expect=reject got={out['http']}"
+              + ("" if ok else f"  run_status={out.get('run_status')}"))
+    else:
+        print(f"[SKIP] {xid}  (no --low-scope-token)")
 
     print()
-    print("runstore tenants:")
     p = Path(args.runs_db)
+    foreign = []
     if p.exists():
         con = sqlite3.connect(p)
-        for tenant, n, statuses in con.execute(
-            "select tenant, count(*), group_concat(distinct status) from runs group by tenant"
-        ):
-            print(f"    tenant={tenant!r:<22} runs={n} statuses={statuses}")
+        rows = con.execute(
+            "select tenant, count(*) from runs where created_at >= ? group by tenant",
+            (time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(started)),),
+        ).fetchall()
+        for tenant, n in rows:
+            mark = "" if tenant == TENANT else "   <-- FOREIGN"
+            print(f"    this run: tenant={tenant!r:<22} runs={n}{mark}")
+            if tenant != TENANT:
+                foreign.append(tenant)
         con.close()
-    else:
-        print("    (runs db not found)")
+    if foreign:
+        unmet.append("runstore_contains_foreign_tenant")
+        print(f"    !! foreign tenants recorded during this run: {foreign}")
+
+    met = sum(1 for r in results if r["ok"])
+    print(f"\n{met}/{len(results)} cases met")
+    if unmet:
+        print("UNMET: " + ", ".join(unmet))
 
     if args.json_out:
         Path(args.json_out).write_text(
-            json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"\nwrote {args.json_out}")
-    return 0
+            json.dumps({"results": results, "unmet": unmet}, ensure_ascii=False, indent=2),
+            encoding="utf-8")
+        print(f"wrote {args.json_out}")
+    return 1 if unmet else 0
 
 
 if __name__ == "__main__":

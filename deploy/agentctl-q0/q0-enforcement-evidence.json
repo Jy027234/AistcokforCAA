@@ -1,47 +1,79 @@
-[
-  {
-    "http": "accepted",
-    "run_status": "completed",
-    "tenant_echo": "aquant-synthetic",
-    "reply_head": "Pong — I'm here. What would you like to do?",
-    "case": "N0_baseline_correct_tenant_and_product",
-    "requested_tenant": "aquant-synthetic",
-    "requested_product": "aquant_lab"
-  },
-  {
-    "http": "accepted",
-    "run_status": "completed",
-    "tenant_echo": "aquant-attacker",
-    "reply_head": "Pong — I'm here. What would you like to look at or get done?",
-    "case": "N2_forged_tenant",
-    "requested_tenant": "aquant-attacker",
-    "requested_product": "aquant_lab"
-  },
-  {
-    "http": "accepted",
-    "run_status": "completed",
-    "tenant_echo": "aquant-synthetic",
-    "reply_head": "Pong — I'm here. What can I help you with?",
-    "case": "N4_wrong_allowed_product",
-    "requested_tenant": "aquant-synthetic",
-    "requested_product": "evil_product"
-  },
-  {
-    "http": "accepted",
-    "run_status": "completed",
-    "tenant_echo": "aquant-synthetic",
-    "reply_head": "Pong — I'm here. What would you like to look at or change?",
-    "case": "N3_out_of_scope",
-    "requested_tenant": "aquant-synthetic",
-    "requested_product": "aquant_lab"
-  },
-  {
-    "http": "accepted",
-    "run_status": "completed",
-    "tenant_echo": "aquant-synthetic",
-    "reply_head": "Pong — I'm here. What can I help you with?",
-    "case": "N5_no_product_context",
-    "requested_tenant": "aquant-synthetic",
-    "requested_product": null
-  }
-]
+{
+  "results": [
+    {
+      "case": "N0_baseline_correct",
+      "expect": "accept",
+      "got": "accepted",
+      "ok": true,
+      "detail": {
+        "http": "accepted",
+        "run_status": "completed"
+      }
+    },
+    {
+      "case": "N2_forged_tenant",
+      "expect": "reject",
+      "got": "rejected",
+      "ok": true,
+      "detail": {
+        "http": "rejected",
+        "status_code": 403,
+        "payload": {
+          "error": "tenant_boundary_denied: request tenant does not match token tenant"
+        }
+      }
+    },
+    {
+      "case": "N4_wrong_allowed_product",
+      "expect": "reject",
+      "got": "rejected",
+      "ok": true,
+      "detail": {
+        "http": "rejected",
+        "status_code": 403,
+        "payload": {
+          "kind": "AIOSProductTokenAdmission",
+          "passed": false,
+          "product_id": "evil_product",
+          "product_operation": "frontdesk.message",
+          "tenant": "aquant-synthetic",
+          "token_id": "tok_db4f8817d0404743",
+          "reason": "product_not_allowed_by_token",
+          "allowed_products": [
+            "aquant_lab"
+          ],
+          "allowed_product_operations": [],
+          "error": "product_not_allowed_by_token"
+        }
+      }
+    },
+    {
+      "case": "N5_missing_product_context",
+      "expect": "reject",
+      "got": "rejected",
+      "ok": true,
+      "detail": {
+        "http": "rejected",
+        "status_code": 409,
+        "payload": {
+          "error": "continuous_assist_request_rejected",
+          "code": "continuous_product_binding_mismatch"
+        }
+      }
+    },
+    {
+      "case": "X1_token_without_frontdesk_message_rejected",
+      "expect": "reject",
+      "got": "rejected",
+      "ok": true,
+      "detail": {
+        "http": "rejected",
+        "status_code": 403,
+        "payload": {
+          "error": "missing required scope(s): frontdesk.message"
+        }
+      }
+    }
+  ],
+  "unmet": []
+}

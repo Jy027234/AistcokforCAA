@@ -1,0 +1,81 @@
+schema_version: agentctl.product_capabilities.v1
+product_id: aquant_lab
+display_name: A-Quant Lab
+owner: aquant_lab
+allowed_tenants:
+- aquant-synthetic
+default_tenant_id: aquant-synthetic
+
+# Capability surface for A-Quant Lab.
+#
+# Deliberately ABSENT (main doc 16.3, supplements v0.2.1 4): execute_order,
+# write_ledger, run_shell, raw_sql, fetch_arbitrary_url and plan freeze. The
+# model has no mechanism to reach them because they are not declared here.
+#
+# Q0 scope: one read-only capability, enough to prove the manifest -> apply ->
+# real invocation path end to end. The remaining seven capabilities from
+# v0.2.1 section 4 are added in Q1-Q3, each with its own handler and tests.
+
+capabilities:
+- capability_id: aquant.research_card.read
+  version: 1.0.0
+  title: 读取研究卡
+  description: 读取指定证券在固定快照下的研究卡、因子依据与限制；只读，不触发供应商抓取
+  when_to_use:
+  - 查询某只股票的研究卡
+  - 这只股票在固定快照下的因子依据是什么
+  - 读取指定快照的证券研究数据
+  handler: aquant_lab_agentctl_handlers:research_card_read
+  input_schema:
+    type: object
+    required:
+    - instrument_id
+    - snapshot_id
+    properties:
+      instrument_id:
+        type: string
+        description: 内部稳定证券 ID，例如 SYN.A.600519
+      snapshot_id:
+        type: string
+        description: 已发布快照 ID，例如 snap-syn-001
+    additionalProperties: false
+  output_schema:
+    type: object
+    required:
+    - ok
+    - snapshot_id
+    - instrument_id
+    - as_of_time
+    - data_mode
+    properties:
+      ok:
+        type: boolean
+      snapshot_id:
+        type: string
+      as_of_time:
+        type: string
+      data_mode:
+        type: string
+      instrument_id:
+        type: string
+      factors:
+        type: array
+      limitations:
+        type: array
+  result_object_types:
+  - artifact_ref
+  - evidence_ref
+  side_effect_class: none
+  risk_level: R1
+  data_sensitivity: D1
+  required_scopes:
+  - aquant.research.read
+  confirmation_policy: none
+  idempotency:
+    required: true
+    scope: tenant_actor_capability
+  smoke:
+    query: 读取 SYN.A.600519 在快照 snap-syn-001 下的研究卡
+    arguments:
+      instrument_id: SYN.A.600519
+      snapshot_id: snap-syn-001

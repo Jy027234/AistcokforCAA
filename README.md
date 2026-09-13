@@ -14,23 +14,30 @@ A股研究与模拟决策工作台。首期定位为**自用研究与模拟**，
 
 ## 当前状态
 
-**Q0 部分完成：正向链路已通过，但存在 1 项高危安全发现，未进入 Q1。** 详见 `docs/integration/q0-readiness-report.md`。
+**Q0 通过；Q1 首个只读能力已端到端跑通。** 详见 `docs/integration/q0-readiness-report.md` 与 `docs/implementation-baseline.md`。
 
 - 基座锁定提交：`b5cad04836cf93b35750fb0116ab0c2d936d1f89`（`E:\IT\Agent`，`main`）
-- ✅ **正向闭环通过**：接入 DeepSeek 官方模型后，assist 调用返回真实回答，`status=completed`，usage 与 run_id 可核对。
-- ❌ **高危未关闭**：frontdesk HTTP 路径的 tenant/product/scope 边界在本机两种启动模式下均不生效，伪造 tenant 的 Run 真实执行完成。根因见报告 §4.4。
-- ✅ **已修复的部署坑**：基座 `lite-product-validation/assist.runtime.yaml` 缺 `frontdesk.profile` 段，会导致所有 assist 调用 400；本项目配置已补齐。
-- **主文档 §0 声明的资料包（`contracts/`、`schema/001_metadata.sql`、`CODEX_TASKS.md` 等 8 项）缺失**，见报告 §6。
+- ✅ **正向闭环**：接入 DeepSeek 官方模型后 Run `completed`，真实回答 + usage + run_id 可核对。
+- ✅ **边界核验 5/5**：伪造 tenant → 403 `tenant_boundary_denied`；错误 product → 403；缺 product_context → 409；低权令牌 → 403；跨用户无签名信封 → 403。
+- ✅ **首个能力端到端**：模型自主选中 `aquant.research_card.read` 并真实执行；`integration doctor` 18/18 PASS。
+- ✅ **已修复的部署坑**：`assist.runtime.yaml` 缺 `frontdesk.profile` 段会导致所有 assist 调用 400（见报告 §3.3）。
+- ⚠️ **部署纪律**：静态 `--token` 是 master 凭证，不得下发到产品；部署一律用 `--token-env`。
+- ❌ **主文档 §0 资料包 8 项仍缺失**（`contracts/`、`schema/001_metadata.sql`、`CODEX_TASKS.md` 等），见报告 §6 与基线 T3。
 
 ## 目录
 
 ```text
-docs/integration/          接入报告与证据
-deploy/agentctl-q0/        Q0 隔离 agentctl 实例（runtime.config.yaml 已补 coordinator_v2）
-tests/acceptance/          接入验收探针
+docs/implementation-baseline.md   M/Q 对照任务表（统一实施基线；含依赖矩阵与验收口径）
+docs/integration/                 接入报告、证据与勘误记录
+capabilities/                     agentctl 能力 manifest + product-owned handler
+src/aquant/adapters/agentctl/     适配层（当前含 onboard：产品准入接线）
+deploy/agentctl-q0/               Q0 隔离 agentctl 实例与探针证据
+tests/acceptance/                 接入验收探针（退出码即结论）
 ```
 
-目标仓库布局（主文档 §14.4）尚未建立：`apps/web`、`apps/api`、`src/aquant/{domain,application,adapters,operations}`、`contracts/`、`configs/`、`migrations/`、`tests/{unit,integration,golden,pit,security,e2e}`、`docs/{adr,runbooks,research}`。
+**验收口径**（基线 §5）：结论须标注 L1 现象 / L2 行为 / L3 推断；探针必须用退出码表达结论；测试接线本身是安全前提，必须断言而非假定。
+
+尚未建立（主文档 §14.4）：`apps/web`、`apps/api`、`src/aquant/{domain,application,operations}`、`contracts/`、`configs/`、`migrations/`、`tests/{unit,integration,golden,pit,security,e2e}` —— 见基线 T3（最高优先，不依赖供应商与模型密钥）。
 
 ## Q0 复核
 

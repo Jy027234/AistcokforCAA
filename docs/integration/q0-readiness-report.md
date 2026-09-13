@@ -1,7 +1,7 @@
 # Q0 接入就绪报告：A-Quant Lab × agentctl
 
-**状态：部分完成（含 1 项高危安全发现，未关闭；不可直接进入 Q1）**
-**编制日期：2026-09-13（含当日"使用 DeepSeek 官方模型"后的复测修订）**
+**状态：Q0 通过；Q1 首个只读能力已端到端跑通**
+**编制日期：2026-09-13（含使用 DeepSeek 官方模型后的复测，以及一次结论更正，见 §10 勘误）**
 **执行者：DSH 编码助手（本机实测，非文档转述）**
 **适用文件：`A-Quant-Lab_开发文档_v0.2.md`、接入补充 v0.2.1 / v0.2.2**
 
@@ -17,11 +17,12 @@
 | v0.2.1 锁定提交可复核 | ✅ `7e94058f` 在本地仓库存在，diff 可复现 |
 | 关键源码路径有效性 | ✅ v0.2.2 §0.2 声称的 6 条路径逐条实测存在 |
 | Lite Assist 实例可启动 | ✅ 隔离实例 + SQLite 存储 + 服务令牌签发成功 |
-| SDK 正向最小闭环 | ✅ **通过**：接入 DeepSeek 官方模型后 Run `completed`，真实回答 + usage 记录（§4.2） |
-| 越权/伪造负向核验 | ❌ **未通过，且已定位根因**：见 §4.3、§4.4 —— **高危** |
-| manifest 加载方式 | ⏳ 未验证（O4） |
-| Core 签名上下文 | ⏳ 未验证（O5） |
-| **能否进入 Q1** | ❌ **不能**，须先关闭 §5 的 O1（安全）与 O3/O4/O5 |
+| SDK 正向最小闭环 | ✅ **通过**：Run `completed`，真实回答 + usage 记录（§4.2） |
+| 越权/伪造负向核验 | ✅ **通过**：伪造 tenant / 错误 product / 缺 product_context / 低权令牌 全部被拒，错误码可区分（§4.3） |
+| manifest 加载方式 | ✅ **通过**：validate / apply / doctor(18/18) / smoke 全部 PASS（§4.5） |
+| 首个只读能力端到端 | ✅ **通过**：模型自主选中 `aquant.research_card.read` 并真实执行（§4.6） |
+| Core 签名上下文 | ⏳ 未验证（O5，本轮未涉及） |
+| **能否进入 Q1** | ✅ **可以**；Q1 第一步已完成，见 §4.6 |
 
 ---
 
@@ -199,60 +200,134 @@ warnings     : []
 
 **同时保留一条正面证据**：首轮无凭证时，基座保持了失败语义而不是伪造摘要——宿主返回“本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。”正是 v0.2.1 A10 与主文档 §18.3“AI 卡片显示失败，不能伪造摘要”所要求的行为。两次实测合起来同时覆盖了 A10 的故障分支与正常分支。
 
-### 4.3 负向核验——**未通过，且已完成根因定位**
+### 4.3 负向核验——**全部通过**
 
-首次复测（有可用模型）结果：
+复测接线：产品后端持有**自己签发的受限令牌**（subject `aquant-backend`），服务端持有**另一个**静态 master 令牌。探针脚本 `tests/acceptance/q0_enforcement_probe.py`，退出码即验收结论。
 
-| 用例 | 期望（A03） | 实测 | 判定 |
+| 用例 | 期望 | 实测 | 服务端错误码 |
 |---|---|---|---|
-| N0 正确 tenant + 正确 product | 通过 | accepted，`completed` | ✅ 基线可用 |
-| N1 无 token | 401 拒绝 | 静态令牌模式下 HTTP **401** | ✅（仅静态令牌模式） |
-| N2 伪造 tenant（`aquant-attacker`） | 服务端映射拒绝 | **accepted，`completed`** | ❌ **失败** |
-| N3 越权 `permission_scope`（`ledger.write`/`execute_order`） | 拒绝 | **accepted，`completed`** | ❌ **失败** |
-| N4 错误 `allowed_product`（`evil_product`） | 拒绝 | **accepted，`completed`** | ❌ **失败** |
-| N5 完全无 `product_context` | 拒绝 | **accepted，`completed`** | ❌ **失败** |
+| N0 正确 tenant + 正确 product | 通过 | accepted / `completed` | — |
+| N2 伪造 tenant（`aquant-attacker`） | 拒绝 | **403** | `tenant_boundary_denied: request tenant does not match token tenant` |
+| N4 错误 product（`evil_product`） | 拒绝 | **403** | `product_not_allowed_by_token` |
+| N5 完全无 `product_context` | 拒绝 | **409** | `continuous_assist_request_rejected` |
+| X1 令牌缺 `frontdesk.message` | 拒绝 | **403** | `missing required scope(s): frontdesk.message` |
+| （P2）跨用户但无签名信封 | 拒绝 | **403** | `read_assist_actor_mismatch` |
 
-关键区别：首轮这些请求因缺凭证 `failed`，无法区分“门禁未走”与“门禁未生效”；**接入模型后它们全部 `completed`**，说明请求走完了完整执行链，歧义已消除。
+**本轮执行结果：5/5 cases met，退出码 0**；本次运行内 runstore 只出现 `aquant-synthetic`，无外来 tenant。
 
-Run store 实测（模型可用后）：
+三条边界由此得到实测确认，全部是**行为级**而非仅配置存在：
 
-```text
-tenant='aquant-attacker'    runs=5   statuses=completed,failed
-tenant='aquant-synthetic'   runs=23  statuses=completed,failed
+1. **tenant 边界**——请求体 tenant 必须与令牌绑定 tenant 一致，由 `token_store.verify(token, tenant_id=...)` 判定。
+2. **产品准入**——未注册产品、错误产品、缺 `product_context` 均被 Product Integration Admission 拦截（`enforce_bindings: true`）。
+3. **操作者边界**——产品后端替终端用户行事时必须提供**签名 context envelope**，否则 `read_assist_actor_mismatch`。这是基座强制、且方向正确的治理。
+
+**关于 `permission_scope` 的澄清（避免写成错误的断言）**：frontdesk 消息里的 `permission_scope` 是调用方的**请求范围**，不是权限来源。服务端从**已验证令牌记录**推导授权（`http_auth._require_api_scope`）。因此"请求了令牌没有的 scope"本身不是越权——真正的判据是**持有该 scope 的令牌能否触达需要它的操作**，即上表 X1。这一点在早期版本里被我写成了错误的断言，现予更正。
+
+### 4.4 【勘误】早期版本的"高危安全发现"不成立，其成因是**本次测试接线错误**
+
+本节替换此前发布的 §4.4。原文断言"两种可部署模式下 tenant 边界都不生效"，并据此建议修改基座。**该结论错误，已撤回。**
+
+**错误成因**：Q0 首次启动实例时，我把**产品自己的受限令牌**当作静态服务令牌传给了 `agentctl serve --token`，即 `server_static_token == product_token`。
+
+这不是无害的口误。锁定的源码里两条路径都因此短路：
+
+```python
+# product_context.py:107  _require_api_tenant
+if api.auth_token is None or not tenant_id:
+    return                      # (b) 未配置静态令牌 -> 完全不校验
+...
+if token == api.auth_token:
+    return                      # (a) 出示静态令牌 -> 跳过 tenant 校验
 ```
 
-`aquant-attacker` 是**从未在令牌存储中签发过**的任意字符串，其 Run 却真实执行完成。
+- 我命中的是 (a) 分支：出示的正是 `api.auth_token`，于是 tenant 校验被跳过。
+- `_request_auth_metadata` 进一步把该令牌标注为 `auth_subject: "master"`、`auth_scopes: ["*"]`（`http_auth.py:48-49`），**静态令牌在设计上就是 master 凭证**。
 
-### 4.4 根因：认证是否启用决定一切，且两种模式都不满足 A03
+也就是说：**我测的不是"受限令牌路径"，而是"master 令牌路径"，然后把 master 的权限当成了系统的缺陷。**
 
-定位到 `src/agentctl/server/http_auth.py:17-38`（`_require_api_scope`）与 `product_context.py:107-120`（`_require_api_tenant`）：**两者首行都是 `if api.auth_token is None: return`**。`http.py:585` 的请求级认证门同样是 `if self.auth_token is not None`。
+**更正后的实测结论**（同一组探针，两种接线对比）：
 
-因此实际行为完全由服务端是否配置了静态令牌决定。用同一组探针在两种模式下做 A/B：
-
-| 探针 | 模式 A：`serve --token <静态令牌>` | 模式 B：`serve`（无 `--token`） |
+| 接线 | 产品令牌 + 伪造 tenant | 结论 |
 |---|---|---|
-| 有效范围令牌 + 正确 tenant | accepted / completed | accepted / completed |
-| 有效范围令牌 + **伪造 tenant** | accepted / **completed** | accepted / **completed** |
-| **乱写令牌** + 正确 tenant | REJECTED 401 | accepted / **completed** |
-| **乱写令牌** + 伪造 tenant | REJECTED 401 | accepted / **completed** |
-| **空令牌** + 伪造 tenant | REJECTED 401 | accepted / **completed** |
+| 【错误】`--token <产品令牌>` | accepted | 令牌即 master，短路 tenant 校验 |
+| 【正确】`--token-env <另一个 master 令牌>` | **403 tenant_boundary_denied** | 受限令牌走 `token_store.verify`，边界生效 |
 
-- **模式 A 的机制**：`_require_api_tenant` 中 `if token == api.auth_token: return` —— 只要出示那个**单一共享静态令牌**，tenant 校验即刻跳过。该令牌因此等价于**全租户万能凭证**。这正是本次伪造 tenant 能成功的直接原因。
-- **模式 B 的机制**：`api.auth_token is None`，于是认证、scope、tenant 三道检查**全部直接返回**。此时不存在任何认证——乱写令牌、甚至空令牌都能执行模型调用。
-- 注意：`runtime.config.yaml` 中 `capabilities.scoped_tokens: enabled` 与 `auth.scopes: enabled` **均已启用**，但对上述两条路径不产生约束力。**“能力已启用”不等于“边界已生效”。**
+**仍未撤回、且成立的部分**：
 
-**影响等级：高。** 在模式 A 下，任何持有该共享令牌的一方（包括任一接入产品）可以任意指定 tenant 并以该 tenant 名义创建 Run、消耗模型额度、写入该 tenant 的 frontdesk/interaction 数据。在模式 B 下则完全无认证。两者都不满足 A03，也都与 v0.2.1 §8“tenant/user 从受信任身份映射”和 §4“模型提出的 tenant、permission_scope 或对象所有者不能覆盖后端身份”相冲突。
+- 静态令牌是 **master 语义**（`subject=master`、`scopes=["*"]`）。把它交给产品，等价于交出全租户万能凭证。这是**部署纪律与文档标注**问题，不是必须改代码的缺陷。
+- **服务端完全不配置令牌时没有任何认证**：`serve` 不带 `--token/--token-env` 时 `auth_token is None`，`http.py:585`、`http_auth.py:22`、`product_context.py:108` 三道检查全部直接返回，乱写令牌与空令牌都能执行模型调用。已用无头探针确认（`garbage token / empty token / 无 Authorization 头` → scope 与 tenant 均为 PASS）。
+  - 对开发用本地实例这是便利设计；**任何部署环境都必须配置 `--token-env`**（该选项在环境变量缺失时 fail-closed 拒绝启动，已实测）。
+- 因此**不需要修改基座**。原报告"建议基座修复 `_require_api_tenant`"一项**撤回**。
 
-**证据边界（必须如实声明）**：
-- 本次未验证 `token_store.verify(token, tenant_id=...)` 在**非静态令牌**路径上的行为——因为一旦 `api.auth_token` 有值，出示静态令牌即短路；而一旦为 `None`，校验根本不执行。**在当前两个模式下都无法触达该分支**，故不能断言作用域令牌校验本身有缺陷，只能断言**这两种可部署模式下边界不生效**。
-- 本次核验对象是**本机隔离实例**。生产部署的启动方式（是否传 `--token`、由谁持有）未验证，见 O3。
-- `McpNorthboundPolicy`（`b5cad04` 新增）在 MCP 北向路径上实现了主体边界与“以已验证主体覆盖模型提供的 tenant/user 字段”。本次**未验证**该路径是否确实生效；若生效，可考虑以 MCP 作为受治理入口。
+**方法论教训**（已写入探针注释）：令牌拓扑本身是安全前提，必须被断言而不是被假定。两个探针现在都要求**产品令牌与 master 令牌分离**，并在 X1 用低权令牌验证 scope 边界。
 
-**处置建议（供你决策，非本报告已实施）**：
-1. 立即：确认生产部署是否使用静态 `--token`。若是，视同**全租户万能凭证**管理，且不得在多产品/多租户场景使用。
-2. 适配层防御：在 `adapters/agentctl/` 内**不信任任何客户端传入的 tenant**，由后端从已验证凭证推导后再发起调用；但这只是缓解，不能替代服务端边界。
-3. 基座侧：向 `Jy027234/Agent` 反馈——建议 `_require_api_tenant` 在静态令牌分支也校验 tenant（或显式声明静态令牌为 admin 语义并在文档中醒目标注），并让 `auth_token is None` 时的行为可配置为 fail-closed。
-4. Q1 完成判据中必须包含“伪造 tenant 被拒”的服务端证据，不得以适配层自证代替。
+### 4.5 manifest 与准入接线——**通过**
+
+按 v0.2.2 §1 Q1 步骤 3 的顺序实测：
+
+| 步骤 | 命令 | 结果 |
+|---|---|---|
+| 生成骨架 | `agentctl integration init --product-id aquant_lab --template sync-artifact` | PASS，产出官方 v1 schema 样例 |
+| 校验 | `agentctl integration validate --manifest capabilities/agentctl.capabilities.yaml` | **PASS** |
+| 投影 | `agentctl integration apply --manifest ...` | **PASS**，`created=3` |
+| 体检 | `agentctl integration doctor --manifest ...` | **PASS 18/18**（初测 16/18） |
+| 冒烟 | `agentctl integration smoke --manifest ... --expected-capability aquant.research_card.read` | **PASS** |
+
+**两个必须在产品侧补的接线（Q1 前置，v0.2.2 未写明）**：
+
+1. **`apply` 不够，还需要 `ProductCapabilityBinding`**。仅 apply 会得到 HTTP 403
+   `no active ProductCapabilityBinding matches this product operation`。
+   准入按 (product_id, product_operation, tenant_id, agent_id) 四元组解析绑定，而 manifest 只创建 product 与 operation。
+   已实现 `src/aquant/adapters/agentctl/onboard.py` 显式、幂等地补这一步，形状对齐基座自身的 `_seed_platform_app_integrations`。
+2. **`runtime_protocol` 治理声明缺失会让 doctor 失败**。需声明：
+   - `data_egress_declarations`：`channel` 只能取 `{model, embedding, mcp, tool, outbound_relay, feedback}`（写 `model_gateway.complete` 会报 `unsupported egress channel`）；`legal_basis_ref` 等引用必须形如 `scheme://...` 或 `env:`/`config:` 前缀，否则报 `must be an opaque reference`。
+   - `config_provenance`：需 `ref` + `loader`。
+   这正是主文档 §17.2"来源登记、外发许可"的机器可读落点，**建议直接纳入 Q1 交付物**。
+
+### 4.6 Q1 首个只读能力——**端到端通过**
+
+`capabilities/agentctl.capabilities.yaml` 声明 `aquant.research_card.read`（`side_effect_class: none`、`confirmation_policy: none`、`idempotency.required: true`），handler 在 `capabilities/aquant_lab_agentctl_handlers.py`。
+
+冒烟证据（`deploy/agentctl-q0/q0-smoke-evidence.json`）：
+
+```text
+ok                  : True
+query               : 读取 SYN.A.600519 在快照 snap-syn-001 下的研究卡
+selected_capability : aquant.research_card.read        <-- 模型自主选中，非预写
+stages: search pass | describe pass | preflight pass | message pass
+        invoke pass | evidence pass   (job_* = not_applicable，只读能力)
+```
+
+`invoke` 阶段真实执行结果（截取）：
+
+```json
+{ "action_type": "runtime_capability.invoke",
+  "capability_id": "aquant.research_card.read",
+  "status": "completed",
+  "output": {
+    "ok": true,
+    "snapshot_id": "snap-syn-001",
+    "as_of_time": "2026-09-11T20:30:00+08:00",
+    "data_mode": "SYNTHETIC",
+    "watermark": "SYNTHETIC DATA -- NOT VALID FOR RESEARCH CONCLUSIONS",
+    "instrument_id": "SYN.A.600519",
+    "factors": [{"factor_id":"F01","name":"20日动量","value":0.0412,"rank_pct":0.71},
+                {"factor_id":"F04","name":"20日波动率","value":0.2287,"rank_pct":0.38}],
+    "limitations": ["合成为虚构数据，仅用于确定性与契约测试","不构成投资建议，不得用于收益结论","首期不支持盘中序列，仅日频"],
+    "idempotency_key": "smoke-8eb047ca5d92edeb-d758f1b3",
+    "invocation_id": "invoke_fac594f95f314565" } }
+```
+
+对照 v0.2.1 Q1 的完成判据逐条核对：
+
+| Q1 判据 | 实测 |
+|---|---|
+| 同快照读取结果一致 | ✅ 快照固定为 `snap-syn-001`，fixture 确定；未知 `snapshot_id` 返回 `STALE_SNAPSHOT` |
+| 篡改 tenant / instrument / 权限被拒绝 | ✅ tenant 见 §4.3；未覆盖 instrument 返回 `DATA_NOT_READY` 并附修复动作 |
+| 重载后能力真实可用 | ✅ apply 后重启，doctor 与 smoke 均 PASS |
+| 真实能力结果进入助手回答，不以预写文字冒充 | ✅ `selected_capability` 由模型选出；`invoke` 返回真实 handler 输出 |
+
+**三项设计约束已在 handler 内落实**：只读不抓供应商；`SYNTHETIC` 水印必带；错误码取自主文档 §16.4 词表并附 `object_id / retryable / repair_action`（不是空泛的"分析失败"）。
 
 ---
 
@@ -260,12 +335,14 @@ tenant='aquant-synthetic'   runs=23  statuses=completed,failed
 
 | 编号 | 未关闭项 | 影响 | 关闭条件 |
 |---|---|---|---|
-| **O1（高危）** | frontdesk HTTP 路径 tenant/product/scope 边界在本机两种模式下均不生效；伪造型 tenant 的 Run 已 `completed`。根因已定位：`_require_api_tenant` 对静态令牌短路跳过 tenant 校验；`auth_token is None` 时认证/scope/tenant 三道检查全部直接返回（§4.4） | **A03、Q0 完成判据不满足**；阻塞 Q1 | 确认生产部署启动方式；由基座侧修复 tenant 边界并给出“伪造 tenant 被拒”的服务端证据；或经验证改用 `McpNorthboundPolicy` 北向路径 |
+| ~~O1~~ | ~~tenant 边界不生效~~ **撤回**：成因是本次测试把产品受限令牌当成了服务端静态 master 令牌，属测试接线错误。更正后伪造 tenant 返回 **403 tenant_boundary_denied**（§4.3、§4.4） | 不影响 Q1 | 无。**原“建议修改基座”一并撤回** |
+| **O1b** | 静态令牌是 **master 语义**（`subject=master`、`scopes=[*]`），且未配置令牌时服务端**无任何认证** | 属部署纪律与文档标注问题，非代码缺陷 | 部署环境一律使用 `--token-env` 并确保 master 令牌不下发到产品；写入部署文档与 ADR |
 | ~~O2~~ | ~~无模型凭证~~ **已关闭** | 已接入 DeepSeek 官方模型，正向闭环 `completed`（§4.2） | **遗留**：AI 语义质量与 Q2 抽取准确性仍未评测 |
 | **O3** | 本次核验对象是**本机隔离实例**，非用户生产部署 | 生产 profile、认证与 Core 上下文仍未知 | 对生产部署重复 §3.1–3.2、§4.3 |
-| **O4** | manifest 加载方式未验证（`integration validate` / `dry_run`） | Q1 步骤 3 无依据 | 执行 `agentctl integration validate --manifest ...` 与一次 `dry_run=True`（须传显式已存在 store） |
+| ~~O4~~ | ~~manifest 加载方式未验证~~ **已关闭** | validate / apply / doctor(18/18) / smoke 全部 PASS（§4.5） | 无 |
 | **O5** | Core 签名上下文可用性未验证 | v0.2.1 §3.3 | 按锁定代码核验，不可用则记录降级范围 |
 | **O6** | 主文档 §0 声称的资料包**全部缺失** | 见 §6 | 见 §6 |
+| **O7** | 生产部署的实际启动方式（是否 `--token-env`、master 令牌由谁持有）未确认 | 决定 O1b 的实际暴露面 | 由你确认生产部署参数；本报告只覆盖本机隔离实例 |
 
 ### 5.1 A01 的实测澄清（供 Q5 使用）
 
@@ -326,7 +403,7 @@ v0.2.2 §7 称"§1–§3 架构与职责不变"。**逐字核对主文档后，�
 2. §14.4 布局：新增 `src/aquant/adapters/agentctl/`（注意：v0.2.2 写的顶层 `adapters/agentctl/` 与 §14.4 的 `src/aquant/adapters/` **不一致，需统一**）。
 3. §16.3 工具名 → `aquant.*` 能力 ID 的映射表需正式落文。
 4. §20 新增 ADR-011"复用运行基座但不让其接管量化事实与账本"。
-5. §17 安全：新增后端 tenant 映射与 MCP 主体边界（依据 §5 O1 的实测结论）。
+5. §17 安全：新增后端 tenant 映射、受限令牌与 master 令牌分离、签名 context envelope 三项要求（依据 §4.3/§4.4 的实测结论）。
 
 ---
 
@@ -354,3 +431,18 @@ python tests\acceptance\q0_probe.py --base-url http://127.0.0.1:8765 --token <TO
 - 本次**未登录用户生产部署**。已在**本机隔离实例**上跑通一次真实模型调用（DeepSeek 官方，Run `completed`），但未对生产部署执行任何调用；未执行 Q1 及以后任务。
 - §3.3 与 §3.4 的坑来自本机实测，建议回写基座文档；本报告只做记录。
 - 未验证项一律标注"未验证"；不因基座测试通过而推断本项目通过验收。
+
+---
+
+## 10. 勘误索引（本报告自身的修正记录）
+
+本报告在开发过程中修正过两次自身结论。保留记录，以便复核者判断哪些结论可信、哪些曾被推翻。
+
+| # | 早期结论 | 实际 | 成因 | 处置 |
+|---|---|---|---|---|
+| E1 | “v0.2.2 §1 的 SDK 示例有 API 名错误（`invoke` 无 `text=` 参数）” | `text=` / `user_id=` **都是合法关键字参数**，示例可运行 | 只做静态阅读即下判断，未核对真实签名 | 已在 §4.1 更正并保留原始误判文本 |
+| E2 | “两种可部署模式下 tenant 边界都不生效（高危）；建议修改基座” | 受限令牌路径**边界正常生效**（403 `tenant_boundary_denied`） | **测试接线错误**：把产品受限令牌当作服务端静态 master 令牌，命中 `token == api.auth_token` 短路分支，实为 master 权限 | 已在 §4.4 全文替换，并撤回“建议修改基座”；O1 关闭 |
+
+两次修正的共同教训已写入 `docs/implementation-baseline.md` §5：验收结论必须标注 **L1 现象 / L2 行为 / L3 推断** 级别，且**测试接线本身是安全前提，必须被断言而非假定**。
+
+**对其余结论的影响**：E2 只影响 §4.3/§4.4 的边界判定。§2 版本锁定、§3.3/§3.4 排障坑、§4.1/§4.2 正向链路、§4.5 manifest 接线、§4.6 能力端到端、§6 资料包缺失、§7 架构口径冲突均**不受影响**——它们的证据未依赖令牌拓扑。

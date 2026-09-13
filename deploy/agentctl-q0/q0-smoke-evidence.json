@@ -1,0 +1,229 @@
+{
+  "kind": "AgentctlProductIntegrationSmokeReport",
+  "schema_version": "agentctl.integration.smoke.v1",
+  "ok": true,
+  "manifest": {
+    "schema_version": "agentctl.product_capabilities.v1",
+    "path": "E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml",
+    "digest": "8eb047ca5d92edeb3f5397481b46abf83230cccd43c5ecaccc164fb63326dd99",
+    "product_id": "aquant_lab",
+    "capability_ids": [
+      "aquant.research_card.read"
+    ]
+  },
+  "config": {
+    "path": "E:\\IT\\A股量化交易\\deploy\\agentctl-q0\\runtime.config.yaml",
+    "inferred": false,
+    "store": {
+      "kind": "sqlite",
+      "path": "E:\\IT\\A股量化交易\\deploy\\agentctl-q0\\.agentctl\\data\\product_integration.sqlite"
+    }
+  },
+  "query": "读取 SYN.A.600519 在快照 snap-syn-001 下的研究卡",
+  "selected_capability_id": "aquant.research_card.read",
+  "stages": {
+    "search": {
+      "status": "pass",
+      "matched_terms": [
+        "读取",
+        "快照",
+        "下的",
+        "的研",
+        "研究",
+        "究卡"
+      ],
+      "semantic_matches": [],
+      "score": 0.4666666666666667,
+      "score_breakdown": {
+        "lexical": 0.6666666666666666,
+        "identity": 0.3333333333333333,
+        "semantic": 0.0,
+        "availability": 1.0,
+        "total": 0.4666666666666667
+      },
+      "scoring_version": "agentctl.capability_search.hybrid.v1",
+      "catalog_version": "sha256:335097818e46f452",
+      "candidate_ids": [
+        "aquant.research_card.read"
+      ]
+    },
+    "describe": {
+      "status": "pass",
+      "version": "1.0.0"
+    },
+    "preflight": {
+      "status": "pass",
+      "result": {
+        "schema_version": "aios.capability_preflight.v0.1",
+        "capability_id": "aquant.research_card.read",
+        "allowed": true,
+        "reasons": [],
+        "required_confirmation": "none",
+        "definition_owner": "aquant_lab",
+        "visibility_authority": "platform_core",
+        "side_effect_class": "none",
+        "checks": {
+          "visible": true,
+          "scopes": true,
+          "availability": true,
+          "risk_ceiling": true,
+          "work_item": true
+        }
+      }
+    },
+    "message": {
+      "status": "pass",
+      "request_id": "smoke-request-7f376b0202",
+      "plan_id": "fdplan_fb7286a11e2a",
+      "phase": "delegate"
+    },
+    "invoke": {
+      "status": "pass",
+      "outcome": "completed",
+      "execution": {
+        "plan_id": "fdplan_fb7286a11e2a",
+        "status": "completed",
+        "operation": "execute",
+        "dry_run": false,
+        "executed": true,
+        "requires_confirmation": false,
+        "steps": [
+          {
+            "step_id": "fdstep_9cec2035a8",
+            "action_type": "runtime_capability.invoke",
+            "capability_id": "aquant.research_card.read",
+            "status": "completed",
+            "output": {
+              "as_of_time": "2026-09-11T20:30:00+08:00",
+              "board": "MAIN",
+              "data_mode": "SYNTHETIC",
+              "display_name": "合成示例·消费龙头",
+              "exchange": "SSE",
+              "factors": [
+                {
+                  "coverage": 1.0,
+                  "factor_id": "F01",
+                  "name": "20日动量",
+                  "rank_pct": 0.71,
+                  "unit": "ratio",
+                  "value": 0.0412
+                },
+                {
+                  "coverage": 1.0,
+                  "factor_id": "F04",
+                  "name": "20日波动率",
+                  "rank_pct": 0.38,
+                  "unit": "annualized",
+                  "value": 0.2287
+                }
+              ],
+              "instrument_id": "SYN.A.600519",
+              "limitations": [
+                "合成为虚构数据，仅用于确定性与契约测试",
+                "不构成投资建议，不得用于收益结论",
+                "首期不支持盘中序列，仅日频"
+              ],
+              "ok": true,
+              "snapshot_id": "snap-syn-001",
+              "watermark": "SYNTHETIC DATA -- NOT VALID FOR RESEARCH CONCLUSIONS",
+              "schema_version": "aios.frontdesk_runtime_step_result.v0.1",
+              "invocation_id": "invoke_fac594f95f314565",
+              "capability_id": "aquant.research_card.read",
+              "work_item_id": "smoke-work-22e16ee034",
+              "trace_id": "smoke-request-7f376b0202",
+              "idempotency_key": "smoke-8eb047ca5d92edeb-d758f1b3",
+              "runtime_invocation_result": {
+                "capability_id": "aquant.research_card.read",
+                "idempotency_key": "smoke-8eb047ca5d92edeb-d758f1b3",
+                "invocation_id": "invoke_fac594f95f314565",
+                "output": {
+                  "as_of_time": "2026-09-11T20:30:00+08:00",
+                  "board": "MAIN",
+                  "data_mode": "SYNTHETIC",
+                  "display_name": "合成示例·消费龙头",
+                  "exchange": "SSE",
+                  "factors": [
+                    {
+                      "coverage": 1.0,
+                      "factor_id": "F01",
+                      "name": "20日动量",
+                      "rank_pct": 0.71,
+                      "unit": "ratio",
+                      "value": 0.0412
+                    },
+                    {
+                      "coverage": 1.0,
+                      "factor_id": "F04",
+                      "name": "20日波动率",
+                      "rank_pct": 0.38,
+                      "unit": "annualized",
+                      "value": 0.2287
+                    }
+                  ],
+                  "instrument_id": "SYN.A.600519",
+                  "limitations": [
+                    "合成为虚构数据，仅用于确定性与契约测试",
+                    "不构成投资建议，不得用于收益结论",
+                    "首期不支持盘中序列，仅日频"
+                  ],
+                  "ok": true,
+                  "snapshot_id": "snap-syn-001",
+                  "watermark": "SYNTHETIC DATA -- NOT VALID FOR RESEARCH CONCLUSIONS"
+                },
+                "schema_version": "aios.runtime_invocation_result.v0.1",
+                "trace_id": "smoke-request-7f376b0202",
+                "work_item_id": "smoke-work-22e16ee034"
+              },
+              "step_execution_ms": 12.04
+            },
+            "error": null
+          }
+        ],
+        "error": null
+      }
+    },
+    "job_contract": {
+      "status": "not_applicable",
+      "job_ref": {},
+      "execution_contract": {}
+    },
+    "job_status": {
+      "status": "not_applicable",
+      "detail": "selected capability is not a pending job submission"
+    },
+    "evidence": {
+      "status": "pass",
+      "work_item_id": "smoke-work-22e16ee034",
+      "event": {
+        "schema_version": "aios.work_item_event.v0.1",
+        "source_event_id": "agentctl:fdplan_fb7286a11e2a:execute:completed:1",
+        "sequence": 1,
+        "event_type": "frontdesk.execute.completed",
+        "occurred_at": "2026-09-13T16:34:11.071668+00:00",
+        "work_item_id": "smoke-work-22e16ee034",
+        "invocation_id": "invoke_fac594f95f314565",
+        "run_id": null,
+        "trace_id": "smoke-request-7f376b0202",
+        "status": "completed",
+        "progress": {
+          "completed": true
+        },
+        "user_message": "integration smoke delegates to aquant.research_card.read",
+        "artifact_refs": [],
+        "evidence_refs": [],
+        "producer": "agentctl.frontdesk",
+        "metadata": {
+          "plan_id": "fdplan_fb7286a11e2a",
+          "request_id": "smoke-request-7f376b0202",
+          "requirement_brief_ref": {
+            "brief_id": "brief_f96a095403454f3c",
+            "version": 1
+          }
+        }
+      }
+    }
+  },
+  "registered_provider_ids": [
+    "aquant.research_card.read"
+  ]
+}
