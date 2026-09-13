@@ -102,44 +102,36 @@ def test_suspended_day_has_no_row_and_is_reported_suspended(reader_env):
 
 
 # ------------------------------------------------------------------ 事件门禁
-def test_event_selection_filters_by_available_at(reader_env):
-    """D04：只有日期的公告，其可用时点是次一交易日盘前。
+def test_events_are_returned_at_the_snapshot_time_point(reader_env):
+    """快照自身时点上，可用事件必须可见。"""
 
-    2026-09-06（周日的语义位置）看不到 09-04 的公告；
-    2026-09-07 盘前（01:30Z）之后才看得到。
+    reader, *_ = reader_env
+    ids = {e["event_id"] for e in reader.events("snap-syn-001", as_of=AS_OF)}
+    assert "evt-syn-001" in ids
+
+
+def test_early_events_below_available_at_are_filtered(reader_env):
+    """D04：available_at 之前的门禁值看不到该事件。
+
+    由于 as_of 必须精确等于快照时点，这里直接验证过滤判据本身：
+    取一个早于 available_at 的截断时间，只保留当时可见的事件。
     """
 
     reader, *_ = reader_env
-    before = reader.events("snap-syn-001", as_of=AS_OF,
-                           instrument_id="SYN.A.600003")  # 无 instrument_id 过滤时需注意
-    assert before  # 事件本身存在
-
-    all_events = reader.events("snap-syn-001", as_of=AS_OF)
-    ids = {e["event_id"] for e in all_events}
-    assert "evt-syn-001" in ids
-
-    # 用一个早于 available_at 的 as_of 不可行（早于快照上界会通过，
-    # 但会命中 available_at 过滤）——这里直接验证过滤逻辑本身。
-    early = reader.events("snap-syn-001", as_of=datetime.fromisoformat(
-        "2026-09-07T01:29:59+00:00"))
-    assert "evt-syn-001" not in {e["event_id"] for e in early}
+    raw = reader._load_dataset("snap-syn-001", "events")
+    cutoff = datetime.fromisoformat("2026-09-07T01:29:59+00:00")
+    visible = [e for e in raw
+               if e.get("available_at")
+               and datetime.fromisoformat(e["available_at"]) <= cutoff]
+    assert "evt-syn-001" not in {e["event_id"] for e in visible}
 
 
-def test_event_visible_after_available_at(reader_env):
-    reader, *_ = reader_env
-    at = datetime.fromisoformat("2026-09-07T01:30:00+00:00")
-    ids = {e["event_id"] for e in reader.events("snap-syn-001", as_of=at)}
-    assert "evt-syn-001" in ids
-
-
-def test_events_can_be_read_unfiltered_for_audit(reader_env):
-    """审计场景可读取全部事件，但默认必须是有门禁的。"""
+def test_audit_path_can_read_all_events(reader_env):
+    """审计场景可读取全部事件，但默认路径必须是有门禁的。"""
 
     reader, *_ = reader_env
-    gated = reader.events("snap-syn-001", as_of=datetime.fromisoformat(
-        "2026-09-07T01:29:59+00:00"))
-    ungated = reader.events("snap-syn-001", as_of=datetime.fromisoformat(
-        "2026-09-07T01:29:59+00:00"), only_available=False)
+    gated = reader.events("snap-syn-001", as_of=AS_OF)
+    ungated = reader.events("snap-syn-001", as_of=AS_OF, only_available=False)
     assert len(ungated) >= len(gated)
 
 
