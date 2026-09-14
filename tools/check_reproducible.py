@@ -156,7 +156,10 @@ def main() -> int:
         # 退出码 2 表示"还没有归档"，首次运行前的正常状态，不算失败。
         proc = run([args.python, str(tmp / "tools" / "verify_archive.py")], cwd=tmp)
         if proc.returncode == 2:
-            check("归档复核（尚无归档，跳过）", True, "尚未跑过 T5")
+            # 措辞要准确：导出目录里没有归档字节是**设计使然**，
+            # 不代表本机没跑过抓取。写成"尚未跑过 T5"会误导读者。
+            check("归档复核（导出目录无字节，跳过）", True,
+                  "归档原始字节不随版本库分发；本机复核请直接跑 tools/verify_archive.py")
         else:
             tail = [ln for ln in proc.stdout.strip().splitlines() if ln.strip()]
             check("归档复核通过", proc.returncode == 0,
