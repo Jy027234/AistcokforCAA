@@ -41,12 +41,6 @@ export function formatRelative(iso: string): string {
   return String(Math.round(h / 24)) + " 天前";
 }
 
-/** 排名百分位 -> 展示串。始终标注"排名"，绝不写成概率。 */
-export function rankLabel(rankPct: number | null): string {
-  if (rankPct === null || Number.isNaN(rankPct)) return "—";
-  return (rankPct * 100).toFixed(0) + "%";
-}
-
 export function categoryLabel(category: string): string {
   const map: Record<string, string> = {
     ANNOUNCEMENT: "公告",

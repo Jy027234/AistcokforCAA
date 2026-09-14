@@ -1,5 +1,5 @@
 import type { ResearchCard as ResearchCardModel } from "../lib/types";
-import { formatAsOf, rankLabel } from "../lib/format";
+import { formatAsOf } from "../lib/format";
 import { Badge, Callout, RankBar } from "./ui";
 
 /** 股票研究卡片（主文档 §5.3）。
@@ -67,7 +67,7 @@ export function ResearchCard({
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                     <span>{f.name} <span className="mono" style={{ color: "var(--text-4)" }}>{f.factorId}</span></span>
                     <span className="mono">
-                      {f.value === null ? "—" : f.value}
+                      {f.value}
                       {f.unit ? " " + f.unit : ""}
                     </span>
                   </div>
@@ -203,9 +203,9 @@ export function EvidenceDrawer({
                 {card.rankBreakdown.map((f) => (
                   <tr key={f.factorId}>
                     <td>{f.name}<div className="note mono">{f.factorId}</div></td>
-                    <td className="num mono">{f.value ?? "—"}</td>
-                    <td className="num">{rankLabel(f.rankPct)}</td>
-                    <td className="num">{f.coverage === null ? "—" : f.coverage.toFixed(2)}</td>
+                    <td className="num mono">{f.value}</td>
+                    <td className="num">{f.rankLabel}</td>
+                    <td className="num">{f.coverageLabel}</td>
                   </tr>
                 ))}
                 {card.rankBreakdown.length === 0 && (

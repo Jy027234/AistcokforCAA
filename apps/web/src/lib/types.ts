@@ -39,13 +39,18 @@ export interface DataStatus {
   accountLabel: string;
 }
 
+/** 因子行。数值以**展示串**给出（视图模型已格式化），
+ *  同时保留 valueRaw 供审计与后续计算；前端不做数值格式化。 */
 export interface FactorRow {
   factorId: string;
   name: string;
-  value: number | null;
+  value: string;
+  valueRaw: number | null;
   unit: string | null;
   rankPct: number | null;
+  rankLabel: string;
   coverage: number | null;
+  coverageLabel: string;
   contribution: number | null;
 }
 

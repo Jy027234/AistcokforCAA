@@ -38,6 +38,27 @@ def pct(value: Decimal | float, digits: int = 2) -> str:
     return f"{float(value):.{digits}f}%"
 
 
+#: 因子值的展示精度，按单位语义决定。
+#: 目的是消除浮点尾巴（0.09899999999999998 -> 0.099），
+#: 而不是改变数值本身——原始值仍保留给下游与审计使用。
+_VALUE_DIGITS = {
+    "ratio": 4,          # 收益率/比值：万分位足够
+    "annualized": 4,     # 年化波动率
+    "percent": 2,
+    "cny": 2,
+    "shares": 0,
+}
+
+
+def factor_value(value: float | None, unit: str | None) -> str:
+    """把因子数值格式化成展示串。"""
+
+    if value is None:
+        return "—"
+    digits = _VALUE_DIGITS.get((unit or "").lower(), 4)
+    return f"{float(value):.{digits}f}"
+
+
 # ======================================================================
 # 数据状态（§5.4 顶栏）
 # ======================================================================
@@ -233,8 +254,14 @@ def build_research_card(
 
     breakdown = [
         {"factorId": f.get("factor_id"), "name": f.get("name", f.get("factor_id")),
-         "value": f.get("value"), "unit": f.get("unit"),
-         "rankPct": f.get("rank_pct"), "coverage": f.get("coverage"),
+         # 展示串在视图模型算好，前端不做数值格式化（§14.1）
+         "value": factor_value(f.get("value"), f.get("unit")),
+         "valueRaw": f.get("value"),
+         "unit": f.get("unit"),
+         "rankPct": f.get("rank_pct"),
+         "rankLabel": (f"{float(f['rank_pct']) * 100:.0f}%" if f.get("rank_pct") is not None else "—"),
+         "coverage": f.get("coverage"),
+         "coverageLabel": (f"{float(f['coverage']):.2f}" if f.get("coverage") is not None else "—"),
          "contribution": f.get("contribution")}
         for f in (factor_values or [])
     ]
