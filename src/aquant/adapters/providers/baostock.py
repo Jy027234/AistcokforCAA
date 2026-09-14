@@ -120,6 +120,25 @@ class BaostockClient:
             finally:
                 self._bs = None
 
+    #: 会话失效的错误码。BaoStock 的服务端会话大约在 100 次查询后过期，
+    #: 之后所有查询都返回"用户未登录"。
+    #:
+    #: 这个坑很隐蔽：**它不是一开始就失败**，而是跑了 100 次之后突然全线失败。
+    #: 我的采集脚本正是这样——前 79 只成功、之后连续 21 只报"用户未登录"，
+    #: 而错误信息看起来像是调用方没登录，实际是服务端把会话踢了。
+    SESSION_EXPIRED_CODES = ("10001001", "10001002")
+
+    def _reconnect(self) -> None:
+        """会话失效后重新登录。
+
+        BaoStock 的登录状态存在**进程内的模块级变量**里，不是每个客户端实例
+        一份，因此重连是全局动作。这里显式 logout 再 login：只 login 不 logout
+        会让服务端累积会话。
+        """
+
+        self.logout()
+        self.login()
+
     def _guard(self) -> None:
         if self._bs is None:
             raise BaostockUnavailable("not logged in; use BaostockClient as a context manager")
@@ -162,14 +181,32 @@ class BaostockClient:
             rows.append(dict(zip(fields, rs.get_row_data())))
         return fields, rows
 
+    def _run(self, call: "Callable[[], Any]", *, label: str) -> Any:
+        """执行一次查询，会话失效时**自动重连并重试一次**。
+
+        为什么可以自动重试：这些查询都是只读的，重试不改变任何状态。
+        会话过期是服务端行为，不是调用方的错，把它暴露给调用方只会让
+        每个调用点都写一遍重连逻辑——而漏写一处就会在跑了一百次之后
+        突然全线失败。
+        """
+
+        result = call()
+        if getattr(result, "error_code", "0") in self.SESSION_EXPIRED_CODES:
+            self._reconnect()
+            result = call()
+        if getattr(result, "error_code", "0") != "0":
+            raise BaostockUnavailable(
+                f"{label} failed: {result.error_code} {result.error_msg}")
+        return result
+
     def stock_industry(self, code: str | None = None) -> tuple[list[dict], Receipt]:
         """证券行业分类。code 形如 sh.600519；省略则返回全市场。"""
 
         self._guard()
-        rs = self._bs.query_stock_industry(code) if code else self._bs.query_stock_industry()
-        if rs.error_code != "0":
-            raise BaostockUnavailable(
-                f"query_stock_industry({code}) failed: {rs.error_code} {rs.error_msg}")
+        rs = self._run(
+            (lambda: self._bs.query_stock_industry(code)) if code
+            else self._bs.query_stock_industry,
+            label=f"query_stock_industry({code})")
         _fields, rows = self._drain(rs)
         return rows, self._record(f"stock_industry:{code or 'ALL'}", rows)
 
@@ -177,10 +214,8 @@ class BaostockClient:
         """某个交易日的全部证券（含指数）。day 形如 2026-09-14。"""
 
         self._guard()
-        rs = self._bs.query_all_stock(day=day)
-        if rs.error_code != "0":
-            raise BaostockUnavailable(
-                f"query_all_stock({day}) failed: {rs.error_code} {rs.error_msg}")
+        rs = self._run(lambda: self._bs.query_all_stock(day=day),
+                       label=f"query_all_stock({day})")
         _fields, rows = self._drain(rs)
         return rows, self._record(f"all_stock:{day}", rows)
 
@@ -193,12 +228,11 @@ class BaostockClient:
         """
 
         self._guard()
-        rs = self._bs.query_history_k_data_plus(
-            code, "date,open,high,low,close,volume,amount,turn,pctChg",
-            start_date=start, end_date=end, frequency="d", adjustflag=adjust)
-        if rs.error_code != "0":
-            raise BaostockUnavailable(
-                f"daily_bars({code}) failed: {rs.error_code} {rs.error_msg}")
+        rs = self._run(
+            lambda: self._bs.query_history_k_data_plus(
+                code, "date,open,high,low,close,volume,amount,turn,pctChg",
+                start_date=start, end_date=end, frequency="d", adjustflag=adjust),
+            label=f"daily_bars({code})")
         _fields, raw = self._drain(rs)
 
         def cents(value: str) -> int | None:
@@ -228,10 +262,9 @@ class BaostockClient:
         """季频盈利能力。返回单条记录，含 pubDate（公布日）。"""
 
         self._guard()
-        rs = self._bs.query_profit_data(code=code, year=year, quarter=quarter)
-        if rs.error_code != "0":
-            raise BaostockUnavailable(
-                f"query_profit_data({code}) failed: {rs.error_code} {rs.error_msg}")
+        rs = self._run(
+            lambda: self._bs.query_profit_data(code=code, year=year, quarter=quarter),
+            label=f"query_profit_data({code})")
         _fields, rows = self._drain(rs)
         return (rows[0] if rows else None), self._record(
             f"profit:{code}:{year}Q{quarter}", rows)

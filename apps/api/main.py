@@ -138,6 +138,12 @@ class AppState:
         self.params = ConstructionParams(
             max_holdings=4, max_single_name_pct=Decimal("10"),
             max_single_industry_pct=Decimal("30"),
+            # 与研究配置一致：近 20 日均成交额 >= 5,000 万元。
+            # 该阈值此前因免费源**没有成交额**而保持 None（不筛）——
+            # 给一个默认阈值会让所有标的被排除，而用"价格×成交量"估算
+            # 是拿未观测的数字做准入判断。BaoStock 补齐成交额后（ADR-004），
+            # 这条约束终于可以真正生效。
+            liquidity_min_avg_amount_cents=5_000_000_000,
         )
         # 板块来自快照内生证券。指向真实快照时用写死的合成清单，
         # 会让真实标的落到"未知板块"，从而拿不到涨跌幅规则与手数。

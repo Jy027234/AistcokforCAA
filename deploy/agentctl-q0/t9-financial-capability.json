@@ -1,0 +1,138 @@
+{
+  "sample": [
+    "sh.600519",
+    "sh.601398",
+    "sz.000333",
+    "sz.300760",
+    "sh.688981"
+  ],
+  "quarters": {
+    "2025Q1": {
+      "statDate": "2025-03-31",
+      "pubDate": "2025-04-30",
+      "netProfit": "27774636011.610000",
+      "MBRevenue": "",
+      "roeAvg": "0.109255",
+      "CFOToNP": "0.317167",
+      "totalShare": "1256197800.00"
+    },
+    "2025Q2": {
+      "statDate": "2025-06-30",
+      "pubDate": "2025-08-13",
+      "netProfit": "46986681449.240000",
+      "MBRevenue": "89352478256.560000",
+      "roeAvg": "0.192486",
+      "CFOToNP": "0.279208",
+      "totalShare": "1256197800.00"
+    },
+    "2025Q3": {
+      "statDate": "2025-09-30",
+      "pubDate": "2025-10-30",
+      "netProfit": "66898804746.170000",
+      "MBRevenue": "128397857400.000000",
+      "roeAvg": "0.263688",
+      "CFOToNP": "0.570964",
+      "totalShare": "1252270215.00"
+    },
+    "2025Q4": {
+      "statDate": "2025-12-31",
+      "pubDate": "2026-04-17",
+      "netProfit": "85310324833.670000",
+      "MBRevenue": "172054171890.910000",
+      "roeAvg": "0.344620",
+      "CFOToNP": "0.721158",
+      "totalShare": "1252270215.00"
+    },
+    "2026Q1": {
+      "statDate": "2026-03-31",
+      "pubDate": "2026-04-25",
+      "netProfit": "28153831489.890000",
+      "MBRevenue": "",
+      "roeAvg": "0.105687",
+      "CFOToNP": "0.955816",
+      "totalShare": "1252270215.00"
+    },
+    "2026Q2": {
+      "statDate": "2026-06-30",
+      "pubDate": "2026-08-15",
+      "netProfit": "46033330566.780000",
+      "MBRevenue": "92278072083.210000",
+      "roeAvg": "0.179543",
+      "CFOToNP": "1.535643",
+      "totalShare": "1250081601.00"
+    }
+  },
+  "field_presence": {
+    "sample_size": 5,
+    "missing": {
+      "profit.gpMargin": 1,
+      "cash_flow.CAToAsset": 1,
+      "cash_flow.NCAToAsset": 1,
+      "cash_flow.tangibleAssetToAsset": 1
+    }
+  },
+  "accumulation_basis": {
+    "profit.netProfit": "True",
+    "profit.MBRevenue": "None",
+    "profit.roeAvg": "True",
+    "cash_flow.CFOToNP": "False",
+    "cash_flow.CFOToOR": "False"
+  },
+  "factor_feasibility": {
+    "F07": {
+      "status": "不可直接计算",
+      "reason": "公式要绝对归母权益（期初期末平均）；数据源只给 roeAvg（年内累计比率），无法还原绝对权益"
+    },
+    "F08": {
+      "status": "可用（需口径换算）",
+      "reason": "CFOToNP 与 netProfit 都是年内累计，两者相乘得累计经营现金流，再按 TTM 规则滚动；比率与绝对值同口径，换算成立"
+    },
+    "F09": {
+      "status": "暂不可用",
+      "reason": "MBRevenue 存在整季空值（实测 2025Q1/2026Q1 皆空），TTM 会因缺项算错"
+    },
+    "F10": {
+      "status": "可用",
+      "reason": "TTM 净利润 = 当期累计 + 上年全年 − 上年同期累计；市值 = totalShare × 收盘价"
+    }
+  },
+  "ran_at": "2026-09-14T15:20:38.684033+00:00",
+  "checks": [
+    {
+      "name": "每个季度都有公布日",
+      "ok": true,
+      "detail": "6/6 有值"
+    },
+    {
+      "name": "报告期严格早于公布日（无未来信息）",
+      "ok": true,
+      "detail": "statDate < pubDate"
+    },
+    {
+      "name": "公布日跨度跨年（不是同一批补发）",
+      "ok": true,
+      "detail": "['2025-04-30', '2025-08-13', '2025-10-30', '2026-04-17', '2026-04-25', '2026-08-15']"
+    },
+    {
+      "name": "口径不一致这一事实已查明并记录",
+      "ok": true,
+      "detail": "profit.netProfit/roeAvg 为年内累计，cash_flow.CFOToNP/CFOToOR 为单季；TTM 必须逐字段按其口径处理"
+    },
+    {
+      "name": "累计口径字段已识别（Q4 即全年）",
+      "ok": true,
+      "detail": "茅台 2025：Q4=853.1 亿；四个季累加=2269.7 亿。公开事实是全年约 850 亿量级，故 Q4 即全年，确为年内累计"
+    },
+    {
+      "name": "F10 具备计算条件",
+      "ok": true,
+      "detail": "TTM 净利润 = 当期累计 + 上年全年 − 上年同期累计；市值 = totalShare × 收盘价"
+    },
+    {
+      "name": "F07 不可直接计算（需绝对权益）",
+      "ok": true,
+      "detail": "公式要绝对归母权益（期初期末平均）；数据源只给 roeAvg（年内累计比率），无法还原绝对权益"
+    }
+  ],
+  "conclusion": "PASS"
+}

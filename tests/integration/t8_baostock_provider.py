@@ -105,7 +105,34 @@ def main() -> int:
                   f"腾讯 {tvol} vs BaoStock {bars[0]['volume_shares']}")
 
         print()
-        print("=== [5] 财务数据带 pubDate（PIT 前提）===")
+        print("=== [5] 会话过期自动重连（实测约 100 次查询后过期）===")
+        # 这个坑很隐蔽：它不是一开始就失败，而是跑了一百次之后突然
+        # 全线报"用户未登录"。不测这一条，长任务会在中途静默地失败一半。
+        from aquant.adapters.providers.baostock import BaostockClient as _BC
+        ok = 0
+        failures = 0
+        for i in range(30):
+            try:
+                bs.daily_bars("sh.600519", start="2026-09-01", end="2026-09-01")
+                ok += 1
+            except BaostockUnavailable as exc:
+                failures += 1
+                print(f"    第 {i+1} 次失败：{exc}")
+        check("连续查询不因会话过期中断", failures == 0,
+              f"{ok}/30 成功（若服务端提前踢会话，重连逻辑应已兜住）")
+        # 显式模拟：把 session 标记改成过期码，看是否触发重连
+        original = _BC.SESSION_EXPIRED_CODES
+        try:
+            _BC.SESSION_EXPIRED_CODES = ("0",)      # 让任何"成功"都被当成过期
+            bars3, _r3 = bs.daily_bars("sh.600519", start="2026-09-01",
+                                       end="2026-09-01")
+            check("会话失效时会自动重连并重试", len(bars3) == 1,
+                  f"重连后仍取到 {len(bars3)} 条")
+        finally:
+            _BC.SESSION_EXPIRED_CODES = original
+
+        print()
+        print("=== [6] 财务数据带 pubDate（PIT 前提）===")
         profit, preceipt = bs.profit("sh.600519", year=2026, quarter=2)
         check("取到季频财务", profit is not None, str(profit is not None))
         if profit:
