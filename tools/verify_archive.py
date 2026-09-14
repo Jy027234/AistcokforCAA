@@ -114,6 +114,18 @@ def main(argv: list[str] | None = None) -> int:
                     help=f"归档根目录（默认 {DEFAULT_ARCHIVE}）")
     args = ap.parse_args(argv)
 
+    # 大体积字节不进版本库，所以在"干净导出"里必然没有归档库。
+    # 这里要区分两种"没东西可查"：
+    #   * 从未跑过抓取（首次运行前的正常状态）
+    #   * 摘要存在但字节不在（可能是导出目录，也可能是字节真的丢了）
+    # 只有前者算正常跳过；后者交给 verify 逐条报出来。
+    cas_dir = args.root / CAS_DIRNAME
+    if not cas_dir.exists():
+        print(f"[skip] 本机没有归档字节：{cas_dir}")
+        print("       归档原始字节不随版本库分发；跑过一次 T5 后再复核。")
+        print("       注意：这不等于归档通过——它只表示这里没有可查的字节。")
+        return 2
+
     try:
         checks, failures = verify(args.root)
     except FileNotFoundError as exc:

@@ -141,3 +141,21 @@ def test_non_pdf_masquerading_as_pdf_is_caught(tmp_path):
 def test_missing_summary_is_reported(tmp_path):
     with pytest.raises(FileNotFoundError):
         verify(tmp_path / "nowhere")
+
+
+# ============================== 没有字节时是"跳过"，不是"通过"，也不是失败
+def test_missing_blob_tree_exits_as_skip(tmp_path, capsys):
+    """干净导出里没有归档字节，这既不是通过也不是失败。
+
+    版本库不携带大体积字节（见 .gitignore 与归档 README），所以
+    "导出目录里查不到字节"是预期状态。但也不能报成通过——
+    那会把"没查"包装成"查过了没问题"。
+    """
+
+    from verify_archive import main
+
+    code = main(["--root", str(tmp_path)])
+    assert code == 2, "没有可查字节时必须返回跳过码，而不是 0（通过）或 1（不一致）"
+    out = capsys.readouterr().out
+    assert "[skip]" in out
+    assert "不等于归档通过" in out, "跳过必须说清它不能当作通过"

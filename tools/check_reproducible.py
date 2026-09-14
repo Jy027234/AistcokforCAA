@@ -150,7 +150,19 @@ def main() -> int:
             if proc.returncode != 0:
                 print(proc.stdout[-2000:])
 
-        print("\n[6] 工作树是否干净（有未提交变更则导出不等于你正在测的代码）")
+        print("\n[6] 归档字节是否还在（离线，不联网）")
+        # 大体积原始字节不进版本库，所以"归档成功"这句话最容易悄悄失真：
+        # 摘要还在、文件没了，读起来一切正常。这里把它变成会失败的检查。
+        # 退出码 2 表示"还没有归档"，首次运行前的正常状态，不算失败。
+        proc = run([args.python, str(tmp / "tools" / "verify_archive.py")], cwd=tmp)
+        if proc.returncode == 2:
+            check("归档复核（尚无归档，跳过）", True, "尚未跑过 T5")
+        else:
+            tail = [ln for ln in proc.stdout.strip().splitlines() if ln.strip()]
+            check("归档复核通过", proc.returncode == 0,
+                  tail[0] if tail else "verify_archive 无输出")
+
+        print("\n[7] 工作树是否干净（有未提交变更则导出不等于你正在测的代码）")
         dirty = run(["git", "status", "--porcelain"], cwd=ROOT).stdout.strip()
         check("工作树干净", not dirty,
               (dirty.splitlines()[0] + f" …（共 {len(dirty.splitlines())} 项）") if dirty else "")
