@@ -67,6 +67,14 @@ class DividendOutcome:
     entitlement_shares: int
     recognised: bool
     note: str
+    #: 本次推进发生在除权日还是到账日；未发生推进时为 None。
+    #:
+    #: 落库方需要据此区分"新增应收"与"应收结清"两件事：只凭
+    #: receivable_cents / cash_delta_cents 的正负去猜，会把
+    #: 一次到账误判成新增应收，从而让同一笔分红在净值里计两次。
+    stage: str | None = None
+    #: 确认应收时应约定的到账日（除权日推进时才有值）
+    expected_settlement_on: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,13 +150,16 @@ def apply_cash_dividend(
         return DividendOutcome(
             receivable_cents=total, cash_delta_cents=0, entitlement_shares=shares,
             recognised=True,
+            stage="EX_DATE",
+            expected_settlement_on=action.pay_date,
             note=("receivable recognised on the ex-date; cash is unchanged until the pay date "
-                  f"(tax treatment: {action.tax_treatment})"),
+                  f"({action.pay_date.isoformat()}, tax treatment: {action.tax_treatment})"),
         )
     if trading_day == action.pay_date:
         return DividendOutcome(
             receivable_cents=0, cash_delta_cents=total, entitlement_shares=shares,
             recognised=True,
+            stage="PAY_DATE",
             note=("receivable settled into cash on the pay date; the ex-date already recognised "
                   "it, so income is not counted twice"),
         )

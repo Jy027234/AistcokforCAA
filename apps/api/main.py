@@ -35,8 +35,9 @@ from aquant.domain.data.reader import SnapshotReader
 from aquant.domain.data.snapshot import SnapshotError, SnapshotStore
 from aquant.domain.portfolio.construction import Candidate, ConstructionParams
 from aquant.domain.portfolio.plan import PlanError, PlanService, confirmer_is_human
+from aquant.domain.simulation.corporate_actions import CashDividend
 from aquant.domain.simulation.fees import synthetic_fee_table
-from aquant.domain.simulation.simulator import Bar, BoardRule
+from aquant.domain.simulation.simulator import Bar, BoardRule, SimError
 
 ROOT = Path(__file__).resolve().parents[2]
 SNAPSHOT_ID = "snap-syn-001"
@@ -135,8 +136,24 @@ class FreezeRequest(BaseModel):
     confirmation_token: str = Field(min_length=8, max_length=512)
 
 
+class DividendInput(BaseModel):
+    """当日落在除权日或到账日的现金分红。"""
+
+    action_id: str = Field(min_length=1, max_length=64)
+    instrument_id: str = Field(min_length=1, max_length=64)
+    record_date: date
+    ex_date: date
+    pay_date: date
+    cash_per_share_cents: int = Field(gt=0)
+    #: §12.6 未实现完整红利税处理前必须标注口径，默认税前
+    tax_treatment: str = Field(default="PRE_TAX", pattern="^(PRE_TAX|CONSERVATIVE|VERIFIED)$")
+
+
 class ExecuteRequest(BaseModel):
     plan_id: str = Field(min_length=1, max_length=64)
+    #: 不传则视为当日无公司行为。权利由登记日持仓决定，服务端自行计算，
+    #: 调用方不能指定股数或金额。
+    corporate_actions: list[DividendInput] = Field(default_factory=list)
 
 
 class ValueRequest(BaseModel):
@@ -204,6 +221,18 @@ def create_app(state: AppState | None = None) -> FastAPI:
 
     @app.exception_handler(SnapshotError)
     async def snapshot_error_handler(_: Request, exc: SnapshotError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"error": exc.as_error()})
+
+    @app.exception_handler(SimError)
+    async def sim_error_handler(_: Request, exc: SimError) -> JSONResponse:
+        """§12.1：不支持的情形必须显式报错，不能近似处理后报告成功。
+
+        这些错误同样走统一的信封。**不能**在路由里手工包一层
+        `HTTPException(detail=...)`：那样 detail 会多嵌一层
+        `{"detail": {"error": ...}}`，与领域处理器产出的形状不一致，
+        调用方就得为"同一个错误码"写两套解析逻辑。
+        """
+
         return JSONResponse(status_code=409, content={"error": exc.as_error()})
 
     # ---------------------------------------------------------------- 读
@@ -337,14 +366,26 @@ def create_app(state: AppState | None = None) -> FastAPI:
         return result
 
     @app.post("/api/v1/plans/{plan_id}/execute")
-    def execute(plan_id: str, _: ExecuteRequest, subject: str = Depends(current_subject),
+    def execute(plan_id: str, body: ExecuteRequest, subject: str = Depends(current_subject),
                 s: AppState = Depends(svc)) -> dict:
         pv = s.previews.get(plan_id)
         if pv is None:
             raise HTTPException(status_code=404, detail="no live preview for this plan")
         lots = s.service._load_lots(pv.portfolio_id)
+        # 构造 CashDividend 时就会校验日期顺序与股利符号；不合法即抛
+        # SimError，由上面的处理器统一转成 409 错误信封。
+        actions = [
+            CashDividend(
+                action_id=a.action_id, instrument_id=a.instrument_id,
+                record_date=a.record_date, ex_date=a.ex_date, pay_date=a.pay_date,
+                cash_per_share_cents=a.cash_per_share_cents,
+                tax_treatment=a.tax_treatment,
+            )
+            for a in body.corporate_actions
+        ]
         out = s.service.execute(plan_id=plan_id, lots=lots,
-                                cash_available_cents=s.service._ledger_cash(pv.portfolio_id))
+                                cash_available_cents=s.service._ledger_cash(pv.portfolio_id),
+                                corporate_actions=actions)
         return out
 
     @app.post("/api/v1/valuations")

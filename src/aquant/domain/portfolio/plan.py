@@ -37,6 +37,11 @@ from ..portfolio.construction import (
     construct_targets,
     weights_to_orders,
 )
+from ..simulation.corporate_actions import (
+    CashDividend,
+    apply_cash_dividend,
+    record_dividend_entitlement,
+)
 from ..simulation.fees import FeeTable
 from ..simulation.simulator import (
     Bar,
@@ -672,10 +677,15 @@ class PlanService:
         cash_available_cents: int,
         now: datetime | None = None,
         lot_id_prefix: str = "lot",
+        corporate_actions: list[CashDividend] | None = None,
     ) -> dict:
         """执行已冻结的计划。
 
         执行前重新校验有效期与账户状态——冻结不等于永久有效。
+
+        corporate_actions: 当日落在除权日/到账日的现金分红。权利由
+        **登记日**收盘持仓决定，而登记日必然早于除权日，因此用执行前的
+        账本批次计算权利是正确的——当日成交不会改变已经固化的权利。
         """
 
         now = now or datetime.now(timezone.utc)
@@ -805,6 +815,21 @@ class PlanService:
                      e.related_instrument_id),
                 )
 
+        # §12.7 公司行为在成交之后推进，权利取**登记日收盘**的持仓。
+        #
+        # 这里必须用"已含当日成交"的批次，而不是执行前的账本：
+        #   * 模拟器对传入的 ledger_lots **就地**扣减 quantity_remaining，
+        #     所以 ledger_lots 此刻已经是成交后的状态；
+        #   * 当日买入产生的新批次在 result.lots_created 里，必须补上，
+        #     否则"登记日当天买入"会被判成无权利，凭空少算一笔应收；
+        #   * 登记日前卖光的批次 quantity_remaining 已是 0，自然不享权。
+        # 两个方向都不需要额外特判——错在取哪一份批次，不在权利算法。
+        holdings_after_fills = list(ledger_lots) + list(result.lots_created)
+        dividend_outcomes = self._advance_corporate_actions(
+            portfolio_id=portfolio_id, trading_day=trading_day,
+            actions=corporate_actions or (), lots=holdings_after_fills, now=now,
+        )
+
         # Preserve the public API's in-memory view while the database remains authoritative.
         lots[:] = ledger_lots
 
@@ -812,6 +837,7 @@ class PlanService:
             "plan_id": plan_id,
             "status": "EXECUTED",
             "trading_day": trading_day.isoformat(),
+            "corporate_actions": dividend_outcomes,
             "fills": [
                 {"fill_id": f.fill_id, "order_id": f.order_id,
                  "instrument_id": f.instrument_id, "side": f.side.value,
@@ -918,6 +944,115 @@ class PlanService:
             "violations": violations,
         }
 
+    # --------------------------------------------------- corporate actions
+    def _open_receivables(self, portfolio_id: str) -> int:
+        """尚未结清的应收合计（分）。
+
+        估值里的 receivables_cents 必须来自这张表，**不能由调用方传入**：
+        应收是账本事实，不是当次调用的参数。传参就意味着调用方可以选择
+        不报或少报，那样净值就成了"你输入什么就是什么"。
+        """
+
+        row = self.con.execute(
+            "SELECT COALESCE(SUM(amount_cents),0) AS total FROM receivable "
+            "WHERE portfolio_id=? AND status='RECOGNIZED'", (portfolio_id,),
+        ).fetchone()
+        return int(row["total"])
+
+    def _advance_corporate_actions(
+        self,
+        *,
+        portfolio_id: str,
+        trading_day: date,
+        actions: "list[CashDividend] | tuple[CashDividend, ...]",
+        lots: list[Lot],
+        now: datetime,
+    ) -> list[dict]:
+        """把当日落在除权日/到账日的现金分红落库，返回可读的结果。
+
+        除权日  -> 新增一条 RECOGNIZED 应收，**现金不变**
+        到账日  -> 把该应收置为 SETTLED，并记一笔 DIVIDEND 现金分录
+
+        两条路径都要求存在一条 RECOGNIZED 的应收；首次执行才补记。
+        """
+
+        outcomes: list[dict] = []
+        applicable = [a for a in actions if a.instrument_id
+                      and trading_day in (a.ex_date, a.pay_date)]
+        if not applicable:
+            return outcomes
+
+        with write_tx(self.con):
+            for action in applicable:
+                entitlement = record_dividend_entitlement(
+                    action, lots=lots, recorded_on=action.record_date
+                )
+                outcome = apply_cash_dividend(
+                    action, entitlement=entitlement, trading_day=trading_day
+                )
+                if not outcome.recognised:
+                    outcomes.append({
+                        "action_id": action.action_id,
+                        "instrument_id": action.instrument_id,
+                        "stage": outcome.stage,
+                        "receivable_cents": 0,
+                        "cash_delta_cents": 0,
+                        "entitlement_shares": outcome.entitlement_shares,
+                        "note": outcome.note,
+                    })
+                    continue
+
+                # 公司行为本身也要落库：应收要引用它，事后才能回答
+                # "这笔钱是哪次分红来的"。
+                self.con.execute(
+                    "INSERT OR IGNORE INTO corporate_action (action_id,instrument_id,"
+                    "action_type,record_date,ex_date,pay_date,cash_per_share_cents,"
+                    "supported,notes) VALUES (?,?,'CASH_DIVIDEND',?,?,?,?,1,?)",
+                    (action.action_id, action.instrument_id,
+                     action.record_date.isoformat(), action.ex_date.isoformat(),
+                     action.pay_date.isoformat(), action.cash_per_share_cents,
+                     f"tax treatment: {action.tax_treatment}"),
+                )
+
+                if outcome.stage == "EX_DATE":
+                    self.con.execute(
+                        "INSERT OR IGNORE INTO receivable (receivable_id,portfolio_id,"
+                        "instrument_id,kind,amount_cents,tax_treatment,recognized_on,"
+                        "expected_settlement_on,settled_on,status,corporate_action_id) "
+                        "VALUES (?,?,?,'DIVIDEND',?,?,?,?,NULL,'RECOGNIZED',?)",
+                        (f"rcv-{portfolio_id}-{action.action_id}", portfolio_id,
+                         action.instrument_id, outcome.receivable_cents,
+                         action.tax_treatment, trading_day.isoformat(),
+                         outcome.expected_settlement_on.isoformat(), action.action_id),
+                    )
+                elif outcome.stage == "PAY_DATE":
+                    settled = self.con.execute(
+                        "UPDATE receivable SET status='SETTLED', settled_on=? "
+                        "WHERE portfolio_id=? AND corporate_action_id=? "
+                        "AND status='RECOGNIZED'",
+                        (trading_day.isoformat(), portfolio_id, action.action_id),
+                    )
+                    if settled.rowcount:
+                        self.con.execute(
+                            "INSERT INTO cash_entry (entry_id,portfolio_id,entry_type,"
+                            "amount_cents,trading_day,occurred_at,related_instrument_id) "
+                            "VALUES (?,?,'DIVIDEND_RECEIVABLE_SETTLED',?,?,?,?)",
+                            (f"cash-div-{portfolio_id}-{action.action_id}", portfolio_id,
+                             outcome.cash_delta_cents, trading_day.isoformat(), _iso(now),
+                             action.instrument_id),
+                        )
+
+                outcomes.append({
+                    "action_id": action.action_id,
+                    "instrument_id": action.instrument_id,
+                    "stage": outcome.stage,
+                    "receivable_cents": outcome.receivable_cents,
+                    "cash_delta_cents": outcome.cash_delta_cents,
+                    "entitlement_shares": outcome.entitlement_shares,
+                    "note": outcome.note,
+                })
+        return outcomes
+
     def value(
         self,
         *,
@@ -938,6 +1073,8 @@ class PlanService:
                                  initial_lots=lots, now=datetime.now(timezone.utc))
         ledger_lots = self._load_lots(portfolio_id)
         ledger_cash = self._ledger_cash(portfolio_id)
+        # 应收从账本读，不从调用方拿：否则估值会变成"调用方说多少就是多少"
+        ledger_receivables = self._open_receivables(portfolio_id)
         supplied_matches = (_account_version(lots, cash_available_cents)
                             == _account_version(ledger_lots, ledger_cash))
 
@@ -965,6 +1102,7 @@ class PlanService:
         ledger_invariants = self._ledger_invariants(portfolio_id)
         result = compute_valuation(
             trading_day=trading_day, cash_available_cents=ledger_cash,
+            receivables_cents=ledger_receivables,
             positions=positions, lots=ledger_lots, extra_issues=issues,
             ledger_invariants=ledger_invariants,
         )
@@ -1030,23 +1168,35 @@ class PlanService:
         invariants = self._ledger_invariants(portfolio_id)
 
         valuation = self.con.execute(
-            "SELECT cash_available_cents,published FROM valuation WHERE portfolio_id=? "
-            "ORDER BY trading_day DESC LIMIT 1", (portfolio_id,),
+            "SELECT cash_available_cents,receivables_cents,published FROM valuation "
+            "WHERE portfolio_id=? ORDER BY trading_day DESC LIMIT 1", (portfolio_id,),
         ).fetchone()
         valuation_cash_matches = (valuation is None
                                   or int(valuation["cash_available_cents"]) == cash)
         if not valuation_cash_matches:
             invariants["violations"].append({"invariant": "valuation_cash_matches_ledger"})
 
+        # 应收也要对账。只管现金和持仓会漏掉"已确认未到账"的分红：
+        # 那笔钱既不在现金里，也不在持仓里，账面上看起来凭空少了。
+        receivables = self._open_receivables(portfolio_id)
+        valuation_receivables_matches = (
+            valuation is None or int(valuation["receivables_cents"]) == receivables)
+        if not valuation_receivables_matches:
+            invariants["violations"].append(
+                {"invariant": "valuation_receivables_matches_ledger"})
+
         return {
             "portfolio_id": portfolio_id,
             "cash_cents": cash,
             "positions": positions,
+            "receivables_cents": receivables,
             "fill_count": int(fill_rows["n"]),
             "fees_total_cents": int(fee_rows["f"]),
             "invariants": invariants,
             "valuation_cash_matches_ledger": valuation_cash_matches,
+            "valuation_receivables_matches_ledger": valuation_receivables_matches,
             "reconciled": (cash >= 0 and valuation_cash_matches
+                           and valuation_receivables_matches
                            and all(invariants[k] for k in (
                                "fill_le_order", "fees_booked_once",
                                "cash_lines_sum_to_balance", "lots_match_fills"))),

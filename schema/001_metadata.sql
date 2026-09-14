@@ -701,20 +701,6 @@ CREATE TABLE IF NOT EXISTS cash_entry (
 
 CREATE INDEX IF NOT EXISTS idx_cash_portfolio_day ON cash_entry (portfolio_id, trading_day);
 
-CREATE TABLE IF NOT EXISTS receivable (
-    receivable_id   TEXT PRIMARY KEY,
-    portfolio_id    TEXT NOT NULL REFERENCES portfolio(portfolio_id),
-    instrument_id   TEXT NOT NULL REFERENCES instrument(instrument_id),
-    kind            TEXT NOT NULL CHECK (kind IN ('DIVIDEND','OTHER')),
-    amount_cents    INTEGER NOT NULL,
-    -- §12.6 未实现完整红利税处理前必须标注 PRE_TAX / CONSERVATIVE
-    tax_treatment   TEXT NOT NULL CHECK (tax_treatment IN ('PRE_TAX','CONSERVATIVE','VERIFIED')),
-    recognized_on   TEXT NOT NULL,
-    expected_settlement_on TEXT NOT NULL,
-    settled_on      TEXT,
-    status          TEXT NOT NULL CHECK (status IN ('RECOGNIZED','SETTLED','REVERSED'))
-);
-
 CREATE TABLE IF NOT EXISTS corporate_action (
     action_id       TEXT PRIMARY KEY,
     instrument_id   TEXT NOT NULL REFERENCES instrument(instrument_id),
@@ -733,6 +719,37 @@ CREATE TABLE IF NOT EXISTS corporate_action (
     source_id       TEXT REFERENCES source_registry(source_id),
     notes           TEXT
 );
+
+CREATE TABLE IF NOT EXISTS receivable (
+    receivable_id   TEXT PRIMARY KEY,
+    portfolio_id    TEXT NOT NULL REFERENCES portfolio(portfolio_id),
+    instrument_id   TEXT NOT NULL REFERENCES instrument(instrument_id),
+    kind            TEXT NOT NULL CHECK (kind IN ('DIVIDEND','OTHER')),
+    amount_cents    INTEGER NOT NULL CHECK (amount_cents > 0),
+    -- §12.6 未实现完整红利税处理前必须标注 PRE_TAX / CONSERVATIVE
+    tax_treatment   TEXT NOT NULL CHECK (tax_treatment IN ('PRE_TAX','CONSERVATIVE','VERIFIED')),
+    recognized_on   TEXT NOT NULL,
+    expected_settlement_on TEXT NOT NULL,
+    settled_on      TEXT,
+    status          TEXT NOT NULL CHECK (status IN ('RECOGNIZED','SETTLED','REVERSED')),
+    -- 来源公司行为；NULL 表示人工登记的其他应收
+    corporate_action_id TEXT REFERENCES corporate_action(action_id),
+    -- 除权日与到账日必须分开，且不得倒挂（§12.7 的核心要求）
+    CHECK (expected_settlement_on >= recognized_on),
+    -- 结清必须留下日期：否则"应收转现金"只改了状态却说不清哪天转的
+    CHECK (status <> 'SETTLED' OR settled_on IS NOT NULL),
+    CHECK (settled_on IS NULL OR settled_on >= recognized_on)
+);
+
+-- 一次公司行为对一个组合只能产生一条应收：
+-- 重复确认会让同一笔分红在净值里被计两次，而账面看不出来。
+CREATE UNIQUE INDEX IF NOT EXISTS idx_receivable_action_once
+    ON receivable (portfolio_id, corporate_action_id)
+    WHERE corporate_action_id IS NOT NULL;
+
+-- 应收在尚未结清时才计入净值；这个索引让"未结清应收"的查询走索引。
+CREATE INDEX IF NOT EXISTS idx_receivable_open
+    ON receivable (portfolio_id, status);
 
 CREATE TABLE IF NOT EXISTS valuation (
     valuation_id    TEXT PRIMARY KEY,
