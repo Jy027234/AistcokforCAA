@@ -14,7 +14,7 @@ from aquant.domain.data.db import apply_migrations, connect
 from aquant.domain.data.reader import SnapshotReader
 from aquant.domain.data.snapshot import SnapshotError, SnapshotStore
 
-from test_m1_ingest_e2e import EXAMPLE, build_snapshot
+from tests.integration.test_m1_ingest_e2e import EXAMPLE, build_snapshot
 
 
 def utc(*a):

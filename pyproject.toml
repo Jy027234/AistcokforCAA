@@ -30,6 +30,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src", "."]
 # 确定性优先：不依赖网络、不依赖模型密钥的用例是默认集合
 addopts = "-q"
 markers = [

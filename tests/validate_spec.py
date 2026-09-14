@@ -285,6 +285,19 @@ def check_sql() -> None:
             check("同一成交同一费用码不可重复计费", True)
 
         # 4e 不变量未全过时禁止发布净值（§12.8）
+        try:
+            con.execute(
+                "INSERT INTO valuation (valuation_id,portfolio_id,trading_day,"
+                "cash_available_cents,net_value_cents,invariant_cash_not_overdrawn,"
+                "invariant_positions_not_negative,invariant_shares_match_lots,"
+                "invariant_fill_le_order,invariant_fees_booked_once,invariant_cash_lines_sum,"
+                "published,computed_at) VALUES "
+                "('v-insert-bad','pf-1','2026-09-10',100000,100000,1,1,1,1,0,1,1,?)",
+                (now,),
+            )
+            check("INSERT 时不变量失败也禁止发布净值", False, "发布竟然成功")
+        except sqlite3.IntegrityError as exc:
+            check("INSERT 时不变量失败也禁止发布净值", "invariants" in str(exc), str(exc))
         con.execute(
             "INSERT INTO valuation (valuation_id,portfolio_id,trading_day,cash_available_cents,"
             "net_value_cents,invariant_cash_not_overdrawn,invariant_positions_not_negative,"

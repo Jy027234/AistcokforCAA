@@ -14,7 +14,7 @@ deploy/agentctl-q0/*.sqlite-shm
 deploy/agentctl-q0/*.sqlite-wal
 
 # --- 产品数据（主文档 §14.4：不提交真实数据、密钥或私人账户记录） ---
-data/
+/data/
 *.parquet
 *.duckdb
 *.duckdb.wal

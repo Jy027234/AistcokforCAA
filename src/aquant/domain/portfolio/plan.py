@@ -19,7 +19,9 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import secrets
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
@@ -80,7 +82,11 @@ def _account_version(lots: list[Lot], cash_cents: int) -> str:
         {
             "cash": cash_cents,
             "lots": sorted(
-                [l.instrument_id, l.quantity_remaining, l.earliest_sellable_day.isoformat()]
+                [
+                    l.lot_id, l.instrument_id, l.acquired_trading_day.isoformat(),
+                    l.earliest_sellable_day.isoformat(), l.quantity_original,
+                    l.quantity_remaining, l.cost_basis_cents_per_share,
+                ]
                 for l in lots
             ),
         },
@@ -89,10 +95,22 @@ def _account_version(lots: list[Lot], cash_cents: int) -> str:
     return "acct-" + hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
-def _plan_version(targets: list[TargetWeight], snapshot_id: str) -> str:
+def _plan_version(
+    targets: list[TargetWeight], snapshot_id: str, trading_day: date, orders: list[dict]
+) -> str:
     payload = json.dumps(
-        {"snapshot": snapshot_id,
-         "targets": sorted([t.instrument_id, str(t.weight_pct)] for t in targets)},
+        {
+            "snapshot": snapshot_id,
+            "trading_day": trading_day.isoformat(),
+            "targets": sorted([t.instrument_id, str(t.weight_pct)] for t in targets),
+            "orders": sorted(
+                [
+                    o["instrument_id"], o["side"], int(o["quantity"]),
+                    int(o["price_cents"]), o.get("reference_price_day"),
+                ]
+                for o in orders
+            ),
+        },
         ensure_ascii=False, sort_keys=True,
     )
     return "plan-" + hashlib.sha256(payload.encode()).hexdigest()[:16]
@@ -107,6 +125,7 @@ class PlanPreview:
     plan_version: str
     account_version: str
     trading_day: date
+    reference_price_day: date | None
     targets: list[TargetWeight]
     orders: list[dict]
     estimated_fees_cents: int
@@ -125,6 +144,8 @@ class PlanPreview:
             "plan_version": self.plan_version,
             "account_version": self.account_version,
             "trading_day": self.trading_day.isoformat(),
+            "reference_price_day": (self.reference_price_day.isoformat()
+                                    if self.reference_price_day else None),
             "frozen": self.frozen,
             "orders": self.orders,
             "estimated_fees_cents": self.estimated_fees_cents,
@@ -133,6 +154,14 @@ class PlanPreview:
             "cash_weight_pct": str(self.cash_weight_pct),
             "notes": self.notes,
         }
+
+
+def _preview_hash(preview: PlanPreview) -> str:
+    """Hash the complete user-visible preview, including order quantities and prices."""
+
+    payload = json.dumps(preview.as_dict(), ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode()).hexdigest()
 
 
 class PlanService:
@@ -164,6 +193,32 @@ class PlanService:
                 prev_close_cents=match.prev_close_cents or match.open_cents,
                 volume_shares=match.volume_shares,
                 board_limit_up=match.board_limit_up,
+            )
+        return bars
+
+    def _reference_bars(self, snapshot_id: str, trading_day: date, as_of: datetime,
+                        instrument_ids: list[str]) -> dict[str, Bar]:
+        """Latest closes strictly before execution day.
+
+        Plans are formed before the execution-day open.  Using that day's close to size an
+        order would leak future information, so preview and construction use only prior bars.
+        """
+
+        bars: dict[str, Bar] = {}
+        for iid in instrument_ids:
+            rows = self.reader.daily_quotes(snapshot_id, as_of=as_of,
+                                            instrument_id=iid, end=trading_day)
+            history = [r for r in rows if r.trading_day < trading_day]
+            if not history:
+                continue
+            row = history[-1]
+            bars[iid] = Bar(
+                instrument_id=iid, trading_day=row.trading_day,
+                open_cents=row.open_cents, high_cents=row.high_cents,
+                low_cents=row.low_cents, close_cents=row.close_cents,
+                prev_close_cents=row.prev_close_cents or row.open_cents,
+                volume_shares=row.volume_shares,
+                board_limit_up=row.board_limit_up,
             )
         return bars
 
@@ -200,8 +255,9 @@ class PlanService:
             raise PlanError("DATA_NOT_READY", "confirm_subject is required for a plan",
                             portfolio_id, "identify the human confirming the plan")
 
-        ids = [c.instrument_id for c in candidates]
-        bars = self._bars(snapshot_id, trading_day, as_of, ids)
+        ids = sorted({c.instrument_id for c in candidates}
+                     | {l.instrument_id for l in lots if l.quantity_remaining > 0})
+        bars = self._reference_bars(snapshot_id, trading_day, as_of, ids)
         held_qty: dict[str, int] = {}
         held_industry_value: dict[str, int] = {}
         for l in lots:
@@ -229,6 +285,8 @@ class PlanService:
             held_quantity=held_qty, sellable_quantity=self._sellable(lots, trading_day),
             equity_value_cents=equity,
         )
+        for order in orders:
+            order["reference_price_day"] = bars[order["instrument_id"]].trading_day.isoformat()
 
         # 规则检查：每一条都给出结论与原因，不通过则不得冻结
         checks: list[dict] = []
@@ -237,8 +295,8 @@ class PlanService:
             iid = o["instrument_id"]
             bar = bars.get(iid)
             if bar is None:
-                checks.append({"order": iid, "check": "HAS_PRICE", "passed": False,
-                               "detail": "no bar on the trading day; the order cannot fill"})
+                checks.append({"order": iid, "check": "HAS_REFERENCE_PRICE", "passed": False,
+                               "detail": "no price known before the execution day"})
                 continue
             exchange, board_ = self.listings[iid]
             rule = next((r for r in self.board_rules
@@ -289,28 +347,61 @@ class PlanService:
             )
 
         plan_id = "plan_" + uuid.uuid4().hex[:20]
+        reference_days = [b.trading_day for b in bars.values()]
         return PlanPreview(
             plan_id=plan_id, portfolio_id=portfolio_id, snapshot_id=snapshot_id,
-            plan_version=_plan_version(construction.targets, snapshot_id),
+            plan_version=_plan_version(construction.targets, snapshot_id, trading_day, orders),
             account_version=_account_version(lots, cash_available_cents),
-            trading_day=trading_day, targets=construction.targets, orders=orders,
+            trading_day=trading_day,
+            reference_price_day=max(reference_days) if reference_days else None,
+            targets=construction.targets, orders=orders,
             estimated_fees_cents=est_fees, rule_checks=checks,
             excluded=construction.excluded, cash_weight_pct=construction.cash_weight_pct,
             frozen=False, notes=construction.notes,
         )
 
-    def _ensure_portfolio(self, portfolio_id: str, *, initial_cash_cents: int,
-                          now: datetime) -> None:
-        """账本外键要求组合先存在。这里幂等地补一行，不让编排层散落建账逻辑。
+    def _load_lots(self, portfolio_id: str) -> list[Lot]:
+        rows = self.con.execute(
+            "SELECT lot_id,instrument_id,acquired_trading_day,earliest_sellable_day,"
+            "quantity_original,quantity_remaining,cost_basis_cents_per_share "
+            "FROM position_lot WHERE portfolio_id=? ORDER BY lot_id", (portfolio_id,)
+        ).fetchall()
+        return [
+            Lot(
+                lot_id=r["lot_id"], instrument_id=r["instrument_id"],
+                acquired_trading_day=date.fromisoformat(r["acquired_trading_day"]),
+                earliest_sellable_day=date.fromisoformat(r["earliest_sellable_day"]),
+                quantity_original=int(r["quantity_original"]),
+                quantity_remaining=int(r["quantity_remaining"]),
+                cost_basis_cents_per_share=int(r["cost_basis_cents_per_share"]),
+            )
+            for r in rows
+        ]
 
-        kind 由 ID 约定推导（pf-syn-m/pf-syn-e/pf-syn-h/pf-syn-b），
-        与 §13.1 的 M/E/H/B 四类对照账户对应。
-        """
+    def _ledger_cash(self, portfolio_id: str) -> int:
+        row = self.con.execute(
+            "SELECT COALESCE(SUM(amount_cents),0) AS cash FROM cash_entry "
+            "WHERE portfolio_id=?", (portfolio_id,)
+        ).fetchone()
+        return int(row["cash"])
+
+    def _ensure_account(self, portfolio_id: str, *, initial_cash_cents: int,
+                        initial_lots: list[Lot], now: datetime) -> None:
+        """Create the account once, then require callers to match its authoritative ledger."""
 
         existing = self.con.execute(
             "SELECT portfolio_id FROM portfolio WHERE portfolio_id=?", (portfolio_id,)
         ).fetchone()
         if existing is not None:
+            db_lots = self._load_lots(portfolio_id)
+            db_cash = self._ledger_cash(portfolio_id)
+            if _account_version(db_lots, db_cash) != _account_version(
+                    initial_lots, initial_cash_cents):
+                raise PlanError(
+                    "STALE_SNAPSHOT", "supplied account state differs from the ledger",
+                    portfolio_id,
+                    "reload cash and lots from the portfolio ledger, then re-preview",
+                )
             return
         suffix = portfolio_id.rsplit("-", 1)[-1].upper()
         kind = suffix if suffix in {"M", "E", "H", "B"} else "M"
@@ -330,6 +421,17 @@ class PlanService:
                  max(initial_cash_cents, 0), now.date().isoformat(), _iso(now),
                  "opening balance"),
             )
+            for lot in initial_lots:
+                self.con.execute(
+                    "INSERT INTO position_lot (lot_id,portfolio_id,instrument_id,"
+                    "acquired_trading_day,earliest_sellable_day,quantity_original,"
+                    "quantity_remaining,cost_basis_cents_per_share,source_fill_id) "
+                    "VALUES (?,?,?,?,?,?,?,?,NULL)",
+                    (lot.lot_id, portfolio_id, lot.instrument_id,
+                     lot.acquired_trading_day.isoformat(),
+                     lot.earliest_sellable_day.isoformat(), lot.quantity_original,
+                     lot.quantity_remaining, lot.cost_basis_cents_per_share),
+                )
 
     def _rule_version(self, day: date) -> str:
         """取当日生效的规则版本，写入计划以便复现与审计（§7.1）。"""
@@ -361,6 +463,59 @@ class PlanService:
                 out[l.instrument_id] = out.get(l.instrument_id, 0) + l.quantity_remaining
         return out
 
+    def issue_confirmation(
+        self,
+        *,
+        preview: PlanPreview,
+        subject: str,
+        current_lots: list[Lot],
+        current_cash_cents: int,
+        ttl: timedelta = timedelta(minutes=15),
+        now: datetime | None = None,
+    ) -> str:
+        """Issue a one-time server token bound to this exact preview and account state."""
+
+        now = now or datetime.now(timezone.utc)
+        if not confirmer_is_human(subject):
+            raise PlanError(
+                "DATA_NOT_READY", f"confirmation subject {subject!r} is not a human principal",
+                preview.plan_id,
+                "plan freeze is a user action; models never confirm plans (§16.3)",
+            )
+        if ttl <= timedelta(0):
+            raise PlanError("DATA_NOT_READY", "confirmation TTL must be positive",
+                            preview.plan_id, "request a fresh confirmation")
+
+        self._ensure_account(preview.portfolio_id, initial_cash_cents=current_cash_cents,
+                             initial_lots=current_lots, now=now)
+        actual_version = _account_version(
+            self._load_lots(preview.portfolio_id), self._ledger_cash(preview.portfolio_id)
+        )
+        if actual_version != preview.account_version:
+            raise PlanError("STALE_SNAPSHOT", "account state changed since the preview",
+                            preview.plan_id, "re-preview against the current account state")
+
+        expected_plan_version = _plan_version(
+            preview.targets, preview.snapshot_id, preview.trading_day, preview.orders
+        )
+        if expected_plan_version != preview.plan_version:
+            raise PlanError("STALE_SNAPSHOT", "preview contents changed after calculation",
+                            preview.plan_id, "discard the modified preview and calculate it again")
+
+        token = secrets.token_urlsafe(32)
+        token_hash = "sha256:" + hashlib.sha256(token.encode()).hexdigest()
+        with write_tx(self.con):
+            self.con.execute(
+                "INSERT INTO plan_confirmation (confirmation_id,token_hash,plan_id,portfolio_id,"
+                "snapshot_id,plan_version,account_version,preview_hash,subject,issued_at,"
+                "expires_at,consumed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL)",
+                ("pc_" + uuid.uuid4().hex, token_hash, preview.plan_id,
+                 preview.portfolio_id, preview.snapshot_id, preview.plan_version,
+                 preview.account_version, _preview_hash(preview), subject, _iso(now),
+                 _iso(now + ttl)),
+            )
+        return token
+
     # ------------------------------------------------------------ freeze
     def freeze(
         self,
@@ -380,15 +535,23 @@ class PlanService:
         """
 
         now = now or datetime.now(timezone.utc)
-        self._ensure_portfolio(preview.portfolio_id, initial_cash_cents=current_cash_cents,
-                               now=now)
         if not confirmer_is_human(confirm_subject):
             raise PlanError("DATA_NOT_READY",
                             f"confirmation subject {confirm_subject!r} is not a human principal",
                             preview.plan_id,
                             "plan freeze is a user action; models never confirm plans (§16.3)")
 
-        actual_account_version = _account_version(current_lots, current_cash_cents)
+        self._ensure_account(preview.portfolio_id, initial_cash_cents=current_cash_cents,
+                             initial_lots=current_lots, now=now)
+        ledger_lots = self._load_lots(preview.portfolio_id)
+        ledger_cash = self._ledger_cash(preview.portfolio_id)
+        actual_account_version = _account_version(ledger_lots, ledger_cash)
+        supplied_account_version = _account_version(current_lots, current_cash_cents)
+        if supplied_account_version != actual_account_version:
+            raise PlanError(
+                "STALE_SNAPSHOT", "supplied account state differs from the ledger",
+                preview.plan_id, "reload the account and re-preview before confirming",
+            )
         if actual_account_version != expected_account_version:
             raise PlanError(
                 "STALE_SNAPSHOT",
@@ -403,13 +566,48 @@ class PlanService:
                 preview.plan_id,
                 "re-preview; the plan version and account version must match",
             )
-        if not confirmation_token or len(confirmation_token) < 8:
-            raise PlanError("DATA_NOT_READY", "confirmation token missing or too short",
+        if not confirmation_token:
+            raise PlanError("DATA_NOT_READY", "confirmation token is missing",
                             preview.plan_id, "obtain a fresh confirmation token from the UI")
+
+        current_plan_version = _plan_version(
+            preview.targets, preview.snapshot_id, preview.trading_day, preview.orders
+        )
+        if current_plan_version != preview.plan_version:
+            raise PlanError("STALE_SNAPSHOT", "preview contents changed after confirmation",
+                            preview.plan_id, "calculate and confirm a new preview")
 
         expires_at = now + ttl
         idempotency_key = f"freeze|{preview.portfolio_id}|{preview.plan_version}|{preview.account_version}"
         token_hash = "sha256:" + hashlib.sha256(confirmation_token.encode()).hexdigest()
+
+        confirmation = self.con.execute(
+            "SELECT * FROM plan_confirmation WHERE token_hash=?", (token_hash,)
+        ).fetchone()
+        if confirmation is None:
+            raise PlanError("DATA_NOT_READY", "confirmation token is invalid",
+                            preview.plan_id, "request and use a server-issued confirmation token")
+        if confirmation["consumed_at"] is not None:
+            raise PlanError("DATA_NOT_READY", "confirmation token was already consumed",
+                            preview.plan_id, "request a fresh confirmation token")
+        if now > datetime.fromisoformat(confirmation["expires_at"]):
+            raise PlanError("DECISION_CUTOFF_PASSED", "confirmation token expired",
+                            preview.plan_id, "review the current preview and confirm it again")
+        bound_values = {
+            "plan_id": preview.plan_id,
+            "portfolio_id": preview.portfolio_id,
+            "snapshot_id": preview.snapshot_id,
+            "plan_version": preview.plan_version,
+            "account_version": preview.account_version,
+            "subject": confirm_subject,
+        }
+        for key, expected in bound_values.items():
+            if not hmac.compare_digest(str(confirmation[key]), str(expected)):
+                raise PlanError("STALE_SNAPSHOT", f"confirmation is bound to another {key}",
+                                preview.plan_id, "request confirmation for this exact preview")
+        if not hmac.compare_digest(confirmation["preview_hash"], _preview_hash(preview)):
+            raise PlanError("STALE_SNAPSHOT", "preview changed after confirmation",
+                            preview.plan_id, "calculate and confirm a new preview")
 
         with write_tx(self.con):
             self.con.execute(
@@ -419,7 +617,8 @@ class PlanService:
                 "estimated_fees_cents,idempotency_key) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (preview.plan_id, preview.portfolio_id, preview.snapshot_id,
-                 0, 1, "FROZEN", _iso(now), _iso(now), _iso(expires_at),
+                 preview.account_version, preview.plan_version, "FROZEN",
+                 _iso(now), _iso(now), _iso(expires_at),
                  confirm_subject, token_hash,
                  self._rule_version(preview.trading_day),
                  self.fee_table.schedule_for(preview.trading_day).fee_version,
@@ -441,6 +640,11 @@ class PlanService:
                      None, "PENDING", preview.trading_day.isoformat(), seq, _iso(now),
                      f"{idempotency_key}|{seq}"),
                 )
+            self.con.execute(
+                "UPDATE plan_confirmation SET consumed_at=? WHERE confirmation_id=? "
+                "AND consumed_at IS NULL",
+                (_iso(now), confirmation["confirmation_id"]),
+            )
         return {
             "plan_id": preview.plan_id,
             "status": "FROZEN",
@@ -488,7 +692,19 @@ class PlanService:
         preview_doc = json.loads(row["diff_preview_json"])
         trading_day = date.fromisoformat(preview_doc["trading_day"])
         snapshot_id = preview_doc["snapshot_id"]
+        portfolio_id = preview_doc["portfolio_id"]
         as_of = self.reader.ref(snapshot_id).as_of_time
+
+        ledger_lots = self._load_lots(portfolio_id)
+        ledger_cash = self._ledger_cash(portfolio_id)
+        ledger_version = _account_version(ledger_lots, ledger_cash)
+        supplied_version = _account_version(lots, cash_available_cents)
+        if supplied_version != ledger_version:
+            raise PlanError("STALE_SNAPSHOT", "supplied account state differs from the ledger",
+                            plan_id, "reload the account before executing")
+        if ledger_version != row["account_version"]:
+            raise PlanError("STALE_SNAPSHOT", "account changed after the plan was frozen",
+                            plan_id, "re-preview and confirm against the current ledger")
 
         ids = sorted({o["instrument_id"] for o in preview_doc["orders"]})
         bars = self._bars(snapshot_id, trading_day, as_of, ids)
@@ -512,8 +728,9 @@ class PlanService:
         )
         result = simulator.simulate(
             trading_day=trading_day, orders=orders, bars=bars,
-            cash_available_cents=cash_available_cents, lots=lots,
-            adv_shares=adv, lot_id_prefix=lot_id_prefix,
+            cash_available_cents=ledger_cash, lots=ledger_lots,
+            adv_shares=adv,
+            lot_id_prefix=f"{lot_id_prefix}-{portfolio_id}-{plan_id}",
         )
 
         with write_tx(self.con):
@@ -529,7 +746,7 @@ class PlanService:
                     "INSERT OR IGNORE INTO fill (fill_id,order_id,portfolio_id,instrument_id,"
                     "side,quantity,price_cents,gross_amount_cents,fees_total_cents,"
                     "trading_day,filled_at,lot_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                    (f.fill_id, f.order_id, preview_doc["portfolio_id"], f.instrument_id,
+                    (f.fill_id, f.order_id, portfolio_id, f.instrument_id,
                      f.side.value, f.quantity, f.price_cents, f.gross_amount_cents,
                      f.fees_total_cents, f.trading_day.isoformat(), _iso(now), f.lot_id),
                 )
@@ -540,28 +757,48 @@ class PlanService:
                         (f"{f.fill_id}-{line.fee_code}", f.fill_id, line.fee_code,
                          line.amount_cents, line.fee_version, line.rate_basis),
                     )
+            created_ids = {l.lot_id for l in result.lots_created}
+            for l in ledger_lots:
+                if l.lot_id in created_ids:
+                    continue
+                self.con.execute(
+                    "UPDATE position_lot SET quantity_remaining=? WHERE lot_id=? "
+                    "AND portfolio_id=?",
+                    (l.quantity_remaining, l.lot_id, portfolio_id),
+                )
+            source_fill = {f.lot_id: f.fill_id for f in result.fills if f.lot_id}
             for l in result.lots_created:
                 self.con.execute(
-                    "INSERT OR IGNORE INTO position_lot (lot_id,portfolio_id,instrument_id,"
+                    "INSERT INTO position_lot (lot_id,portfolio_id,instrument_id,"
                     "acquired_trading_day,earliest_sellable_day,quantity_original,"
                     "quantity_remaining,cost_basis_cents_per_share,source_fill_id) "
                     "VALUES (?,?,?,?,?,?,?,?,?)",
-                    (l.lot_id, preview_doc["portfolio_id"], l.instrument_id,
+                    (l.lot_id, portfolio_id, l.instrument_id,
                      l.acquired_trading_day.isoformat(),
                      l.earliest_sellable_day.isoformat(),
                      l.quantity_original, l.quantity_remaining,
-                     l.cost_basis_cents_per_share, None),
+                     l.cost_basis_cents_per_share, source_fill[l.lot_id]),
                 )
-            for e in result.cash_entries:
+            for seq, consumption in enumerate(result.lot_consumptions):
                 self.con.execute(
-                    "INSERT OR IGNORE INTO cash_entry (entry_id,portfolio_id,entry_type,"
+                    "INSERT INTO lot_consumption (consumption_id,lot_id,fill_id,quantity,"
+                    "trading_day) VALUES (?,?,?,?,?)",
+                    (f"{plan_id}-consume-{seq:04d}", consumption["lot_id"],
+                     consumption["fill_id"], consumption["quantity"],
+                     consumption["trading_day"].isoformat()),
+                )
+            for seq, e in enumerate(result.cash_entries):
+                self.con.execute(
+                    "INSERT INTO cash_entry (entry_id,portfolio_id,entry_type,"
                     "amount_cents,trading_day,occurred_at,related_fill_id,"
                     "related_instrument_id) VALUES (?,?,?,?,?,?,?,?)",
-                    (f"{plan_id}-{e.entry_type}-{abs(hash((e.related_fill_id, e.amount_cents))) % 10**10}",
-                     preview_doc["portfolio_id"], e.entry_type, e.amount_cents,
+                    (f"{plan_id}-cash-{seq:04d}", portfolio_id, e.entry_type, e.amount_cents,
                      e.trading_day.isoformat(), _iso(now), e.related_fill_id,
                      e.related_instrument_id),
                 )
+
+        # Preserve the public API's in-memory view while the database remains authoritative.
+        lots[:] = ledger_lots
 
         return {
             "plan_id": plan_id,
@@ -583,6 +820,96 @@ class PlanService:
         }
 
     # ------------------------------------------------------------ value
+    def _ledger_invariants(self, portfolio_id: str) -> dict:
+        violations: list[dict] = []
+
+        bad_fills = self.con.execute(
+            "SELECT COUNT(*) AS n FROM fill f JOIN \"order\" o ON o.order_id=f.order_id "
+            "WHERE f.portfolio_id=? AND (f.quantity>o.quantity OR f.side<>o.side "
+            "OR f.instrument_id<>o.instrument_id)", (portfolio_id,),
+        ).fetchone()["n"]
+        if bad_fills:
+            violations.append({"invariant": "fill_le_order", "count": int(bad_fills)})
+
+        fee_mismatches = self.con.execute(
+            "SELECT COUNT(*) AS n FROM (SELECT f.fill_id FROM fill f "
+            "LEFT JOIN fee_charge fc ON fc.fill_id=f.fill_id WHERE f.portfolio_id=? "
+            "GROUP BY f.fill_id,f.fees_total_cents "
+            "HAVING COALESCE(SUM(fc.amount_cents),0)<>f.fees_total_cents)",
+            (portfolio_id,),
+        ).fetchone()["n"]
+        duplicate_fees = self.con.execute(
+            "SELECT COUNT(*) AS n FROM (SELECT fc.fill_id,fc.fee_code,fc.fee_version "
+            "FROM fee_charge fc JOIN fill f ON f.fill_id=fc.fill_id "
+            "WHERE f.portfolio_id=? GROUP BY fc.fill_id,fc.fee_code,fc.fee_version "
+            "HAVING COUNT(*)>1)", (portfolio_id,),
+        ).fetchone()["n"]
+        fees_ok = int(fee_mismatches) == 0 and int(duplicate_fees) == 0
+        if not fees_ok:
+            violations.append({"invariant": "fees_booked_once",
+                               "mismatches": int(fee_mismatches),
+                               "duplicates": int(duplicate_fees)})
+
+        cash_mismatches = 0
+        for r in self.con.execute(
+            "SELECT f.fill_id,f.side,f.gross_amount_cents,f.fees_total_cents,"
+            "COALESCE(SUM(CASE WHEN ce.entry_type='TRADE_SETTLEMENT' "
+            "THEN ce.amount_cents ELSE 0 END),0) AS settlement,"
+            "COALESCE(SUM(CASE WHEN ce.entry_type<>'TRADE_SETTLEMENT' "
+            "THEN ce.amount_cents ELSE 0 END),0) AS fees "
+            "FROM fill f LEFT JOIN cash_entry ce ON ce.related_fill_id=f.fill_id "
+            "WHERE f.portfolio_id=? GROUP BY f.fill_id,f.side,f.gross_amount_cents,"
+            "f.fees_total_cents", (portfolio_id,),
+        ).fetchall():
+            expected_settlement = (int(r["gross_amount_cents"])
+                                   if r["side"] == "SELL"
+                                   else -int(r["gross_amount_cents"]))
+            if (int(r["settlement"]) != expected_settlement
+                    or int(r["fees"]) != -int(r["fees_total_cents"])):
+                cash_mismatches += 1
+        opening = self.con.execute(
+            "SELECT p.initial_cash_cents,COUNT(ce.entry_id) AS n,"
+            "COALESCE(SUM(ce.amount_cents),0) AS amount FROM portfolio p "
+            "LEFT JOIN cash_entry ce ON ce.portfolio_id=p.portfolio_id "
+            "AND ce.entry_type='INITIAL_DEPOSIT' WHERE p.portfolio_id=? "
+            "GROUP BY p.initial_cash_cents", (portfolio_id,),
+        ).fetchone()
+        opening_ok = (opening is not None and int(opening["n"]) == 1
+                      and int(opening["amount"]) == int(opening["initial_cash_cents"]))
+        cash_ok = cash_mismatches == 0 and opening_ok
+        if not cash_ok:
+            violations.append({"invariant": "cash_lines_sum_to_balance",
+                               "fill_mismatches": cash_mismatches,
+                               "opening_balance_matches": opening_ok})
+
+        buy_lot_mismatches = self.con.execute(
+            "SELECT COUNT(*) AS n FROM (SELECT f.fill_id,f.quantity,"
+            "COALESCE(SUM(l.quantity_original),0) AS q FROM fill f "
+            "LEFT JOIN position_lot l ON l.source_fill_id=f.fill_id "
+            "WHERE f.portfolio_id=? AND f.side='BUY' "
+            "GROUP BY f.fill_id,f.quantity HAVING q<>f.quantity)", (portfolio_id,),
+        ).fetchone()["n"]
+        sell_lot_mismatches = self.con.execute(
+            "SELECT COUNT(*) AS n FROM (SELECT f.fill_id,f.quantity,"
+            "COALESCE(SUM(lc.quantity),0) AS q FROM fill f "
+            "LEFT JOIN lot_consumption lc ON lc.fill_id=f.fill_id "
+            "WHERE f.portfolio_id=? AND f.side='SELL' "
+            "GROUP BY f.fill_id,f.quantity HAVING q<>f.quantity)", (portfolio_id,),
+        ).fetchone()["n"]
+        lots_ok = int(buy_lot_mismatches) == 0 and int(sell_lot_mismatches) == 0
+        if not lots_ok:
+            violations.append({"invariant": "lots_match_fills",
+                               "buy_mismatches": int(buy_lot_mismatches),
+                               "sell_mismatches": int(sell_lot_mismatches)})
+
+        return {
+            "fill_le_order": int(bad_fills) == 0 and lots_ok,
+            "fees_booked_once": fees_ok,
+            "cash_lines_sum_to_balance": cash_ok,
+            "lots_match_fills": lots_ok,
+            "violations": violations,
+        }
+
     def value(
         self,
         *,
@@ -597,7 +924,16 @@ class PlanService:
 
         from .construction import compute_valuation, value_positions
 
-        ids = sorted({l.instrument_id for l in lots if l.quantity_remaining > 0})
+        if self.con.execute("SELECT 1 FROM portfolio WHERE portfolio_id=?",
+                            (portfolio_id,)).fetchone() is None:
+            self._ensure_account(portfolio_id, initial_cash_cents=cash_available_cents,
+                                 initial_lots=lots, now=datetime.now(timezone.utc))
+        ledger_lots = self._load_lots(portfolio_id)
+        ledger_cash = self._ledger_cash(portfolio_id)
+        supplied_matches = (_account_version(lots, cash_available_cents)
+                            == _account_version(ledger_lots, ledger_cash))
+
+        ids = sorted({l.instrument_id for l in ledger_lots if l.quantity_remaining > 0})
         bars = self._bars(snapshot_id, trading_day, as_of, ids)
 
         # 停牌时使用此前最后一个有效收盘价，并显式记录其日期以计算停牌天数
@@ -609,17 +945,28 @@ class PlanService:
             if history:
                 last_valid[iid] = (history[-1].close_cents, history[-1].trading_day)
 
-        positions, issues = value_positions(lots=lots, bars=bars,
+        positions, issues = value_positions(lots=ledger_lots, bars=bars,
                                             last_valid_price=last_valid,
                                             trading_day=trading_day)
+        if not supplied_matches:
+            issues.append({
+                "code": "STALE_SNAPSHOT", "message": "supplied account differs from ledger",
+                "object_id": portfolio_id, "retryable": False,
+                "repair_action": "reload cash and lots from the portfolio ledger",
+            })
+        ledger_invariants = self._ledger_invariants(portfolio_id)
         result = compute_valuation(
-            trading_day=trading_day, cash_available_cents=cash_available_cents,
-            positions=positions, lots=lots, extra_issues=issues,
+            trading_day=trading_day, cash_available_cents=ledger_cash,
+            positions=positions, lots=ledger_lots, extra_issues=issues,
+            ledger_invariants=ledger_invariants,
         )
 
         now = datetime.now(timezone.utc)
         inv = result.invariants
+        valuation_id = f"val-{portfolio_id}-{trading_day.isoformat()}"
         with write_tx(self.con):
+            self.con.execute("DELETE FROM valuation_position WHERE valuation_id=?",
+                             (valuation_id,))
             self.con.execute(
                 "INSERT OR REPLACE INTO valuation (valuation_id,portfolio_id,trading_day,"
                 "cash_available_cents,cash_frozen_cents,receivables_cents,"
@@ -628,7 +975,7 @@ class PlanService:
                 "invariant_shares_match_lots,invariant_fill_le_order,"
                 "invariant_fees_booked_once,invariant_cash_lines_sum,published,"
                 "violations_json,computed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (f"val-{portfolio_id}-{trading_day.isoformat()}", portfolio_id,
+                (valuation_id, portfolio_id,
                  trading_day.isoformat(), result.cash_available_cents,
                  result.cash_frozen_cents, result.receivables_cents,
                  result.positions_value_cents, result.payables_cents,
@@ -642,6 +989,13 @@ class PlanService:
                  1 if result.published else 0,
                  json.dumps(inv["violations"], ensure_ascii=False), _iso(now)),
             )
+            for p in result.positions:
+                self.con.execute(
+                    "INSERT INTO valuation_position (valuation_id,instrument_id,quantity,"
+                    "price_cents,price_basis,staleness_days,value_cents) VALUES (?,?,?,?,?,?,?)",
+                    (valuation_id, p.instrument_id, p.quantity, p.price_cents,
+                     p.price_basis, p.staleness_days, p.value_cents),
+                )
         return result.as_dict()
 
     # ------------------------------------------------------------ reconcile
@@ -665,10 +1019,16 @@ class PlanService:
             "SELECT COALESCE(SUM(amount_cents),0) AS f FROM fee_charge fc JOIN fill f2 "
             "ON fc.fill_id = f2.fill_id WHERE f2.portfolio_id=?", (portfolio_id,)).fetchone()
 
-        dup_fees = self.con.execute(
-            "SELECT COUNT(*) AS n FROM ("
-            "  SELECT fill_id, fee_code, fee_version, COUNT(*) c FROM fee_charge"
-            "  GROUP BY fill_id, fee_code, fee_version HAVING c > 1)", ()).fetchone()
+        invariants = self._ledger_invariants(portfolio_id)
+
+        valuation = self.con.execute(
+            "SELECT cash_available_cents,published FROM valuation WHERE portfolio_id=? "
+            "ORDER BY trading_day DESC LIMIT 1", (portfolio_id,),
+        ).fetchone()
+        valuation_cash_matches = (valuation is None
+                                  or int(valuation["cash_available_cents"]) == cash)
+        if not valuation_cash_matches:
+            invariants["violations"].append({"invariant": "valuation_cash_matches_ledger"})
 
         return {
             "portfolio_id": portfolio_id,
@@ -676,8 +1036,12 @@ class PlanService:
             "positions": positions,
             "fill_count": int(fill_rows["n"]),
             "fees_total_cents": int(fee_rows["f"]),
-            "duplicate_fee_groups": int(dup_fees["n"]),
-            "reconciled": cash >= 0 and int(dup_fees["n"]) == 0,
+            "invariants": invariants,
+            "valuation_cash_matches_ledger": valuation_cash_matches,
+            "reconciled": (cash >= 0 and valuation_cash_matches
+                           and all(invariants[k] for k in (
+                               "fill_le_order", "fees_booked_once",
+                               "cash_lines_sum_to_balance", "lots_match_fills"))),
         }
 
 

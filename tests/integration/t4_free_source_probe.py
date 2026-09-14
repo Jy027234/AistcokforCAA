@@ -111,6 +111,7 @@ def probe_calendar(begin: str, end: str) -> dict:
         gaps.append((cur - prev).days)
     return {
         "bars": len(klines),
+        "trading_days": days,
         "first_day": days[0] if days else None,
         "last_day": days[-1] if days else None,
         "gap_histogram": {str(g): gaps.count(g) for g in sorted(set(gaps))} if gaps else {},

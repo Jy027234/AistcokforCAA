@@ -12,7 +12,7 @@ from aquant.domain.portfolio.construction import Candidate, ConstructionParams
 from aquant.domain.portfolio.plan import PlanService
 from aquant.domain.simulation.fees import synthetic_fee_table
 from aquant.domain.simulation.simulator import BoardRule, Lot
-from test_m1_ingest_e2e import build_snapshot
+from tests.integration.test_m1_ingest_e2e import build_snapshot
 
 tmp = Path(tempfile.mkdtemp()); con = connect(tmp/'m.sqlite'); apply_migrations(con)
 root = tmp/'api'; root.mkdir()
@@ -28,7 +28,9 @@ C = [Candidate('SYN.A.600519','IND_FOOD',0.9), Candidate('SYN.A.000001','IND_BAN
 TD = date(2026,9,8); AS_OF = datetime(2026,9,11,12,30,tzinfo=timezone.utc)
 pv = svc.preview(portfolio_id='pf-syn-m', snapshot_id='snap-syn-001', trading_day=TD, as_of=AS_OF,
                  candidates=C, cash_available_cents=100_000_000, lots=[], confirm_subject='user:alice')
-svc.freeze(preview=pv, confirm_subject='user:alice', confirmation_token='confirm-token-abcdef123456',
+token = svc.issue_confirmation(preview=pv, subject='user:alice', current_lots=[],
+                               current_cash_cents=100_000_000)
+svc.freeze(preview=pv, confirm_subject='user:alice', confirmation_token=token,
            expected_account_version=pv.account_version, current_lots=[], current_cash_cents=100_000_000)
 lots = []
 ex = svc.execute(plan_id=pv.plan_id, lots=lots, cash_available_cents=100_000_000)

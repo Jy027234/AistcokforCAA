@@ -21,6 +21,7 @@ from aquant.adapters.providers.resilience import (                          # no
     CircuitBreaker, RateLimiter, RetryPolicy,
 )
 from aquant.domain.data.forward_archive import ForwardArchive               # noqa: E402
+from tests.integration.t4_free_source_probe import probe_calendar            # noqa: E402
 
 ARCHIVE_ROOT = ROOT / "deploy" / "agentctl-q0" / "forward-archive"
 
@@ -39,14 +40,14 @@ def main() -> int:
         timeout=25.0,
     )
 
-    # 交易日历（本机无真实日历源，这里用一段明确的近似并在输出中标注）
     today = datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=8))).date()
-    calendar = []
-    d = today - timedelta(days=20)
-    while d <= today + timedelta(days=10):
-        if d.weekday() < 5:      # 仅作占位，真实日历须来自快照（§7.3）
-            calendar.append(d)
-        d += timedelta(days=1)
+    calendar_probe = probe_calendar(
+        (today - timedelta(days=40)).strftime("%Y%m%d"),
+        (today + timedelta(days=20)).strftime("%Y%m%d"),
+    )
+    calendar = [date.fromisoformat(day) for day in calendar_probe["trading_days"]]
+    if not calendar:
+        raise RuntimeError("the exchange-index calendar returned no trading days")
 
     begin = today - timedelta(days=5)
     end = today
@@ -59,10 +60,31 @@ def main() -> int:
     first_seen = datetime.now(timezone.utc)
     records = []
     for a in anns[:5]:
-        rec = to_pit_record(a, trading_calendar=calendar, first_seen_at=first_seen)
+        try:
+            rec = to_pit_record(a, trading_calendar=calendar, first_seen_at=first_seen)
+            rec["pit_status"] = "READY"
+        except ValueError as exc:
+            # Index bars cannot prove a future trading day. Archive the original now and defer
+            # availability rather than manufacturing a weekday calendar.
+            rec = {
+                "source_id": "cninfo", "announcement_id": a.announcement_id,
+                "instrument_code": a.sec_code, "title": a.title,
+                "source_published_date": a.announced_on.isoformat(),
+                "first_seen_at": first_seen.isoformat(), "available_at": None,
+                "pit_status": "CALENDAR_NOT_READY", "pit_error": str(exc),
+            }
+        document_url = a.detail_url()
+        document = (client.document(document_url, label=f"announcement:{a.announcement_id}")
+                    if document_url else None)
+        rec["document_receipt_id"] = document.receipt_id if document else None
+        rec["document_content_hash"] = document.content_hash if document else None
+        rec["document_archived"] = bool(document and document.ok and document.content_hash)
+        rec["document_hash_verified"] = bool(
+            document and document.content_hash and archive.verify(document.content_hash))
         records.append(rec)
         print(f"   - {rec['source_published_date']}  {rec['title'][:40]}")
-        print(f"       available_at={rec['available_at']}  basis={rec['available_basis']}")
+        print(f"       available_at={rec.get('available_at')}  "
+              f"basis={rec.get('available_basis', rec['pit_status'])}")
 
     out_doc = {"ran_at": first_seen.isoformat(),
                "window": [begin.isoformat(), end.isoformat()],
@@ -71,7 +93,10 @@ def main() -> int:
                "content_hash": out.content_hash,
                "announcement_count": len(anns),
                "records": records,
-               "calendar_note": "placeholder weekday calendar; a real calendar must come from the snapshot"}
+               "calendar_source": "eastmoney SSE index daily bars",
+               "calendar_first_day": calendar[0].isoformat(),
+               "calendar_last_day": calendar[-1].isoformat(),
+               "archived_document_count": sum(r["document_archived"] for r in records)}
     path = ARCHIVE_ROOT / "t5-cninfo-run.json"
     path.write_text(json.dumps(out_doc, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\nwrote {path}")
@@ -81,8 +106,9 @@ def main() -> int:
           f"distinct_content={archive.distinct_content_count('cninfo')}")
     if out.content_hash:
         print("归档哈希校验:", archive.verify(out.content_hash))
+    success = out.ok and bool(records) and all(r["document_archived"] for r in records)
     con.close()
-    return 0
+    return 0 if success else 1
 
 
 if __name__ == "__main__":

@@ -14,19 +14,19 @@ A股研究与模拟决策工作台。首期定位为**自用研究与模拟**，
 
 ## 当前状态
 
-**M1 与 M2 已完成并通过黄金用例，产品闭环已跑通，工作台界面已可用。** 详见 `docs/implementation-baseline.md`。
+**合成数据上的 M1/M2 核心链已经跑通并完成一轮正确性加固；完整阶段验收仍需真实小样本、权威日历与工作台写操作。** 详见 `docs/implementation-baseline.md` 与 `docs/reviews/progress-review-2026-09-14.md`。
 
 | 范围 | 状态 | 证据 |
 |---|---|---|
-| 资料包（contracts/schema/configs/examples/自检） | ✅ | `tests/validate_spec.py` 199/199，裸 Python 可跑 |
+| 资料包（contracts/schema/configs/examples/自检） | ✅ | `tests/validate_spec.py` 200/200，裸 Python 可跑 |
 | 免费数据源验证 | ✅ | `docs/data-capability-eastmoney-direct.md` + ADR-001/002/003 |
-| M1 数据与证据底座 | ✅ | D01–D08 端到端；官方公告渠道实跑归档 |
-| M2 基线与模拟账本 | ✅ | S01–S10 全过；账本可逐项对账 |
-| 产品闭环 | ✅ | 快照→读取→草稿→冻结→成交→估值→对账 |
-| 工作台界面（M3） | ✅ | 四项顶层导航，浅色主题，见下 |
-| agentctl 接入 | ✅ | Q0 报告；首个只读能力端到端 |
+| M1 数据与证据底座 | 🟡 | 合成快照与 D01–D08 通过；公告原文归档脚本已补，待真实复跑及权威未来日历 |
+| M2 基线与模拟账本 | 🟡 | S1 与账本核心链通过；待 61 日真实小样本、多日及重启验收 |
+| 产品闭环 | 🟡 | 合成快照→盘前计划→一次性确认→成交→估值→对账已通过 |
+| 工作台界面（M3） | 🟡 | 四页只读演示可构建；冻结、自选、决策日志尚未接产品 API |
+| agentctl 接入 | 🟡 | Q0 与首个合成只读能力成立；handler 尚未接 M1 存储 |
 
-**测试：249 个全过（退出码 0）；`validate_spec.py` 199/199。**
+**测试：281 个全过（退出码 0）；`validate_spec.py` 200/200；前端生产构建通过。**
 
 ### 关键约束（已实测，非文档转述）
 
@@ -57,8 +57,7 @@ docs/                             基线、能力卡、ADR、Q0 报告
 ## 工作台界面
 
 ```powershell
-# 1. 生成数据（跑真实领域链路，不是假数据）
-$env:PYTHONPATH='src;tests\integration'
+# 1. 生成数据（S1 使用有明确标记的 61 日确定性演示序列）
 python tools\build_workspace_fixture.py
 
 # 2. 启动界面

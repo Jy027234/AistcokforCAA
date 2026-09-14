@@ -15,6 +15,7 @@ from aquant.domain.simulation.fees import synthetic_fee_table
 from aquant.domain.simulation.simulator import (
     Bar,
     BoardRule,
+    CashEntry,
     DailySimulator,
     Lot,
     Order,
@@ -286,7 +287,7 @@ def test_s07_dividend_receivable_and_cash_move_on_different_days():
     """S07：分红除息与到账不同日 -> 应收和现金正确迁移，不重复收益。"""
 
     from aquant.domain.simulation.corporate_actions import (
-        CashDividend, apply_cash_dividend,
+        CashDividend, apply_cash_dividend, record_dividend_entitlement,
     )
 
     div = CashDividend(
@@ -296,16 +297,19 @@ def test_s07_dividend_receivable_and_cash_move_on_different_days():
     )
     # 必须在登记日（2026-09-09）当日或之前买入才有分红权利
     held = lot(iid="SYN.A.600003", qty=1000, acquired=date(2026, 9, 8))
+    entitlement = record_dividend_entitlement(
+        div, lots=[held], recorded_on=date(2026, 9, 9))
 
     # 除权日：确认应收，现金不变
-    r_ex = apply_cash_dividend(div, lots=[held], trading_day=date(2026, 9, 10),
-                               entitlements_recorded_on=date(2026, 9, 9))
+    r_ex = apply_cash_dividend(div, entitlement=entitlement,
+                               trading_day=date(2026, 9, 10))
     assert r_ex.receivable_cents == 1000 * 50
     assert r_ex.cash_delta_cents == 0, "除权日不得直接计入现金"
 
     # 到账日：应收转现金
-    r_pay = apply_cash_dividend(div, lots=[held], trading_day=date(2026, 9, 14),
-                                entitlements_recorded_on=date(2026, 9, 9))
+    held.quantity_remaining = 0  # 登记日后卖出不影响已固化的权利
+    r_pay = apply_cash_dividend(div, entitlement=entitlement,
+                                trading_day=date(2026, 9, 14))
     assert r_pay.receivable_cents == 0
     assert r_pay.cash_delta_cents == 1000 * 50
 
@@ -320,17 +324,36 @@ def test_s07_dividend_receivable_and_cash_move_on_different_days():
 def test_s07_no_entitlement_when_not_held_on_record_date():
     """登记日未持有 -> 无分红权利。"""
 
-    from aquant.domain.simulation.corporate_actions import CashDividend, apply_cash_dividend
+    from aquant.domain.simulation.corporate_actions import (
+        CashDividend, apply_cash_dividend, record_dividend_entitlement,
+    )
 
     div = CashDividend(action_id="ca-2", instrument_id="SYN.A.600003",
                        record_date=date(2026, 9, 9), ex_date=date(2026, 9, 10),
                        pay_date=date(2026, 9, 14), cash_per_share_cents=50)
     # 批次在登记日之后才买入
     bought_late = lot(iid="SYN.A.600003", qty=1000, acquired=date(2026, 9, 10))
-    r = apply_cash_dividend(div, lots=[bought_late], trading_day=date(2026, 9, 14),
-                            entitlements_recorded_on=date(2026, 9, 9))
+    entitlement = record_dividend_entitlement(
+        div, lots=[bought_late], recorded_on=date(2026, 9, 9))
+    r = apply_cash_dividend(div, entitlement=entitlement,
+                            trading_day=date(2026, 9, 14))
     assert r.cash_delta_cents == 0
     assert r.receivable_cents == 0
+
+
+def test_s07_lot_sold_before_record_date_has_no_entitlement():
+    from aquant.domain.simulation.corporate_actions import (
+        CashDividend, record_dividend_entitlement,
+    )
+
+    div = CashDividend(action_id="ca-3", instrument_id="SYN.A.600003",
+                       record_date=date(2026, 9, 9), ex_date=date(2026, 9, 10),
+                       pay_date=date(2026, 9, 14), cash_per_share_cents=50)
+    sold = lot(iid="SYN.A.600003", qty=1000, acquired=date(2026, 9, 8))
+    sold.quantity_remaining = 0
+    entitlement = record_dividend_entitlement(
+        div, lots=[sold], recorded_on=date(2026, 9, 9))
+    assert entitlement.shares == 0
 
 
 # ================================================================== S08
@@ -448,18 +471,20 @@ def test_s10_fill_uses_open_price_only():
 # ================================================================== 不变量
 def test_invariants_pass_on_a_clean_run():
     s = sim()
+    opening = 20_000_000
     r = s.simulate(trading_day=DAY, orders=[
         Order(order_id="b1", instrument_id="SYN.A.600519", side=Side.BUY, quantity=100),
-    ], bars={"SYN.A.600519": bar()}, cash_available_cents=20_000_000, lots=[])
-    closing = 10_000_000 + sum(e.amount_cents for e in r.cash_entries)
+    ], bars={"SYN.A.600519": bar()}, cash_available_cents=opening, lots=[])
+    closing = opening + sum(e.amount_cents for e in r.cash_entries)
     inv = check_invariants(cash_available_cents=closing, lots=r.lots_created,
-                           fills=r.fills, orders=r.orders, cash_entries=r.cash_entries)
+                           fills=r.fills, orders=r.orders, cash_entries=r.cash_entries,
+                           opening_cash_cents=opening)
     assert inv["all_ok"], inv["violations"]
 
 
 def test_invariants_detect_overdraft():
     inv = check_invariants(cash_available_cents=-1, lots=[], fills=[], orders=[],
-                           cash_entries=[])
+                           cash_entries=[], opening_cash_cents=-1)
     assert inv["cash_not_overdrawn"] is False
     assert inv["all_ok"] is False
 
@@ -468,8 +493,15 @@ def test_invariants_detect_negative_lot():
     bad = lot(qty=100)
     bad.quantity_remaining = -1
     inv = check_invariants(cash_available_cents=0, lots=[bad], fills=[], orders=[],
-                           cash_entries=[])
+                           cash_entries=[], opening_cash_cents=0)
     assert inv["positions_not_negative"] is False
+
+
+def test_invariants_detect_cash_line_mismatch():
+    inv = check_invariants(cash_available_cents=100, opening_cash_cents=100,
+                           lots=[], fills=[], orders=[],
+                           cash_entries=[CashEntry("OTHER", -1, DAY)])
+    assert inv["cash_lines_sum_to_balance"] is False
 
 
 # ================================================================== 稳定序

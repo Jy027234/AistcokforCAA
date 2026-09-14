@@ -15,7 +15,7 @@ from aquant.domain.data.ingest import SnapshotBuilder
 from aquant.domain.data.reader import SnapshotReader
 from aquant.domain.data.snapshot import SnapshotStore
 
-from test_m1_ingest_e2e import build_snapshot
+from tests.integration.test_m1_ingest_e2e import build_snapshot
 
 
 def utc(*a):

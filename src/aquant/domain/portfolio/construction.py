@@ -223,6 +223,7 @@ def weights_to_orders(
     equity = equity_value_cents or params.initial_capital_cents
 
     orders: list[dict] = []
+    target_ids = {t.instrument_id for t in targets}
     for t in targets:
         price = price_by_instrument.get(t.instrument_id)
         if not price:
@@ -244,6 +245,15 @@ def weights_to_orders(
                 orders.append({"instrument_id": t.instrument_id, "side": "SELL",
                                "quantity": qty, "price_cents": price,
                                "rationale": "reduce toward target weight"})
+    # Holdings removed by eligibility or capacity rules need explicit exit orders.  Omitting
+    # them would leave the realised portfolio different from the constructed target set.
+    for instrument_id in sorted(set(held_quantity) - target_ids):
+        price = price_by_instrument.get(instrument_id)
+        qty = min(held_quantity[instrument_id], sellable_quantity.get(instrument_id, 0))
+        if price and qty > 0:
+            orders.append({"instrument_id": instrument_id, "side": "SELL",
+                           "quantity": qty, "price_cents": price,
+                           "rationale": "exit: instrument is outside the target set"})
     return orders
 
 
@@ -347,6 +357,7 @@ def compute_valuation(
     payables_cents: int = 0,
     lots: list[Lot] | None = None,
     extra_issues: list[dict] | None = None,
+    ledger_invariants: dict[str, bool] | None = None,
 ) -> ValuationResult:
     """§12.8 日终估值与不变量。
 
@@ -401,13 +412,25 @@ def compute_valuation(
                 "repair_action": "record a last valid price or exclude it explicitly",
             })
 
+    ledger = ledger_invariants or {}
+    for key, message in (
+        ("fill_le_order", "one or more fills exceed or disagree with their orders"),
+        ("fees_booked_once", "fee charges are duplicated or do not equal fill fees"),
+        ("cash_lines_sum_to_balance", "cash entries do not reconcile to fills and opening cash"),
+    ):
+        if ledger.get(key, True) is False:
+            violations.append({
+                "code": "DATA_NOT_READY", "message": message, "object_id": "-",
+                "retryable": False, "repair_action": "repair the ledger before publishing",
+            })
+
     invariants = {
         "cash_not_overdrawn": cash_available_cents >= 0,
         "positions_not_negative": all(p.quantity >= 0 for p in positions),
         "shares_match_lots": not mismatch,
-        "fill_le_order": True,
-        "fees_booked_once": True,
-        "cash_lines_sum_to_balance": True,
+        "fill_le_order": ledger.get("fill_le_order", True),
+        "fees_booked_once": ledger.get("fees_booked_once", True),
+        "cash_lines_sum_to_balance": ledger.get("cash_lines_sum_to_balance", True),
         "violations": violations,
         "all_ok": not violations,
     }

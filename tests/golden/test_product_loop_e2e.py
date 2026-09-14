@@ -29,7 +29,7 @@ from aquant.domain.portfolio.plan import PlanError, PlanService, confirmer_is_hu
 from aquant.domain.simulation.fees import synthetic_fee_table
 from aquant.domain.simulation.simulator import BoardRule, Lot, SimError
 
-from test_m1_ingest_e2e import build_snapshot
+from tests.integration.test_m1_ingest_e2e import build_snapshot
 
 TRADING_DAY = date(2026, 9, 8)
 AS_OF = datetime(2026, 9, 11, 12, 30, tzinfo=timezone.utc)
@@ -79,6 +79,16 @@ def preview(svc, *, cash=100_000_000, lots=None, subject="user:alice"):
     )
 
 
+def freeze_preview(svc, pv, *, lots=None, cash=100_000_000, subject="user:alice",
+                   ttl=timedelta(hours=12), now=None):
+    lots = lots or []
+    token = svc.issue_confirmation(preview=pv, subject=subject, current_lots=lots,
+                                   current_cash_cents=cash, now=now)
+    return svc.freeze(preview=pv, confirm_subject=subject, confirmation_token=token,
+                      expected_account_version=pv.account_version, current_lots=lots,
+                      current_cash_cents=cash, ttl=ttl, now=now)
+
+
 # ================================================================== 闭环
 def test_full_loop_from_snapshot_to_reconciliation(world):
     con, reader, svc, store = world
@@ -98,11 +108,7 @@ def test_full_loop_from_snapshot_to_reconciliation(world):
     assert pv.snapshot_id == "snap-syn-001"
 
     # 3. 用户确认并冻结
-    token = "confirm-token-abcdef123456"
-    frozen = svc.freeze(preview=pv, confirm_subject="user:alice",
-                        confirmation_token=token,
-                        expected_account_version=pv.account_version,
-                        current_lots=[], current_cash_cents=100_000_000)
+    frozen = freeze_preview(svc, pv)
     assert frozen["status"] == "FROZEN"
     assert frozen["confirmed_by"] == "user:alice"
 
@@ -129,7 +135,7 @@ def test_full_loop_from_snapshot_to_reconciliation(world):
     # 6. 对账
     rec = svc.reconcile(portfolio_id="pf-syn-m")
     assert rec["fill_count"] == len(ex["fills"])
-    assert rec["duplicate_fee_groups"] == 0, "同一成交同一费用码不得重复计费"
+    assert rec["invariants"]["fees_booked_once"] is True
     assert rec["reconciled"] is True
     assert rec["cash_cents"] >= 0, "现金不得透支"
 
@@ -139,10 +145,7 @@ def test_snapshot_is_the_single_source_of_prices(world):
 
     con, reader, svc, store = world
     pv = preview(svc)
-    frozen = svc.freeze(preview=pv, confirm_subject="user:alice",
-                        confirmation_token="confirm-token-abcdef123456",
-                        expected_account_version=pv.account_version,
-                        current_lots=[], current_cash_cents=100_000_000)
+    freeze_preview(svc, pv)
     lots: list[Lot] = []
     ex = svc.execute(plan_id=pv.plan_id, lots=lots, cash_available_cents=100_000_000)
 
@@ -184,9 +187,11 @@ def test_stale_account_blocks_freeze(world):
                         earliest_sellable_day=TRADING_DAY - timedelta(days=4),
                         quantity_original=100, quantity_remaining=100,
                         cost_basis_cents_per_share=10000)]
+    token = svc.issue_confirmation(preview=pv, subject="user:alice", current_lots=[],
+                                   current_cash_cents=100_000_000)
     with pytest.raises(PlanError) as exc:
         svc.freeze(preview=pv, confirm_subject="user:alice",
-                   confirmation_token="confirm-token-abcdef123456",
+                   confirmation_token=token,
                    expected_account_version=pv.account_version,
                    current_lots=changed_lots, current_cash_cents=100_000_000)
     assert exc.value.code == "STALE_SNAPSHOT"
@@ -196,9 +201,11 @@ def test_stale_account_blocks_freeze(world):
 def test_mismatched_expected_version_blocks_freeze(world):
     con, reader, svc, store = world
     pv = preview(svc)
+    token = svc.issue_confirmation(preview=pv, subject="user:alice", current_lots=[],
+                                   current_cash_cents=100_000_000)
     with pytest.raises(PlanError):
         svc.freeze(preview=pv, confirm_subject="user:alice",
-                   confirmation_token="confirm-token-abcdef123456",
+                   confirmation_token=token,
                    expected_account_version="acct-somethingelse",
                    current_lots=[], current_cash_cents=100_000_000)
 
@@ -212,12 +219,10 @@ def test_model_cannot_confirm_a_plan(world):
                      trading_day=TRADING_DAY, as_of=AS_OF, candidates=CANDIDATES,
                      cash_available_cents=100_000_000, lots=[],
                      confirm_subject="model:assistant")
-    # 预览本身允许（生成草稿），但冻结必须拒绝
+    # 预览本身允许（生成草稿），但服务端不得向模型主体签发确认。
     with pytest.raises(PlanError) as exc:
-        svc.freeze(preview=pv, confirm_subject="model:assistant",
-                   confirmation_token="confirm-token-abcdef123456",
-                   expected_account_version=pv.account_version,
-                   current_lots=[], current_cash_cents=100_000_000)
+        svc.issue_confirmation(preview=pv, subject="model:assistant", current_lots=[],
+                               current_cash_cents=100_000_000)
     assert "not a human principal" in exc.value.message
     assert "models never confirm plans" in exc.value.repair_action
 
@@ -243,16 +248,38 @@ def test_short_confirmation_token_is_rejected(world):
     assert "token" in exc.value.message
 
 
+def test_confirmation_is_bound_to_immutable_preview_and_is_single_use(world):
+    con, reader, svc, store = world
+    pv = preview(svc)
+    token = svc.issue_confirmation(preview=pv, subject="user:alice", current_lots=[],
+                                   current_cash_cents=100_000_000)
+    pv.orders[0]["quantity"] += 100
+    with pytest.raises(PlanError) as exc:
+        svc.freeze(preview=pv, confirm_subject="user:alice", confirmation_token=token,
+                   expected_account_version=pv.account_version, current_lots=[],
+                   current_cash_cents=100_000_000)
+    assert exc.value.code == "STALE_SNAPSHOT"
+
+    pv2 = preview(svc)
+    token2 = svc.issue_confirmation(preview=pv2, subject="user:alice", current_lots=[],
+                                    current_cash_cents=100_000_000)
+    svc.freeze(preview=pv2, confirm_subject="user:alice", confirmation_token=token2,
+               expected_account_version=pv2.account_version, current_lots=[],
+               current_cash_cents=100_000_000)
+    with pytest.raises(PlanError) as replay:
+        svc.freeze(preview=pv2, confirm_subject="user:alice", confirmation_token=token2,
+                   expected_account_version=pv2.account_version, current_lots=[],
+                   current_cash_cents=100_000_000)
+    assert "consumed" in replay.value.message
+
+
 # ================================================================== A07 / S05
 def test_executing_a_plan_twice_is_refused(world):
     """计划只能执行一次；重复执行被状态机挡住。"""
 
     con, reader, svc, store = world
     pv = preview(svc)
-    svc.freeze(preview=pv, confirm_subject="user:alice",
-               confirmation_token="confirm-token-abcdef123456",
-               expected_account_version=pv.account_version,
-               current_lots=[], current_cash_cents=100_000_000)
+    freeze_preview(svc, pv)
     svc.execute(plan_id=pv.plan_id, lots=[], cash_available_cents=100_000_000)
     with pytest.raises(PlanError) as exc:
         svc.execute(plan_id=pv.plan_id, lots=[], cash_available_cents=100_000_000)
@@ -263,11 +290,7 @@ def test_expired_plan_is_refused_and_marked(world):
     con, reader, svc, store = world
     pv = preview(svc)
     past = datetime.now(timezone.utc) - timedelta(days=2)
-    svc.freeze(preview=pv, confirm_subject="user:alice",
-               confirmation_token="confirm-token-abcdef123456",
-               expected_account_version=pv.account_version,
-               current_lots=[], current_cash_cents=100_000_000,
-               ttl=timedelta(seconds=1), now=past)
+    freeze_preview(svc, pv, ttl=timedelta(seconds=1), now=past)
     with pytest.raises(PlanError) as exc:
         svc.execute(plan_id=pv.plan_id, lots=[], cash_available_cents=100_000_000)
     assert exc.value.code == "DECISION_CUTOFF_PASSED"
@@ -294,8 +317,8 @@ def test_rule_check_failure_prevents_preview(world):
     assert exc.value.code == "RULE_VERSION_MISSING"
 
 
-def test_suspended_instrument_cannot_be_ordered(world):
-    """停牌标的没有 Bar，规则检查必须拦住它。"""
+def test_suspended_instrument_is_sized_from_prior_close_then_does_not_fill(world):
+    """盘前计划不能偷看当日是否停牌；执行时无开盘价则明确不成交。"""
 
     con, reader, svc, store = world
     suspended = Candidate("SYN.A.600002", "IND_PHARMA", 0.99)
@@ -304,25 +327,24 @@ def test_suspended_instrument_cannot_be_ordered(world):
                        ConstructionParams(max_holdings=2,
                                           max_single_name_pct=Decimal("20"),
                                           max_single_industry_pct=Decimal("50")))
-    # 停牌标的没有当日行情：应以 NO_VALID_OPEN_PRICE 被排除并留下原因，
-    # 而不是进入订单再在执行时失败。
+    # 计划仅使用 9 月 10 日之前可知的收盘价，因此可以产生订单。
     pv = svc2.preview(portfolio_id="pf-syn-m", snapshot_id="snap-syn-001",
                      trading_day=date(2026, 9, 10), as_of=AS_OF,
                      candidates=[suspended], cash_available_cents=100_000_000,
                      lots=[], confirm_subject="user:alice")
-    assert pv.orders == [], "停牌标的不得进入订单"
-    reasons = {e["reason"] for e in pv.excluded}
-    assert "NO_VALID_OPEN_PRICE" in reasons, pv.excluded
+    assert pv.orders
+    freeze_preview(svc2, pv)
+    executed = svc2.execute(plan_id=pv.plan_id, lots=[],
+                            cash_available_cents=100_000_000)
+    assert executed["fills"] == []
+    assert executed["rejections"][0]["reason"] == "NO_VALID_OPEN_PRICE"
 
 
 # ================================================================== 冻结不可变
 def test_frozen_plan_is_immutable_in_the_database(world):
     con, reader, svc, store = world
     pv = preview(svc)
-    svc.freeze(preview=pv, confirm_subject="user:alice",
-               confirmation_token="confirm-token-abcdef123456",
-               expected_account_version=pv.account_version,
-               current_lots=[], current_cash_cents=100_000_000)
+    freeze_preview(svc, pv)
     with pytest.raises(sqlite3.IntegrityError):
         con.execute("UPDATE simulation_plan SET status='DRAFT' WHERE plan_id=?",
                     (pv.plan_id,))
@@ -331,10 +353,7 @@ def test_frozen_plan_is_immutable_in_the_database(world):
 def test_ledger_tables_receive_the_expected_rows(world):
     con, reader, svc, store = world
     pv = preview(svc)
-    svc.freeze(preview=pv, confirm_subject="user:alice",
-               confirmation_token="confirm-token-abcdef123456",
-               expected_account_version=pv.account_version,
-               current_lots=[], current_cash_cents=100_000_000)
+    freeze_preview(svc, pv)
     lots: list[Lot] = []
     ex = svc.execute(plan_id=pv.plan_id, lots=lots, cash_available_cents=100_000_000)
 
@@ -345,15 +364,60 @@ def test_ledger_tables_receive_the_expected_rows(world):
     assert con.execute("SELECT COUNT(*) FROM cash_entry").fetchone()[0] == len(ex["cash_entries"]) + 1
 
 
+def test_sell_consumption_updates_the_authoritative_lot_ledger(world):
+    con, reader, svc, store = world
+    held = Lot(lot_id="opening-lot", instrument_id="SYN.A.600519",
+               acquired_trading_day=TRADING_DAY - timedelta(days=5),
+               earliest_sellable_day=TRADING_DAY - timedelta(days=4),
+               quantity_original=1000, quantity_remaining=1000,
+               cost_basis_cents_per_share=9000)
+    pv = svc.preview(portfolio_id="pf-syn-m", snapshot_id="snap-syn-001",
+                     trading_day=TRADING_DAY, as_of=AS_OF, candidates=[CANDIDATES[0]],
+                     cash_available_cents=0, lots=[held], confirm_subject="user:alice")
+    assert any(o["side"] == "SELL" for o in pv.orders)
+    freeze_preview(svc, pv, cash=0, lots=[held])
+    account_lots = [held]
+    ex = svc.execute(plan_id=pv.plan_id, lots=account_lots, cash_available_cents=0)
+    sell_fill = next(f for f in ex["fills"] if f["side"] == "SELL")
+    remaining = con.execute(
+        "SELECT quantity_remaining FROM position_lot WHERE lot_id='opening-lot'"
+    ).fetchone()[0]
+    consumed = con.execute(
+        "SELECT COALESCE(SUM(quantity),0) FROM lot_consumption WHERE fill_id=?",
+        (sell_fill["fill_id"],),
+    ).fetchone()[0]
+    assert remaining == 1000 - sell_fill["quantity"]
+    assert consumed == sell_fill["quantity"]
+    assert svc.reconcile(portfolio_id="pf-syn-m")["reconciled"] is True
+
+
+def test_wrong_caller_cash_cannot_publish_a_valuation(world):
+    con, reader, svc, store = world
+    pv = preview(svc)
+    known_rows = reader.daily_quotes("snap-syn-001", as_of=AS_OF,
+                                     instrument_id="SYN.A.600519", end=TRADING_DAY)
+    prior = [r for r in known_rows if r.trading_day < TRADING_DAY][-1]
+    planned = next(o for o in pv.orders if o["instrument_id"] == "SYN.A.600519")
+    assert planned["price_cents"] == prior.close_cents
+    assert planned["reference_price_day"] == prior.trading_day.isoformat()
+    freeze_preview(svc, pv)
+    lots: list[Lot] = []
+    ex = svc.execute(plan_id=pv.plan_id, lots=lots, cash_available_cents=100_000_000)
+    actual_cash = 100_000_000 + sum(e["amount_cents"] for e in ex["cash_entries"])
+    val = svc.value(portfolio_id="pf-syn-m", snapshot_id="snap-syn-001",
+                    trading_day=TRADING_DAY, as_of=AS_OF, lots=lots,
+                    cash_available_cents=actual_cash + 1)
+    assert val["cash_available_cents"] == actual_cash
+    assert val["published"] is False
+    assert any(v["code"] == "STALE_SNAPSHOT" for v in val["invariants"]["violations"])
+
+
 def test_plan_records_rule_and_fee_versions(world):
     """§7.1 计划必须保存规则与费用版本，否则研究不可复现。"""
 
     con, reader, svc, store = world
     pv = preview(svc)
-    svc.freeze(preview=pv, confirm_subject="user:alice",
-               confirmation_token="confirm-token-abcdef123456",
-               expected_account_version=pv.account_version,
-               current_lots=[], current_cash_cents=100_000_000)
+    freeze_preview(svc, pv)
     row = con.execute("SELECT rule_version, fee_version, idempotency_key, "
                       "confirmation_token_hash FROM simulation_plan WHERE plan_id=?",
                       (pv.plan_id,)).fetchone()

@@ -1,9 +1,8 @@
 """生成工作台夹具：用真实的领域链路产出前端数据。
 
-这不是 mock：它跑完整的
-    源清单 -> 入库 -> 快照发布 -> 研究读取 -> 组合构建 -> 草稿预览
-链路，然后把视图模型序列化给前端。前端因此展示的是真实计算结果，
-而不是手写的假数据。
+它跑完整的源清单、入库、快照发布、研究读取、S1 计算、组合构建与草稿预览。
+由于合成快照只有五个行情日，S1 使用单独标注的 61 日确定性演示序列；不得把该
+序列或由它生成的排名当成快照行情或收益证据。
 
 用法：
     python tools/build_workspace_fixture.py --out apps/web/public/workspace.json
@@ -21,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "tests" / "integration"))
+sys.path.insert(0, str(ROOT))
 
 from aquant.application.workspace_view import (                      # noqa: E402
     build_data_status, build_draft_vm, build_research_card,
@@ -36,7 +35,8 @@ from aquant.domain.portfolio.construction import (                   # noqa: E40
 from aquant.domain.portfolio.plan import PlanService                 # noqa: E402
 from aquant.domain.simulation.fees import synthetic_fee_table        # noqa: E402
 from aquant.domain.simulation.simulator import Bar                   # noqa: E402
-from test_m1_ingest_e2e import build_snapshot                        # noqa: E402
+from aquant.domain.strategy.s1 import build_s1_signals               # noqa: E402
+from tests.integration.test_m1_ingest_e2e import build_snapshot      # noqa: E402
 
 SNAPSHOT = "snap-syn-001"
 AS_OF = datetime(2026, 9, 11, 12, 30, tzinfo=timezone.utc)
@@ -87,25 +87,32 @@ def main() -> int:
     status = build_data_status(reader, SNAPSHOT).as_dict()
 
     # --- 研究候选（含一个不可模拟的停牌标的与一个非主板标的，用于展示限制态）---
-    candidates = [
-        Candidate("SYN.A.600519", "SW_SYN_01", 0.90),
-        Candidate("SYN.A.000001", "SW_SYN_02", 0.70),
-        Candidate("SYN.A.600003", "SW_SYN_05", 0.55),
-    ]
-    factor_map = {
-        "SYN.A.600519": [
-            {"factor_id": "F01", "name": "20日动量", "value": 0.0412, "unit": "ratio",
-             "rank_pct": 0.71, "coverage": 1.0, "contribution": 0.355},
-            {"factor_id": "F04", "name": "20日波动率", "value": 0.2287, "unit": "annualized",
-             "rank_pct": 0.38, "coverage": 1.0, "contribution": 0.190},
-        ],
-        "SYN.A.000001": [
-            {"factor_id": "F01", "name": "20日动量", "value": -0.0155, "unit": "ratio",
-             "rank_pct": 0.22, "coverage": 1.0, "contribution": 0.110},
-            {"factor_id": "F04", "name": "20日波动率", "value": 0.1402, "unit": "annualized",
-             "rank_pct": 0.83, "coverage": 1.0, "contribution": 0.415},
-        ],
+    demo_series = {
+        "SYN.A.600519": [10000 + 18 * i + (i % 5) * 3 for i in range(61)],
+        "SYN.A.000001": [1200 + 3 * i + (18 if i % 2 else -18) for i in range(61)],
+        "SYN.A.600003": [2500 - 2 * i + (i % 7) for i in range(61)],
     }
+    industries = {"SYN.A.600519": "SW_SYN_01", "SYN.A.000001": "SW_SYN_02",
+                  "SYN.A.600003": "SW_SYN_05"}
+    signals = build_s1_signals(adjusted_closes_by_instrument=demo_series,
+                               industry_by_instrument=industries)
+    candidates = [signal.as_candidate() for signal in signals]
+    factor_map = {}
+    for signal in signals:
+        factor_map[signal.instrument_id] = [
+            {"factor_id": "F01", "name": "20日动量",
+             "value": signal.factors.f01_momentum_20d, "unit": "ratio",
+             "rank_pct": signal.f01_rank, "coverage": 1.0,
+             "contribution": 0.25 * signal.f01_rank},
+            {"factor_id": "F02", "name": "60日动量（跳过近5日）",
+             "value": signal.factors.f02_momentum_60d_skip_5d, "unit": "ratio",
+             "rank_pct": signal.f02_rank, "coverage": 1.0,
+             "contribution": 0.25 * signal.f02_rank},
+            {"factor_id": "F04", "name": "20日波动率",
+             "value": signal.factors.f04_volatility_20d, "unit": "annualized",
+             "rank_pct": signal.low_vol_rank, "coverage": 1.0,
+             "contribution": 0.5 * signal.low_vol_rank},
+        ]
 
     cards = []
     for c in candidates:
@@ -174,7 +181,9 @@ def main() -> int:
     payload = {
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "generator": "tools/build_workspace_fixture.py",
-        "note": "由真实领域链路生成，不是手写假数据",
+        "note": ("快照、研究读取、组合和草稿来自真实领域链路；S1 排名来自明确标注的"
+                 "61日确定性演示序列，不属于快照行情或收益证据"),
+        "factorDataOrigin": "SYNTHETIC_DEMO_SERIES_61D",
         "status": status,
         "candidates": rows,
         "researchCards": cards,
@@ -204,7 +213,8 @@ def main() -> int:
 
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    out.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8",
+                   newline="\n")
     print(f"wrote {out} ({out.stat().st_size} bytes)")
     print(f"  candidates={len(rows)} cards={len(cards)} orders={len(draft['orders'])} "
           f"changes={len(changes)}")

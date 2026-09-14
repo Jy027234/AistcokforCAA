@@ -1,0 +1,113 @@
+{
+  "review_date": "2026-09-14",
+  "revision": "ad57f65fade88efb66edaad102db7db79819177c",
+  "scope": "Local synthetic fixture probes in fresh temporary SQLite databases; no external service or model calls.",
+  "existing_checks": {
+    "spec_validation": {
+      "passed": 199,
+      "total": 199
+    },
+    "pytest_src_only": {
+      "exit_code": 1,
+      "collection_errors": [
+        "test_d01_d08_e2e.py: test_m1_ingest_e2e import missing",
+        "test_product_loop_e2e.py: test_m1_ingest_e2e import missing"
+      ]
+    },
+    "pytest_with_fixture_path": {
+      "pythonpath": "src;tests/integration",
+      "passed": 272,
+      "elapsed_seconds": 35.94
+    },
+    "web_build": {
+      "passed": true,
+      "command": "npm run build"
+    },
+    "clean_export": {
+      "method": "git archive HEAD to a new temporary directory, subprocess Python import with PYTHONPATH set to exported src",
+      "import_exit_code": 1,
+      "error": "ModuleNotFoundError: No module named 'aquant.domain.data'",
+      "tracked_data_module_files": 0
+    }
+  },
+  "reproduced_cases": {
+    "decision_price": {
+      "trading_day": "2026-09-08",
+      "input_as_of": "2026-09-11T12:30:00+00:00",
+      "order_reference_cents": 129750,
+      "same_day_close_cents": 129750,
+      "same_day_open_cents": 130280
+    },
+    "wrong_cash_valuation": {
+      "ledger_cash_cents": 67103849,
+      "published_cash_cents": 68103849,
+      "difference_cents": 1000000,
+      "published": true,
+      "cash_invariant": true,
+      "reconciled": true
+    },
+    "two_portfolios": [
+      {
+        "portfolio": "pf-syn-m",
+        "fill_count": 2,
+        "in_memory_lots": 2,
+        "stored_lots": 2,
+        "lot_ids": [
+          "lot-0001",
+          "lot-0002"
+        ]
+      },
+      {
+        "portfolio": "pf-syn-h",
+        "fill_count": 2,
+        "in_memory_lots": 2,
+        "stored_lots": 0,
+        "lot_ids": [
+          "lot-0001",
+          "lot-0002"
+        ]
+      }
+    ],
+    "sale_persistence": {
+      "orders": [
+        {
+          "instrument_id": "SYN.A.600519",
+          "side": "SELL",
+          "quantity": 100,
+          "price_cents": 129750,
+          "rationale": "reduce toward target weight"
+        }
+      ],
+      "fills": [
+        {
+          "fill_id": "fill-plan_d134076134e9408facde-000",
+          "order_id": "plan_d134076134e9408facde-000",
+          "instrument_id": "SYN.A.600519",
+          "side": "SELL",
+          "quantity": 100,
+          "price_cents": 130215,
+          "fees_total_cents": 9896
+        }
+      ],
+      "in_memory_remaining": 100,
+      "stored_remaining": 200,
+      "stored_consumptions": 0,
+      "reconciled": true
+    },
+    "confirmation_binding": {
+      "preview_subject": "user:alice",
+      "confirmed_by": "user:mallory",
+      "token_was_issued": false,
+      "original_quantity": 100,
+      "tampered_quantity": 1,
+      "plan_version_unchanged": true,
+      "status": "FROZEN"
+    },
+    "dividend_sold_before_record": {
+      "quantity_remaining": 0,
+      "entitlement": 100
+    }
+  },
+  "provider_and_agentctl_evidence": "Previously recorded artifacts only; not rerun during this review.",
+  "browser_verification": "Not performed during this review."
+}

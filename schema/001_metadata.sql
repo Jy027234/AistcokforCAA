@@ -510,8 +510,8 @@ CREATE TABLE IF NOT EXISTS simulation_plan (
     plan_id         TEXT PRIMARY KEY,
     portfolio_id    TEXT NOT NULL,
     snapshot_id     TEXT NOT NULL REFERENCES snapshot(snapshot_id),
-    account_version INTEGER NOT NULL,
-    plan_version    INTEGER NOT NULL,
+    account_version TEXT NOT NULL,
+    plan_version    TEXT NOT NULL,
     status          TEXT NOT NULL CHECK (status IN
                       ('DRAFT','PREVIEWED','FROZEN','EXECUTING','EXECUTED','CANCELLED','EXPIRED','SUPERSEDED')),
     created_at      TEXT NOT NULL,
@@ -529,6 +529,25 @@ CREATE TABLE IF NOT EXISTS simulation_plan (
 );
 
 CREATE INDEX IF NOT EXISTS idx_plan_status ON simulation_plan (portfolio_id, status, created_at);
+
+-- 确认令牌由服务端针对一个不可变预览签发。浏览器只拿一次性明文，数据库仅存哈希。
+CREATE TABLE IF NOT EXISTS plan_confirmation (
+    confirmation_id TEXT PRIMARY KEY,
+    token_hash      TEXT NOT NULL UNIQUE,
+    plan_id         TEXT NOT NULL,
+    portfolio_id    TEXT NOT NULL,
+    snapshot_id     TEXT NOT NULL,
+    plan_version    TEXT NOT NULL,
+    account_version TEXT NOT NULL,
+    preview_hash    TEXT NOT NULL,
+    subject         TEXT NOT NULL,
+    issued_at       TEXT NOT NULL,
+    expires_at      TEXT NOT NULL,
+    consumed_at     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_plan_confirmation_plan
+    ON plan_confirmation (plan_id, subject, expires_at);
 
 -- 冻结后计划主体不可变（订单列表另表且在冻结时一次性写入）
 CREATE TRIGGER IF NOT EXISTS trg_plan_frozen_immutable
@@ -741,6 +760,20 @@ CREATE TABLE IF NOT EXISTS valuation (
 -- 不变量未全过时禁止发布净值
 CREATE TRIGGER IF NOT EXISTS trg_valuation_publish_guard
 BEFORE UPDATE OF published ON valuation
+WHEN NEW.published = 1 AND (
+        NEW.invariant_cash_not_overdrawn = 0
+     OR NEW.invariant_positions_not_negative = 0
+     OR NEW.invariant_shares_match_lots = 0
+     OR NEW.invariant_fill_le_order = 0
+     OR NEW.invariant_fees_booked_once = 0
+     OR NEW.invariant_cash_lines_sum = 0
+)
+BEGIN
+    SELECT RAISE(ABORT, 'valuation has failing invariants; net value must not be published');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_valuation_insert_publish_guard
+BEFORE INSERT ON valuation
 WHEN NEW.published = 1 AND (
         NEW.invariant_cash_not_overdrawn = 0
      OR NEW.invariant_positions_not_negative = 0

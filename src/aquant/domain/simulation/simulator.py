@@ -424,6 +424,7 @@ class DailySimulator:
                     cash += proceeds
                 # 消耗批次：FIFO，且只消耗可卖批次
                 remaining = quantity
+                consumption_start = len(result.lot_consumptions)
                 for lot in sorted(lots, key=lambda l: (l.earliest_sellable_day, l.lot_id)):
                     if remaining <= 0:
                         break
@@ -446,6 +447,8 @@ class DailySimulator:
                     trading_day=trading_day,
                 )
                 result.fills.append(fill)
+                for consumption in result.lot_consumptions[consumption_start:]:
+                    consumption["fill_id"] = fill.fill_id
                 result.cash_entries.append(CashEntry(
                     "TRADE_SETTLEMENT", gross, trading_day,
                     related_fill_id=fill.fill_id, related_instrument_id=order.instrument_id))
@@ -463,7 +466,8 @@ class DailySimulator:
 
 def check_invariants(*, cash_available_cents: int, lots: list[Lot],
                      fills: list[Fill], orders: list[Order],
-                     cash_entries: list[CashEntry]) -> dict:
+                     cash_entries: list[CashEntry],
+                     opening_cash_cents: int | None = None) -> dict:
     """§12.8 日终不变量。任一为假即阻断净值发布。"""
 
     violations: list[dict] = []
@@ -500,10 +504,15 @@ def check_invariants(*, cash_available_cents: int, lots: list[Lot],
         if len(codes) != len(set(codes)):
             fees_ok = False
             fail("FEE_VERSION_UNVERIFIED", f"duplicate fee code on {f.fill_id}", f.fill_id)
-
+        if sum(l.amount_cents for l in f.fee_lines) != f.fees_total_cents:
+            fees_ok = False
+            fail("FEE_VERSION_UNVERIFIED", f"fee lines do not total {f.fill_id}", f.fill_id)
     # 现金分录合计与余额一致
     entries_sum = sum(e.amount_cents for e in cash_entries)
-    cash_lines_ok = True  # 由调用方以 opening_cash + entries_sum == closing 校验
+    cash_lines_ok = (opening_cash_cents is not None
+                     and opening_cash_cents + entries_sum == cash_available_cents)
+    if not cash_lines_ok:
+        fail("DATA_NOT_READY", "opening cash plus entries does not equal closing cash")
 
     return {
         "cash_not_overdrawn": cash_ok,

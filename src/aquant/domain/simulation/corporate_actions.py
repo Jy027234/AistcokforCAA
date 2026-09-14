@@ -69,6 +69,16 @@ class DividendOutcome:
     note: str
 
 
+@dataclass(frozen=True, slots=True)
+class DividendEntitlement:
+    """Immutable record-date share count reused on ex-date and pay-date."""
+
+    action_id: str
+    instrument_id: str
+    record_date: date
+    shares: int
+
+
 def entitled_shares(lots: list[Lot], instrument_id: str, record_date: date) -> int:
     """登记日收盘时持有的股数。
 
@@ -76,17 +86,34 @@ def entitled_shares(lots: list[Lot], instrument_id: str, record_date: date) -> i
     登记日之后买入的批次不享有（S07 的负例）。
     """
 
-    return sum(l.quantity_original for l in lots
+    return sum(l.quantity_remaining for l in lots
                if l.instrument_id == instrument_id
                and l.acquired_trading_day <= record_date)
+
+
+def record_dividend_entitlement(
+    action: CashDividend, *, lots: list[Lot], recorded_on: date
+) -> DividendEntitlement:
+    if recorded_on != action.record_date:
+        raise SimError(
+            "CORPORATE_ACTION_UNSUPPORTED",
+            f"entitlement must be recorded on {action.record_date}, got {recorded_on}",
+            action.action_id,
+            "record the position at the official record-date close",
+        )
+    return DividendEntitlement(
+        action_id=action.action_id,
+        instrument_id=action.instrument_id,
+        record_date=recorded_on,
+        shares=entitled_shares(lots, action.instrument_id, recorded_on),
+    )
 
 
 def apply_cash_dividend(
     action: CashDividend,
     *,
-    lots: list[Lot],
+    entitlement: DividendEntitlement,
     trading_day: date,
-    entitlements_recorded_on: date,
 ) -> DividendOutcome:
     """在给定交易日推进现金分红。
 
@@ -95,10 +122,16 @@ def apply_cash_dividend(
       trading_day == pay_date  -> 应收转现金
       其他                     -> 无动作
 
-    权利由 entitlements_recorded_on（登记日）的持仓决定。
+    权利使用登记日已经固化的 entitlement；之后卖出不会抹掉该权利。
     """
 
-    shares = entitled_shares(lots, action.instrument_id, entitlements_recorded_on)
+    if (entitlement.action_id != action.action_id
+            or entitlement.instrument_id != action.instrument_id
+            or entitlement.record_date != action.record_date):
+        raise SimError("CORPORATE_ACTION_UNSUPPORTED",
+                       "dividend entitlement does not match the action",
+                       action.action_id, "load the entitlement recorded for this action")
+    shares = entitlement.shares
     if shares == 0:
         return DividendOutcome(0, 0, 0, False,
                                "no entitlement: position was not held on the record date")
