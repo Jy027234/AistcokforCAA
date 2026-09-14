@@ -54,18 +54,36 @@ docs/                             基线、能力卡、ADR、Q0 报告
 
 **验收口径**（基线 §5）：结论须标注 L1 现象 / L2 行为 / L3 推断；探针必须用退出码表达结论；测试接线本身是安全前提，必须断言而非假定。
 
-## 工作台界面
+## 工作台
+
+两项能力：**只读浏览**（只需前端）与**写链路**（需要 API）。
 
 ```powershell
-# 1. 生成数据（S1 使用有明确标记的 61 日确定性演示序列）
+# --- 只读浏览 ---
 python tools\build_workspace_fixture.py
+cd apps\web; npm install; npm run dev          # http://localhost:5173
 
-# 2. 启动界面
-cd apps\web
-npm install      # 首次
-npm run dev      # http://localhost:5173
-# 或 npm run build && npm run preview
+# --- 写链路：另开终端启动 API ---
+$env:PYTHONPATH='src'
+python -m uvicorn main:app --app-dir apps/api --host 127.0.0.1 --port 8000
 ```
+
+前端在开发与预览两种模式下都把 `/api` 代理到 `127.0.0.1:8000`（`AQUANT_API_TARGET` 可改）。
+API 不在线时界面**明确显示只读状态并禁用写操作**，不会伪造一次成功的冻结。
+
+### 写链路
+
+| 步骤 | 接口 | 说明 |
+|---|---|---|
+| 预览 | `POST /api/v1/plans/preview` | 只算不冻；订单只用执行日**之前**的价格 |
+| 取令牌 | `POST /api/v1/plans/{id}/confirmation` | 服务端签发，绑定主体/计划/快照/账户版本/预览哈希 |
+| 冻结 | `POST /api/v1/plans/{id}/freeze` | 五项复核；令牌一次性消费 |
+| 执行 | `POST /api/v1/plans/{id}/execute` | 按 §12 规则模拟成交 |
+| 估值 | `POST /api/v1/valuations` | 不变量失败则不发布净值 |
+| 对账 | `GET /api/v1/portfolios/{id}/reconcile` | 逐项核验订单、费用、现金、批次 |
+
+**安全边界**：确认主体由服务端从受信任凭证取得，**不接受请求体自报**；
+API 中没有下单、写账本、Shell、SQL 或任意抓取路径（有测试断言路由表里不存在）。
 
 四项顶层导航（主文档 §5.2）：**今日 / 研究 / 组合 / 实验**。视图可深链：`/#research`、`/#portfolio`、`/#experiments`。
 
