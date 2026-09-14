@@ -1,0 +1,105 @@
+{
+  "checks": [
+    {
+      "name": "未登录报错",
+      "ok": true,
+      "detail": "not logged in; use BaostockClient as a context manager"
+    },
+    {
+      "name": "取到日线",
+      "ok": true,
+      "detail": "1 条"
+    },
+    {
+      "name": "收盘价换算为整数分",
+      "ok": true,
+      "detail": "129956 分"
+    },
+    {
+      "name": "收盘价与已知值一致（1299.56 元）",
+      "ok": true,
+      "detail": "129956"
+    },
+    {
+      "name": "成交量单位是股（非手）",
+      "ok": true,
+      "detail": "3266402 股"
+    },
+    {
+      "name": "成交额换算为整数分",
+      "ok": true,
+      "detail": "424244086110 分"
+    },
+    {
+      "name": "成交额与量价自洽（比值 0.9~1.1）",
+      "ok": true,
+      "detail": "比值 0.9994"
+    },
+    {
+      "name": "换手率为百分数",
+      "ok": true,
+      "detail": "0.2613"
+    },
+    {
+      "name": "生成了收据",
+      "ok": true,
+      "detail": "1 条"
+    },
+    {
+      "name": "收据指向的文件存在",
+      "ok": true,
+      "detail": "baostock\\56\\5671389ce92a797fd2df41b17ad266c67af643fefcb7779536a985376faf561a"
+    },
+    {
+      "name": "内容哈希可复核",
+      "ok": true,
+      "detail": "sha256:5671389ce92a797f..."
+    },
+    {
+      "name": "同一内容只存一份",
+      "ok": true,
+      "detail": "baostock\\56\\5671389ce92a797fd2df41b17ad266c67af643fefcb7779536a985376faf561a"
+    },
+    {
+      "name": "两条收据都留档",
+      "ok": true,
+      "detail": "2"
+    },
+    {
+      "name": "收盘价与腾讯逐分一致",
+      "ok": true,
+      "detail": "腾讯 129956 vs BaoStock 129956"
+    },
+    {
+      "name": "成交量差异在舍入内",
+      "ok": true,
+      "detail": "腾讯 3266400 vs BaoStock 3266402"
+    },
+    {
+      "name": "取到季频财务",
+      "ok": true,
+      "detail": "True"
+    },
+    {
+      "name": "含 pubDate 公布日",
+      "ok": true,
+      "detail": "2026-08-15"
+    },
+    {
+      "name": "pubDate 可解析为日期",
+      "ok": true,
+      "detail": "2026-08-15"
+    },
+    {
+      "name": "含 statDate 报告期",
+      "ok": true,
+      "detail": "2026-06-30"
+    },
+    {
+      "name": "报告期早于公布日",
+      "ok": true,
+      "detail": "2026-06-30 < 2026-08-15"
+    }
+  ],
+  "conclusion": "PASS"
+}

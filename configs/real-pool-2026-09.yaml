@@ -30,137 +30,231 @@
 # 而池子一旦显式化，它就成了可复核、可归档的输入。
 # 选择规则写在上面，任何人都能按同一规则重新生成并对照。
 
+
 pool_id: real-pool-2026-09
-as_of: "2026-09-14"
-selection_rule: "流动性/市值代表性 + 覆盖三个板块与多个行业；见文件头说明"
-universe_source_attempted: "eastmoney clist (push2.eastmoney.com) -- 5558 只，随后被 IP 封锁"
-universe_source_used: "显式声明（本文件）"
-
+as_of: '2026-09-14'
+selection_rule: 流动性/市值代表性 + 覆盖三个板块与多个行业；见文件头说明
+universe_source_attempted: eastmoney clist (push2.eastmoney.com) -- 5558 只，随后被 IP 封锁
+universe_source_used: 显式声明（本文件）
 instruments:
-  # ---------------- 上交所主板（涨跌幅 10%）----------------
-  - code: sh600519        # 贵州茅台
-    exchange: SSE
-    board: MAIN
-    industry_code: SW_FOOD_BEV
-    industry_name: 食品饮料
-  - code: sh601398        # 工商银行
-    exchange: SSE
-    board: MAIN
-    industry_code: SW_BANK
-    industry_name: 银行
-  - code: sh601288        # 农业银行
-    exchange: SSE
-    board: MAIN
-    industry_code: SW_BANK
-    industry_name: 银行
-  - code: sh600036        # 招商银行
-    exchange: SSE
-    board: MAIN
-    industry_code: SW_BANK
-    industry_name: 银行
-  - code: sh601857        # 中国石油
-    exchange: SSE
-    board: MAIN
-    industry_code: SW_ENERGY
-    industry_name: 石油石化
-  - code: sh600028        # 中国石化
-    exchange: SSE
-    board: MAIN
-    industry_code: SW_ENERGY
-    industry_name: 石油石化
-  - code: sh601318        # 中国平安
-    exchange: SSE
-    board: MAIN
-    industry_code: SW_INSURANCE
-    industry_name: 非银金融
-  - code: sh600900        # 长江电力
-    exchange: SSE
-    board: MAIN
-    industry_code: SW_UTILITY
-    industry_name: 公用事业
-
-  # ---------------- 深交所主板（涨跌幅 10%）----------------
-  - code: sz000001        # 平安银行
-    exchange: SZSE
-    board: MAIN
-    industry_code: SW_BANK
-    industry_name: 银行
-  - code: sz000858        # 五粮液
-    exchange: SZSE
-    board: MAIN
-    industry_code: SW_FOOD_BEV
-    industry_name: 食品饮料
-  - code: sz000333        # 美的集团
-    exchange: SZSE
-    board: MAIN
-    industry_code: SW_APPLIANCE
-    industry_name: 家用电器
-  - code: sz000651        # 格力电器
-    exchange: SZSE
-    board: MAIN
-    industry_code: SW_APPLIANCE
-    industry_name: 家用电器
-  - code: sz002594        # 比亚迪
-    exchange: SZSE
-    board: MAIN
-    industry_code: SW_AUTO
-    industry_name: 汽车
-  - code: sz000725        # 京东方A
-    exchange: SZSE
-    board: MAIN
-    industry_code: SW_ELECTRONICS
-    industry_name: 电子
-  - code: sz002415        # 海康威视
-    exchange: SZSE
-    board: MAIN
-    industry_code: SW_ELECTRONICS
-    industry_name: 电子
-
-  # ---------------- 创业板（涨跌幅 20%）----------------
-  - code: sz300750        # 宁德时代
-    exchange: SZSE
-    board: GEM
-    industry_code: SW_BATTERY
-    industry_name: 电力设备
-  - code: sz300059        # 东方财富
-    exchange: SZSE
-    board: GEM
-    industry_code: SW_BROKER
-    industry_name: 非银金融
-  - code: sz300124        # 汇川技术
-    exchange: SZSE
-    board: GEM
-    industry_code: SW_MACHINERY
-    industry_name: 机械设备
-  - code: sz300760        # 迈瑞医疗
-    exchange: SZSE
-    board: GEM
-    industry_code: SW_MEDICAL
-    industry_name: 医药生物
-  - code: sz300015        # 爱尔眼科
-    exchange: SZSE
-    board: GEM
-    industry_code: SW_MEDICAL
-    industry_name: 医药生物
-
-  # ---------------- 科创板（涨跌幅 20%）----------------
-  - code: sh688981        # 中芯国际
-    exchange: SSE
-    board: STAR
-    industry_code: SW_SEMICONDUCTOR
-    industry_name: 电子
-  - code: sh688111        # 金山办公
-    exchange: SSE
-    board: STAR
-    industry_code: SW_SOFTWARE
-    industry_name: 计算机
-  - code: sh688036        # 传音控股
-    exchange: SSE
-    board: STAR
-    industry_code: SW_ELECTRONICS
-    industry_name: 电子
-  - code: sh688599        # 天合光能
-    exchange: SSE
-    board: STAR
-    industry_code: SW_PHOTOVOLTAIC
-    industry_name: 电力设备
+- code: sh600519
+  exchange: SSE
+  board: MAIN
+  industry_code: C15
+  industry_name: C15酒、饮料和精制茶制造业
+  classification_version: CSRC-2012
+  industry_gate: 制造业
+  declared_industry_code_legacy: SW_FOOD_BEV
+  declared_industry_name_legacy: 食品饮料
+- code: sh601398
+  exchange: SSE
+  board: MAIN
+  industry_code: J66
+  industry_name: J66货币金融服务
+  classification_version: CSRC-2012
+  industry_gate: 金融业
+  declared_industry_code_legacy: SW_BANK
+  declared_industry_name_legacy: 银行
+- code: sh601288
+  exchange: SSE
+  board: MAIN
+  industry_code: J66
+  industry_name: J66货币金融服务
+  classification_version: CSRC-2012
+  industry_gate: 金融业
+  declared_industry_code_legacy: SW_BANK
+  declared_industry_name_legacy: 银行
+- code: sh600036
+  exchange: SSE
+  board: MAIN
+  industry_code: J66
+  industry_name: J66货币金融服务
+  classification_version: CSRC-2012
+  industry_gate: 金融业
+  declared_industry_code_legacy: SW_BANK
+  declared_industry_name_legacy: 银行
+- code: sh601857
+  exchange: SSE
+  board: MAIN
+  industry_code: B07
+  industry_name: B07石油和天然气开采业
+  classification_version: CSRC-2012
+  industry_gate: 采矿业
+  declared_industry_code_legacy: SW_ENERGY
+  declared_industry_name_legacy: 石油石化
+- code: sh600028
+  exchange: SSE
+  board: MAIN
+  industry_code: B07
+  industry_name: B07石油和天然气开采业
+  classification_version: CSRC-2012
+  industry_gate: 采矿业
+  declared_industry_code_legacy: SW_ENERGY
+  declared_industry_name_legacy: 石油石化
+- code: sh601318
+  exchange: SSE
+  board: MAIN
+  industry_code: J68
+  industry_name: J68保险业
+  classification_version: CSRC-2012
+  industry_gate: 金融业
+  declared_industry_code_legacy: SW_INSURANCE
+  declared_industry_name_legacy: 非银金融
+- code: sh600900
+  exchange: SSE
+  board: MAIN
+  industry_code: D44
+  industry_name: D44电力、热力生产和供应业
+  classification_version: CSRC-2012
+  industry_gate: 电力、热力、燃气及水生产和供应业
+  declared_industry_code_legacy: SW_UTILITY
+  declared_industry_name_legacy: 公用事业
+- code: sz000001
+  exchange: SZSE
+  board: MAIN
+  industry_code: J66
+  industry_name: J66货币金融服务
+  classification_version: CSRC-2012
+  industry_gate: 金融业
+  declared_industry_code_legacy: SW_BANK
+  declared_industry_name_legacy: 银行
+- code: sz000858
+  exchange: SZSE
+  board: MAIN
+  industry_code: C15
+  industry_name: C15酒、饮料和精制茶制造业
+  classification_version: CSRC-2012
+  industry_gate: 制造业
+  declared_industry_code_legacy: SW_FOOD_BEV
+  declared_industry_name_legacy: 食品饮料
+- code: sz000333
+  exchange: SZSE
+  board: MAIN
+  industry_code: C38
+  industry_name: C38电气机械和器材制造业
+  classification_version: CSRC-2012
+  industry_gate: 制造业
+  declared_industry_code_legacy: SW_APPLIANCE
+  declared_industry_name_legacy: 家用电器
+- code: sz000651
+  exchange: SZSE
+  board: MAIN
+  industry_code: C38
+  industry_name: C38电气机械和器材制造业
+  classification_version: CSRC-2012
+  industry_gate: 制造业
+  declared_industry_code_legacy: SW_APPLIANCE
+  declared_industry_name_legacy: 家用电器
+- code: sz002594
+  exchange: SZSE
+  board: MAIN
+  industry_code: C36
+  industry_name: C36汽车制造业
+  classification_version: CSRC-2012
+  industry_gate: 制造业
+  declared_industry_code_legacy: SW_AUTO
+  declared_industry_name_legacy: 汽车
+- code: sz000725
+  exchange: SZSE
+  board: MAIN
+  industry_code: C39
+  industry_name: C39计算机、通信和其他电子设备制造业
+  classification_version: CSRC-2012
+  industry_gate: 制造业
+  declared_industry_code_legacy: SW_ELECTRONICS
+  declared_industry_name_legacy: 电子
+- code: sz002415
+  exchange: SZSE
+  board: MAIN
+  industry_code: C39
+  industry_name: C39计算机、通信和其他电子设备制造业
+  classification_version: CSRC-2012
+  industry_gate: 制造业
+  declared_industry_code_legacy: SW_ELECTRONICS
+  declared_industry_name_legacy: 电子
+- code: sz300750
+  exchange: SZSE
+  board: GEM
+  industry_code: C38
+  industry_name: C38电气机械和器材制造业
+  classification_version: CSRC-2012
+  industry_gate: 制造业
+  declared_industry_code_legacy: SW_BATTERY
+  declared_industry_name_legacy: 电力设备
+- code: sz300059
+  exchange: SZSE
+  board: GEM
+  industry_code: J67
+  industry_name: J67资本市场服务
+  classification_version: CSRC-2012
+  industry_gate: 金融业
+  declared_industry_code_legacy: SW_BROKER
+  declared_industry_name_legacy: 非银金融
+- code: sz300124
+  exchange: SZSE
+  board: GEM
+  industry_code: C38
+  industry_name: C38电气机械和器材制造业
+  classification_version: CSRC-2012
+  industry_gate: 制造业
+  declared_industry_code_legacy: SW_MACHINERY
+  declared_industry_name_legacy: 机械设备
+- code: sz300760
+  exchange: SZSE
+  board: GEM
+  industry_code: C35
+  industry_name: C35专用设备制造业
+  classification_version: CSRC-2012
+  industry_gate: 制造业
+  declared_industry_code_legacy: SW_MEDICAL
+  declared_industry_name_legacy: 医药生物
+- code: sz300015
+  exchange: SZSE
+  board: GEM
+  industry_code: Q84
+  industry_name: Q84卫生
+  classification_version: CSRC-2012
+  industry_gate: 卫生和社会工作
+  declared_industry_code_legacy: SW_MEDICAL
+  declared_industry_name_legacy: 医药生物
+- code: sh688981
+  exchange: SSE
+  board: STAR
+  industry_code: C39
+  industry_name: C39计算机、通信和其他电子设备制造业
+  classification_version: CSRC-2012
+  industry_gate: 制造业
+  declared_industry_code_legacy: SW_SEMICONDUCTOR
+  declared_industry_name_legacy: 电子
+- code: sh688111
+  exchange: SSE
+  board: STAR
+  industry_code: I65
+  industry_name: I65软件和信息技术服务业
+  classification_version: CSRC-2012
+  industry_gate: 信息传输、软件和信息技术服务业
+  declared_industry_code_legacy: SW_SOFTWARE
+  declared_industry_name_legacy: 计算机
+- code: sh688036
+  exchange: SSE
+  board: STAR
+  industry_code: C39
+  industry_name: C39计算机、通信和其他电子设备制造业
+  classification_version: CSRC-2012
+  industry_gate: 制造业
+  declared_industry_code_legacy: SW_ELECTRONICS
+  declared_industry_name_legacy: 电子
+- code: sh688599
+  exchange: SSE
+  board: STAR
+  industry_code: C38
+  industry_name: C38电气机械和器材制造业
+  classification_version: CSRC-2012
+  industry_gate: 制造业
+  declared_industry_code_legacy: SW_PHOTOVOLTAIC
+  declared_industry_name_legacy: 电力设备
+classification_version: CSRC-2012
+classification_source: BaoStock 证监会行业分类（见 docs/data-capability-baostock.md）
+classification_note: 行业口径已从手工声明的粗分类切换为证监会分类。切换原因：手工声明只覆盖本池 24 只，扩池即失效；且实测有两处与权威不符（迈瑞医疗属 C35 专用设备制造业而非医药；爱尔眼科为
+  Q84 卫生）。原手工值保留在 declared_industry_*_legacy 字段，便于对照。
+classification_applied_on: '2026-09-14'

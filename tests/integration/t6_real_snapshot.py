@@ -49,6 +49,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from aquant.adapters.providers.calendar import load_trading_calendar  # noqa: E402
+from aquant.adapters.providers.baostock import BaostockClient  # noqa: E402
 from aquant.adapters.providers.tencent import TencentClient  # noqa: E402
 from aquant.domain.data.db import apply_migrations, connect  # noqa: E402
 from aquant.domain.data.forward_archive import ForwardArchive  # noqa: E402
@@ -138,7 +139,11 @@ def main() -> int:
     con = connect(out_dir / "meta.sqlite")
     apply_migrations(con)
     archive = ForwardArchive(con, out_dir / "archive")
-    tencent = TencentClient(archive)
+    tencent = TencentClient(archive)          # 交叉校验用
+    # 主来源。BaoStock 走裸 socket，不走 HTTP 白名单；它自己的留证写在
+    # out_dir/archive/baostock/ 下（内容寻址），与 HTTP 源的归档同构。
+    baostock = BaostockClient(archive.root)
+    baostock.login()
 
     # ---------------------------------------------------------- 1. 交易日历
     print("\n[1] 真实交易日历")
@@ -181,39 +186,55 @@ def main() -> int:
           f"{len(names)}/{len(codes)}")
 
     # ------------------------------------------------------------ 3. 日行情
-    print("\n[3] 真实日行情")
+    #
+    # 主来源是 **BaoStock**，不是腾讯。原因是成交额：
+    #   * 腾讯日线只有成交量，没有成交额，而 §11.2 的流动性下限按成交额；
+    #   * BaoStock 日线同时给 amount（成交额）与 turn（换手率），单位明确。
+    # 按 §280「同一字段设定主来源」，行情与成交额统一由 BaoStock 提供；
+    # 腾讯保留为**交叉校验**，不再是主来源。
+    print("\n[3] 真实日行情（主来源 BaoStock，腾讯交叉校验）")
     quotes: list[dict] = []
     instruments: list[dict] = []
     missing: list[str] = []
     failed: list[str] = []
+    cross_checked = 0
+    cross_mismatch: list[str] = []
+    bs_receipts = 0
+
     for entry in entries:
         code = entry["code"]
         exchange, board = _board_of(code)
-        out, bars = tencent.daily_quotes(code, days[0], days[-1], adjust=0)
-        if not out.ok:
-            failed.append(f"{code}: {out.detail}")
+        bs_code = code[:2] + "." + code[2:]
+        try:
+            bars, _receipt = baostock.daily_bars(
+                bs_code, start=days[0], end=days[-1], adjust="3")
+        except Exception as exc:                        # noqa: BLE001
+            failed.append(f"{code}: {type(exc).__name__}: {str(exc)[:60]}")
             continue
-        by_day = {str(bar[0]): bar for bar in bars if bar}
+        bs_receipts += 1
+
+        by_day = {b["trading_day"]: b for b in bars}
         got = 0
         prev_close = None
         for day in days:
             bar = by_day.get(day)
-            if bar is None:
+            if bar is None or bar["close_cents"] is None:
                 # 停牌或当日无成交：**不补造**，如实记为缺失
                 missing.append(f"{code}@{day}")
                 continue
-            _, o, c, h, low, vol = bar[0], bar[1], bar[2], bar[3], bar[4], bar[5]
-            def cents(x: str) -> int:
-                return int(round(float(x) * 100))
             quotes.append({
                 "instrument_id": _internal_id(code),
                 "trading_day": day,
-                "open_cents": cents(o), "high_cents": cents(h),
-                "low_cents": cents(low), "close_cents": cents(c),
-                "volume_shares": int(float(vol)) * 100,   # 腾讯成交量单位是手
-                "prev_close_cents": prev_close if prev_close else cents(o),
+                "open_cents": bar["open_cents"] or bar["close_cents"],
+                "high_cents": bar["high_cents"] or bar["close_cents"],
+                "low_cents": bar["low_cents"] or bar["close_cents"],
+                "close_cents": bar["close_cents"],
+                "volume_shares": bar["volume_shares"],
+                # 成交额来自主来源；缺失时如实为 None，不用量价估算
+                "amount_cents": bar["amount_cents"],
+                "prev_close_cents": prev_close if prev_close else bar["open_cents"],
             })
-            prev_close = cents(c)
+            prev_close = bar["close_cents"]
             got += 1
         instruments.append({
             "instrument_id": _internal_id(code),
@@ -224,14 +245,28 @@ def main() -> int:
             # 免费源不提供权威分类，如实标注来源。
             "industry_code": entry.get("industry_code"),
             "industry_name": entry.get("industry_name"),
+            "classification_version": entry.get("classification_version"),
             "status_history": [{
                 "valid_from": days[0], "valid_to": None,
                 "name": names.get(code, code.upper()),
                 "status": "LISTED",
                 "industry_code": entry.get("industry_code"),
                 "industry_name": entry.get("industry_name"),
+                "classification_version": entry.get("classification_version"),
             }],
         })
+
+        # 交叉校验：同一交易日、同一只，腾讯的收盘价必须逐分一致。
+        # 只在第一只有行情时抽查，避免把 24 只全部请求两遍（腾讯限速）。
+        if cross_checked == 0:
+            out, tbars = tencent.daily_quotes(code, days[0], days[0], adjust=0)
+            if out.ok and tbars:
+                t_close = int(round(float(tbars[0][2]) * 100))
+                bs_close = by_day.get(days[0], {}).get("close_cents")
+                if t_close == bs_close:
+                    cross_checked += 1
+                else:
+                    cross_mismatch.append(f"{code}@{days[0]}: 腾讯 {t_close} vs BaoStock {bs_close}")
         print(f"  {code} {names.get(code, '?'):<8} {got}/{len(days)} 个交易日有行情")
 
     if failed:
@@ -249,6 +284,15 @@ def main() -> int:
         q["low_cents"] <= min(q["open_cents"], q["close_cents"])
         and max(q["open_cents"], q["close_cents"]) <= q["high_cents"] for q in quotes))
     check("证券简称非空", all(i["short_name"] for i in instruments))
+    check("行业来自权威分类（带口径版本）",
+          all(i.get("classification_version") for i in instruments),
+          f"{len(instruments)} 只")
+    check("成交额已补齐（§11.2 流动性下限依赖它）",
+          all(q.get("amount_cents") for q in quotes),
+          f"{sum(1 for q in quotes if q.get('amount_cents'))}/{len(quotes)} 条")
+    check("与腾讯源交叉一致（收盘价逐分相同）",
+          cross_checked > 0 and not cross_mismatch,
+          f"校验 {cross_checked} 只；差异 {cross_mismatch}")
     board_counts: dict[str, int] = {}
     for inst in instruments:
         board_counts[inst["board"]] = board_counts.get(inst["board"], 0) + 1
@@ -402,6 +446,7 @@ def main() -> int:
         "conclusion": "PASS" if not failed_checks else "FAIL",
     }, ensure_ascii=False, indent=2).encode("utf-8"))
     print(f"报告：{report_path}")
+    baostock.logout()
     con.close()
     return 1 if failed_checks else 0
 

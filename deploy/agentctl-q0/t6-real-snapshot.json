@@ -1,5 +1,5 @@
 {
-  "ran_at": "2026-09-14T13:30:32.156247+00:00",
+  "ran_at": "2026-09-14T14:45:13.043126+00:00",
   "snapshot_id": "snap-real-61d",
   "data_mode": "PRODUCTION",
   "watermark": "REAL MARKET DATA, RECONSTRUCTED POINT-IN-TIME -- NOT VALID FOR FORMAL PIT BACKTESTS",
@@ -59,6 +59,21 @@
       "detail": ""
     },
     {
+      "name": "行业来自权威分类（带口径版本）",
+      "ok": true,
+      "detail": "24 只"
+    },
+    {
+      "name": "成交额已补齐（§11.2 流动性下限依赖它）",
+      "ok": true,
+      "detail": "1464/1464 条"
+    },
+    {
+      "name": "与腾讯源交叉一致（收盘价逐分相同）",
+      "ok": true,
+      "detail": "校验 1 只；差异 []"
+    },
+    {
       "name": "覆盖主板与成长板块",
       "ok": true,
       "detail": "GEM×5、MAIN×15、STAR×4"
@@ -111,7 +126,7 @@
     {
       "name": "归档留下了收据",
       "ok": true,
-      "detail": "28 条"
+      "detail": "5 条"
     },
     {
       "name": "归档内容可哈希复核",
