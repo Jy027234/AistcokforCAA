@@ -20,7 +20,7 @@ A股研究与模拟决策工作台。首期定位为**自用研究与模拟**，
 |---|---|---|
 | 资料包（contracts/schema/configs/examples/自检） | ✅ | `tests/validate_spec.py` 200/200，裸 Python 可跑 |
 | 免费数据源验证 | ✅ | `docs/data-capability-eastmoney-direct.md` + ADR-001/002/003 |
-| M1 数据与证据底座 | 🟡 | 合成快照与 D01–D08 通过；公告原文归档脚本已补，待真实复跑及权威未来日历 |
+| M1 数据与证据底座 | 🟡 | 合成快照 D01–D08 通过；**真实 61 日快照已建成并发布**（腾讯免费源，244 条行情，T6 14/14）；公告原文已真实归档并哈希复核；权威**未来**日历仍需前向积累 |
 | M2 基线与模拟账本 | 🟡 | S1 与账本核心链通过；待 61 日真实小样本、多日及重启验收 |
 | 产品闭环 | 🟡 | 合成快照→盘前计划→一次性确认→成交→估值→对账已通过 |
 | 工作台界面（M3） | 🟡 | 四页可浏览；**界面上已能走完 预览→确认→冻结→执行→估值→对账**；自选与决策日志仍未接后端 |
@@ -34,7 +34,12 @@ A股研究与模拟决策工作台。首期定位为**自用研究与模拟**，
 | 领域与接口测试 | `pytest tests` | 全过 |
 | 界面写路径（真实浏览器 + 隔离账本） | `python tools/check_ui_flow.py` | 22/22 |
 | 归档字节离线复核 | `python tools/verify_archive.py` | 21/21 |
+| **真实数据**接口验收 | `python -m tests.integration.t6_real_snapshot` | 14/14 |
+| 公告原文归档 | `python -m tests.integration.t5_cninfo_archive_run` | 5/5 哈希复核 |
 | HEAD 可复现性 | `python tools/check_reproducible.py` | 35/35 |
+
+T5/T6 需要放行本机透明代理网段（`AQUANT_TRUSTED_PROXY_NETWORKS`，见 ADR-002）并会联网。
+T6 只做只读抓取，不下单、不连券商。
 
 界面检查是**真浏览器交互**，不是截图：截图只能证明渲染，证明不了"点下去
 真的发生了"。它每次都用全新的临时账本启动独立 API，因此重复运行的结论可信。
