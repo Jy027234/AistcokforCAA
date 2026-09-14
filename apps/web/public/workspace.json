@@ -1,0 +1,584 @@
+{
+  "generatedAt": "2026-09-14T00:12:45.618481+00:00",
+  "generator": "tools/build_workspace_fixture.py",
+  "note": "由真实领域链路生成，不是手写假数据",
+  "status": {
+    "snapshotId": "snap-syn-001",
+    "kind": "EOD",
+    "asOfTime": "2026-09-11T12:30:00+00:00",
+    "publishedAt": "2026-09-11T12:31:00+00:00",
+    "dataMode": "SYNTHETIC",
+    "watermark": "SYNTHETIC DATA -- NOT VALID FOR RESEARCH CONCLUSIONS",
+    "qualityStatus": "OK",
+    "readiness": "READY",
+    "readinessLabel": "数据已就绪",
+    "blockingIssues": [],
+    "datasetSummary": [
+      {
+        "name": "corporate_actions",
+        "recordCount": 2,
+        "coverage": null,
+        "asOfUpperBound": "2026-09-11T12:30:00+00:00"
+      },
+      {
+        "name": "daily_quotes",
+        "recordCount": 21,
+        "coverage": null,
+        "asOfUpperBound": "2026-09-11T12:30:00+00:00"
+      },
+      {
+        "name": "events",
+        "recordCount": 2,
+        "coverage": null,
+        "asOfUpperBound": "2026-09-11T12:30:00+00:00"
+      },
+      {
+        "name": "instruments",
+        "recordCount": 5,
+        "coverage": null,
+        "asOfUpperBound": "2026-09-11T12:30:00+00:00"
+      },
+      {
+        "name": "trading_calendar",
+        "recordCount": 5,
+        "coverage": null,
+        "asOfUpperBound": "2026-09-11T12:30:00+00:00"
+      }
+    ],
+    "timeLabel": "虚构示例 · 不可用于收益结论",
+    "accountLabel": "模拟账户"
+  },
+  "candidates": [
+    {
+      "instrumentId": "SYN.A.600519",
+      "displayName": "合成示例·消费龙头",
+      "signalRank": 0.9,
+      "industryCode": "SW_SYN_01",
+      "basis": "20日动量、20日波动率",
+      "counterEvidence": "未找到反证",
+      "dataQuality": "数据已就绪",
+      "simulatable": true,
+      "simulatableLabel": "可模拟",
+      "lastClose": "1,297.50"
+    },
+    {
+      "instrumentId": "SYN.A.000001",
+      "displayName": "合成示例·银行",
+      "signalRank": 0.7,
+      "industryCode": "SW_SYN_02",
+      "basis": "20日动量、20日波动率",
+      "counterEvidence": "未找到反证",
+      "dataQuality": "数据已就绪",
+      "simulatable": true,
+      "simulatableLabel": "可模拟",
+      "lastClose": "11.68"
+    },
+    {
+      "instrumentId": "SYN.A.600003",
+      "displayName": "合成示例·分红",
+      "signalRank": 0.55,
+      "industryCode": "SW_SYN_05",
+      "basis": "—",
+      "counterEvidence": "未找到反证",
+      "dataQuality": "数据已就绪",
+      "simulatable": true,
+      "simulatableLabel": "可模拟",
+      "lastClose": "15.20"
+    }
+  ],
+  "researchCards": [
+    {
+      "instrumentId": "SYN.A.600519",
+      "displayName": "合成示例·消费龙头",
+      "exchange": "SSE",
+      "board": "MAIN",
+      "snapshotId": "snap-syn-001",
+      "asOfTime": "2026-09-11T12:30:00+00:00",
+      "generatedAt": "2026-09-14T00:12:45.616308+00:00",
+      "dataCompleteness": "数据已就绪",
+      "timeLabel": "虚构示例 · 不可用于收益结论",
+      "rankSemantics": "横截面排名百分位（越大越靠前）。这是排名，不是上涨概率，也不表示预期收益",
+      "rankBreakdown": [
+        {
+          "factorId": "F01",
+          "name": "20日动量",
+          "value": 0.0412,
+          "unit": "ratio",
+          "rankPct": 0.71,
+          "coverage": 1.0,
+          "contribution": 0.355
+        },
+        {
+          "factorId": "F04",
+          "name": "20日波动率",
+          "value": 0.2287,
+          "unit": "annualized",
+          "rankPct": 0.38,
+          "coverage": 1.0,
+          "contribution": 0.19
+        }
+      ],
+      "comparisonScope": "比较范围：snap-syn-001 快照内可模拟池",
+      "evidence": [],
+      "counterEvidence": [
+        {
+          "statement": "未找到反证",
+          "noneFound": true,
+          "note": "本次检索范围内未找到有效反证；这不等于不存在反证"
+        }
+      ],
+      "uncertainties": [
+        "预期是否已被价格消化：首期不作判断",
+        "缺少的数据：见数据状态抽屉中的数据集覆盖",
+        "观察窗口：日频研究，初始策略每周调仓"
+      ],
+      "actions": [
+        {
+          "id": "watchlist.add",
+          "label": "加入自选",
+          "sideEffect": "自选写入",
+          "note": "不产生订单"
+        },
+        {
+          "id": "compare",
+          "label": "加入比较",
+          "sideEffect": "无",
+          "note": null
+        },
+        {
+          "id": "draft.create",
+          "label": "创建模拟草稿",
+          "sideEffect": "草稿",
+          "note": "需在界面中显式确认后才会冻结"
+        }
+      ],
+      "tradability": {
+        "simulatable": true,
+        "reason": null,
+        "reasonLabel": "可模拟",
+        "detail": "按 SSE/MAIN 规则模拟，涨跌停 10%，整手 100 股",
+        "rule": "SSE/MAIN",
+        "effectiveFrom": "2026-07-06",
+        "repair": null
+      },
+      "limitations": []
+    },
+    {
+      "instrumentId": "SYN.A.000001",
+      "displayName": "合成示例·银行",
+      "exchange": "SZSE",
+      "board": "MAIN",
+      "snapshotId": "snap-syn-001",
+      "asOfTime": "2026-09-11T12:30:00+00:00",
+      "generatedAt": "2026-09-14T00:12:45.616439+00:00",
+      "dataCompleteness": "数据已就绪",
+      "timeLabel": "虚构示例 · 不可用于收益结论",
+      "rankSemantics": "横截面排名百分位（越大越靠前）。这是排名，不是上涨概率，也不表示预期收益",
+      "rankBreakdown": [
+        {
+          "factorId": "F01",
+          "name": "20日动量",
+          "value": -0.0155,
+          "unit": "ratio",
+          "rankPct": 0.22,
+          "coverage": 1.0,
+          "contribution": 0.11
+        },
+        {
+          "factorId": "F04",
+          "name": "20日波动率",
+          "value": 0.1402,
+          "unit": "annualized",
+          "rankPct": 0.83,
+          "coverage": 1.0,
+          "contribution": 0.415
+        }
+      ],
+      "comparisonScope": "比较范围：snap-syn-001 快照内可模拟池",
+      "evidence": [],
+      "counterEvidence": [
+        {
+          "statement": "未找到反证",
+          "noneFound": true,
+          "note": "本次检索范围内未找到有效反证；这不等于不存在反证"
+        }
+      ],
+      "uncertainties": [
+        "预期是否已被价格消化：首期不作判断",
+        "缺少的数据：见数据状态抽屉中的数据集覆盖",
+        "观察窗口：日频研究，初始策略每周调仓"
+      ],
+      "actions": [
+        {
+          "id": "watchlist.add",
+          "label": "加入自选",
+          "sideEffect": "自选写入",
+          "note": "不产生订单"
+        },
+        {
+          "id": "compare",
+          "label": "加入比较",
+          "sideEffect": "无",
+          "note": null
+        },
+        {
+          "id": "draft.create",
+          "label": "创建模拟草稿",
+          "sideEffect": "草稿",
+          "note": "需在界面中显式确认后才会冻结"
+        }
+      ],
+      "tradability": {
+        "simulatable": true,
+        "reason": null,
+        "reasonLabel": "可模拟",
+        "detail": "按 SZSE/MAIN 规则模拟，涨跌停 10%，整手 100 股",
+        "rule": "SZSE/MAIN",
+        "effectiveFrom": "2026-07-06",
+        "repair": null
+      },
+      "limitations": []
+    },
+    {
+      "instrumentId": "SYN.A.600003",
+      "displayName": "合成示例·分红",
+      "exchange": "SSE",
+      "board": "MAIN",
+      "snapshotId": "snap-syn-001",
+      "asOfTime": "2026-09-11T12:30:00+00:00",
+      "generatedAt": "2026-09-14T00:12:45.616521+00:00",
+      "dataCompleteness": "数据已就绪",
+      "timeLabel": "虚构示例 · 不可用于收益结论",
+      "rankSemantics": "横截面排名百分位（越大越靠前）。这是排名，不是上涨概率，也不表示预期收益",
+      "rankBreakdown": [],
+      "comparisonScope": "比较范围：snap-syn-001 快照内可模拟池",
+      "evidence": [],
+      "counterEvidence": [
+        {
+          "statement": "未找到反证",
+          "noneFound": true,
+          "note": "本次检索范围内未找到有效反证；这不等于不存在反证"
+        }
+      ],
+      "uncertainties": [
+        "预期是否已被价格消化：首期不作判断",
+        "缺少的数据：见数据状态抽屉中的数据集覆盖",
+        "观察窗口：日频研究，初始策略每周调仓"
+      ],
+      "actions": [
+        {
+          "id": "watchlist.add",
+          "label": "加入自选",
+          "sideEffect": "自选写入",
+          "note": "不产生订单"
+        },
+        {
+          "id": "compare",
+          "label": "加入比较",
+          "sideEffect": "无",
+          "note": null
+        },
+        {
+          "id": "draft.create",
+          "label": "创建模拟草稿",
+          "sideEffect": "草稿",
+          "note": "需在界面中显式确认后才会冻结"
+        }
+      ],
+      "tradability": {
+        "simulatable": true,
+        "reason": null,
+        "reasonLabel": "可模拟",
+        "detail": "按 SSE/MAIN 规则模拟，涨跌停 10%，整手 100 股",
+        "rule": "SSE/MAIN",
+        "effectiveFrom": "2026-07-06",
+        "repair": null
+      },
+      "limitations": []
+    },
+    {
+      "instrumentId": "SYN.A.600002",
+      "displayName": "合成示例·停牌",
+      "exchange": "SSE",
+      "board": "MAIN",
+      "snapshotId": "snap-syn-001",
+      "asOfTime": "2026-09-11T12:30:00+00:00",
+      "generatedAt": "2026-09-14T00:12:45.616594+00:00",
+      "dataCompleteness": "数据已就绪",
+      "timeLabel": "虚构示例 · 不可用于收益结论",
+      "rankSemantics": "横截面排名百分位（越大越靠前）。这是排名，不是上涨概率，也不表示预期收益",
+      "rankBreakdown": [],
+      "comparisonScope": "比较范围：snap-syn-001 快照内可模拟池",
+      "evidence": [],
+      "counterEvidence": [
+        {
+          "statement": "未找到反证",
+          "noneFound": true,
+          "note": "本次检索范围内未找到有效反证；这不等于不存在反证"
+        }
+      ],
+      "uncertainties": [
+        "预期是否已被价格消化：首期不作判断",
+        "缺少的数据：见数据状态抽屉中的数据集覆盖",
+        "观察窗口：日频研究，初始策略每周调仓"
+      ],
+      "actions": [
+        {
+          "id": "watchlist.add",
+          "label": "加入自选",
+          "sideEffect": "自选写入",
+          "note": "不产生订单"
+        },
+        {
+          "id": "compare",
+          "label": "加入比较",
+          "sideEffect": "无",
+          "note": null
+        },
+        {
+          "id": "draft.create",
+          "label": "创建模拟草稿",
+          "sideEffect": "草稿",
+          "note": "需在界面中显式确认后才会冻结"
+        }
+      ],
+      "tradability": {
+        "simulatable": false,
+        "reason": "NO_VALID_OPEN_PRICE",
+        "reasonLabel": "当日无有效开盘价",
+        "detail": "停牌、无行情或状态未知时不得模拟成交，也不得用最近价替代当日开盘价",
+        "rule": "SSE/MAIN",
+        "effectiveFrom": null,
+        "repair": "确认该证券当日状态；若为停牌则等待复牌后再纳入草稿"
+      },
+      "limitations": [
+        "当日不可模拟：无有效开盘价"
+      ]
+    },
+    {
+      "instrumentId": "SYN.A.300001",
+      "displayName": "合成示例·涨停",
+      "exchange": "SZSE",
+      "board": "GEM",
+      "snapshotId": "snap-syn-001",
+      "asOfTime": "2026-09-11T12:30:00+00:00",
+      "generatedAt": "2026-09-14T00:12:45.616667+00:00",
+      "dataCompleteness": "数据已就绪",
+      "timeLabel": "虚构示例 · 不可用于收益结论",
+      "rankSemantics": "横截面排名百分位（越大越靠前）。这是排名，不是上涨概率，也不表示预期收益",
+      "rankBreakdown": [],
+      "comparisonScope": "比较范围：snap-syn-001 快照内可模拟池",
+      "evidence": [],
+      "counterEvidence": [
+        {
+          "statement": "未找到反证",
+          "noneFound": true,
+          "note": "本次检索范围内未找到有效反证；这不等于不存在反证"
+        }
+      ],
+      "uncertainties": [
+        "预期是否已被价格消化：首期不作判断",
+        "缺少的数据：见数据状态抽屉中的数据集覆盖",
+        "观察窗口：日频研究，初始策略每周调仓"
+      ],
+      "actions": [
+        {
+          "id": "watchlist.add",
+          "label": "加入自选",
+          "sideEffect": "自选写入",
+          "note": "不产生订单"
+        },
+        {
+          "id": "compare",
+          "label": "加入比较",
+          "sideEffect": "无",
+          "note": null
+        },
+        {
+          "id": "draft.create",
+          "label": "创建模拟草稿",
+          "sideEffect": "草稿",
+          "note": "需在界面中显式确认后才会冻结"
+        }
+      ],
+      "tradability": {
+        "simulatable": false,
+        "reason": "RULE_VERSION_MISSING",
+        "reasonLabel": "缺少该板块的规则版本",
+        "detail": "未找到 SZSE/GEM 在 2026-09-08 生效的交易规则",
+        "rule": "SZSE/GEM",
+        "effectiveFrom": null,
+        "repair": "补充该板块对应生效日的规则配置；不得假定默认涨跌幅"
+      },
+      "limitations": [
+        "当日不可模拟：规则版本缺失"
+      ]
+    }
+  ],
+  "draft": {
+    "planId": "plan_7183cac3447d4ffc93ca",
+    "portfolioId": "pf-syn-m",
+    "tradingDay": "2026-09-08",
+    "frozen": false,
+    "frozenLabel": "未冻结 · 预览不产生成交",
+    "orders": [
+      {
+        "instrumentId": "SYN.A.600519",
+        "side": "BUY",
+        "quantity": 100,
+        "price": "1,297.50",
+        "gross": "129,750.00",
+        "estimatedFee": "33.74",
+        "rationale": "new entry at signal rank 0.9000",
+        "targetWeightPct": "20"
+      },
+      {
+        "instrumentId": "SYN.A.000001",
+        "side": "BUY",
+        "quantity": 17100,
+        "price": "11.68",
+        "gross": "199,728.00",
+        "estimatedFee": "51.93",
+        "rationale": "new entry at signal rank 0.7000",
+        "targetWeightPct": "20"
+      },
+      {
+        "instrumentId": "SYN.A.600003",
+        "side": "BUY",
+        "quantity": 13100,
+        "price": "15.20",
+        "gross": "199,120.00",
+        "estimatedFee": "51.77",
+        "rationale": "new entry at signal rank 0.5500",
+        "targetWeightPct": "20"
+      }
+    ],
+    "estimatedFees": "137.44",
+    "cashBefore": "1,000,000.00",
+    "cashAfter": "471,264.56",
+    "cashAfterCents": 47126456,
+    "buyTotal": "528,598.00",
+    "sellTotal": "0.00",
+    "industryCapPct": "50.00%",
+    "industry": [
+      {
+        "industryCode": "SW_SYN_01",
+        "value": "200,000.00",
+        "sharePct": "20.00%",
+        "overCap": false
+      },
+      {
+        "industryCode": "SW_SYN_02",
+        "value": "200,000.00",
+        "sharePct": "20.00%",
+        "overCap": false
+      },
+      {
+        "industryCode": "SW_SYN_05",
+        "value": "200,000.00",
+        "sharePct": "20.00%",
+        "overCap": false
+      }
+    ],
+    "excluded": [],
+    "ruleChecks": [
+      {
+        "name": "预计现金不为负",
+        "passed": true
+      },
+      {
+        "name": "全部订单有当日行情",
+        "passed": true
+      },
+      {
+        "name": "全部订单有规则版本",
+        "passed": true
+      },
+      {
+        "name": "行业上限",
+        "passed": true
+      }
+    ],
+    "confirmAction": {
+      "id": "plan.freeze",
+      "label": "确认并冻结计划",
+      "requirement": "需要人类用户显式确认；确认主体不能是模型",
+      "revalidate": [
+        "计划版本",
+        "快照版本",
+        "账户状态版本",
+        "确认主体",
+        "有效期"
+      ]
+    }
+  },
+  "todayChanges": [
+    {
+      "eventId": "evt-syn-001",
+      "category": "ANNOUNCEMENT",
+      "summary": "合成示例公司公告每股派发现金红利 0.50 元（虚构）",
+      "availableAt": "2026-09-07T01:30:00Z",
+      "verification": "VERIFIED",
+      "direction": "UNKNOWN",
+      "subjects": [
+        "SYN.A.600003"
+      ]
+    },
+    {
+      "eventId": "evt-syn-malicious-001",
+      "category": "NEWS",
+      "summary": "合成恶意样本：正文包含越权指令，不得被执行",
+      "availableAt": "2026-09-11T02:00:00Z",
+      "verification": "UNVERIFIED",
+      "direction": "UNKNOWN",
+      "subjects": [
+        "SYN.A.600519"
+      ]
+    }
+  ],
+  "portfolios": [
+    {
+      "portfolioId": "pf-syn-m",
+      "kind": "M",
+      "label": "模型基线",
+      "netValue": "1,000,000.00",
+      "cash": "471,264.56",
+      "positions": 0,
+      "note": "S1 固定模型基线"
+    },
+    {
+      "portfolioId": "pf-syn-h",
+      "kind": "H",
+      "label": "用户组合",
+      "netValue": "1,000,000.00",
+      "cash": "1,000,000.00",
+      "positions": 0,
+      "note": "人工选择对照；自选与持仓分离"
+    }
+  ],
+  "experiments": [
+    {
+      "experimentId": "exp-syn-001",
+      "hypothesis": "S1 趋势-低波动基线是否优于等权",
+      "strategyVersion": "S1-syn-v1",
+      "status": "REGISTERED",
+      "sampleWindow": "未开始",
+      "dataLevel": "虚构示例",
+      "limitations": [
+        "虚构数据，不构成收益结论",
+        "样本期未定义"
+      ]
+    }
+  ],
+  "decisionLog": [
+    {
+      "decisionId": "dec-syn-001",
+      "date": "2026-09-08",
+      "type": "NO_CHANGE",
+      "reason": "观察期，无新增证据",
+      "modelProposed": "维持持仓",
+      "humanFinal": "维持持仓",
+      "externalInfoUsed": false
+    }
+  ]
+}

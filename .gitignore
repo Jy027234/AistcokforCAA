@@ -38,3 +38,8 @@ dist/
 .idea/
 Thumbs.db
 Desktop.ini
+
+# --- 前端构建产物 ---
+apps/web/dist/
+apps/web/node_modules/
+apps/web/*.tsbuildinfo
