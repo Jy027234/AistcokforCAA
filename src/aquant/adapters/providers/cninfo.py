@@ -23,6 +23,11 @@
 
 from __future__ import annotations
 
+import re
+from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
+
 import json
 import socket
 import urllib.error
@@ -199,6 +204,301 @@ def to_pit_record(
         "verification_status": "UNVERIFIED",    # 正文归档与引用核验之前不得声称已核验
         "market_direction": "UNKNOWN",          # §15.3 允许保留未知方向
     }
+
+
+# ======================================================================
+# 分红公告解析（§12.7）
+# ======================================================================
+#
+# 目标：从巨潮的**权益分派实施公告**正文里取出每股现金红利与三个日期，
+# 并把每个值所依据的原文一并留下，供人工复核。
+#
+# 为什么必须留原文而不是只留数值
+# ------------------------------
+# 分红公告的文字千变万化："每 10 股派发现金红利 5.96 元（含税）"、
+# "A 股每股现金红利 28.02423 元"、"每 10 股派发现金红利 2.60 元（含税）"。
+# 一旦解析错（例如把"每 10 股"当成"每股"），金额会差 10 倍，
+# 而账面完全自洽——没有人能从数字上看出问题。
+# 留原文是让复核者能在几秒内判断对错，而不是重新去读 PDF。
+#
+# 解析**不做单位换算猜测**：公告说"每 10 股"就按 10 股换算并在原文里
+# 保留该表述；公告同时给出"每股"和"每 10 股"时优先用"每股"。
+
+#: 分红公告标题特征。只认**实施公告**——"利润分配方案""预案"里的
+#: 日期是待股东大会审议的，不能当已确定的分派执行，两者混淆会让系统
+#: 提前按未生效的方案记账。
+DIVIDEND_TITLE_PATTERN = re.compile(r"(权益分派实施|分红派息实施)")
+
+#: 需要人工复核的标题：方案/预案类，日期尚未确定
+DIVIDEND_PROPOSAL_TITLE_PATTERN = re.compile(r"(利润分配方案|利润分配预案|分红方案)")
+
+_CN_NUM = {"零": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+           "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+
+
+def _cn_number(text: str) -> int | None:
+    """解析公告里出现的简单中文数字（一~九十九）。"""
+
+    text = text.strip()
+    if text.isdigit():
+        return int(text)
+    if text == "十":
+        return 10
+    if "十" in text:
+        head, _, tail = text.partition("十")
+        tens = _CN_NUM.get(head, 1) if head else 1
+        ones = _CN_NUM.get(tail, 0) if tail else 0
+        if head and head not in _CN_NUM:
+            return None
+        if tail and tail not in _CN_NUM:
+            return None
+        return tens * 10 + ones
+    return _CN_NUM.get(text)
+
+
+def _context(flat: str, start: int, end: int, *, span: int = 60) -> str:
+    """取匹配位置附近的原文片段（已去空白）作为留证。
+
+    直接按位置取，不做 find：正则在去空白串上匹配，回到原文里 find
+    通常会命中别处，证据就变成了无关文字——而"留证"的全部意义
+    在于让人能一眼核对数值对不对。
+    """
+
+    return flat[max(0, start - span):end + span]
+
+def _slice_sentence(text: str, index: int, *, span: int = 90) -> str:
+    """取包含该位置的一句话，作为留证原文。"""
+
+    start = max(0, index - span)
+    end = min(len(text), index + span)
+    snippet = text[start:end].replace("\n", " ")
+    return re.sub(r"\s+", " ", snippet).strip()
+
+
+@dataclass(frozen=True, slots=True)
+class DividendParse:
+    """从一份分红公告里解析出的结果。
+
+    status:
+      * `OK`             —— 金额与三个日期齐全
+      * `INCOMPLETE`     —— 是分红公告，但关键字段没解析全（需人工）
+      * `NOT_APPLICABLE` —— 不是分红实施公告
+    """
+
+    status: str
+    action_id: str
+    announced_on: date | None
+    record_date: date | None
+    ex_date: date | None
+    pay_date: date | None
+    cash_per_share_micros: int | None
+    per_share_cents_exact: int | None
+    tax_treatment: str
+    evidence: dict[str, str]
+    notes: list[str]
+
+    def as_dict(self) -> dict:
+        return {
+            "status": self.status,
+            "action_id": self.action_id,
+            "announced_on": self.announced_on.isoformat() if self.announced_on else None,
+            "record_date": self.record_date.isoformat() if self.record_date else None,
+            "ex_date": self.ex_date.isoformat() if self.ex_date else None,
+            "pay_date": self.pay_date.isoformat() if self.pay_date else None,
+            "cash_per_share_micros": self.cash_per_share_micros,
+            "per_share_cents_exact": self.per_share_cents_exact,
+            "tax_treatment": self.tax_treatment,
+            "evidence": self.evidence,
+            "notes": self.notes,
+        }
+
+
+_DATE_RE = re.compile(r"(\d{4})\s*[-/年]\s*(\d{1,2})\s*[-/月]\s*(\d{1,2})\s*日?")
+
+
+def _dates_in(text: str) -> list[date]:
+    out: list[date] = []
+    for m in _DATE_RE.finditer(text):
+        try:
+            out.append(date(int(m.group(1)), int(m.group(2)), int(m.group(3))))
+        except ValueError:
+            continue
+    return out
+
+
+def parse_cash_dividend(*, text: str, title: str, announcement_id: str,
+                        announced_on: date | None) -> DividendParse:
+    """从公告正文解析现金分红。"""
+
+    evidence: dict[str, str] = {}
+    notes: list[str] = []
+
+    if not DIVIDEND_TITLE_PATTERN.search(title or ""):
+        if DIVIDEND_PROPOSAL_TITLE_PATTERN.search(title or ""):
+            return DividendParse(
+                "NOT_APPLICABLE", f"ca-{announcement_id}", announced_on, None, None, None,
+                None, None, "PRE_TAX", {}, [
+                    "标题是利润分配方案/预案而非实施公告：其中的日期尚需股东会审议，"
+                    "不得当作已确定的分派执行",
+                ])
+        return DividendParse("NOT_APPLICABLE", f"ca-{announcement_id}", announced_on,
+                             None, None, None, None, None, "PRE_TAX", {}, [])
+
+    flat = re.sub(r"\s+", "", text or "")
+
+    # ---------------------------------------------------------- 每股金额
+    micros: int | None = None
+    cents_exact: int | None = None
+
+    # 优先"每股"表述：它是权威口径，无需换算
+    m = re.search(r"每股(?:现金)?(?:红利|股利|股息)?(?:为|人民币|：|:)?([0-9]+(?:\.[0-9]+)?)元",
+                  flat)
+    if m:
+        yuan = Decimal(m.group(1))
+        micros = int(yuan * 1_000_000)
+        # 证据直接取**匹配位置**的上下文，而不是回原文里 find 一次：
+        # 正则在去空白串上匹配，位置与原文对不上，find 常常命中别处，
+        # 于是证据里是一段与金额无关的文字。
+        evidence["per_share_amount"] = _context(flat, m.start(), m.end())
+        notes.append("金额取自「每股…元」表述，无需换算")
+    else:
+        # "每 10 股…元"：按 10 股换算，并在原文里保留该表述供复核
+        m = re.search(r"每\s*([0-9]+|十|[一二三四五六七八九十]+)\s*股"
+                      r"(?:派发|派送|派|送)?(?:现金)?(?:红利|股利|股息)?"
+                      r"(?:为|人民币|：|:)?([0-9]+(?:\.[0-9]+)?)元", flat)
+        if m:
+            per_n = _cn_number(m.group(1))
+            if per_n:
+                yuan_per_n = Decimal(m.group(2))
+                # 先乘后除：5.96/10*1e6 的除法中间结果会产生循环小数，
+                # 而 5.96*1e6/10 是精确的整数运算。
+                micros = int(yuan_per_n * Decimal(1_000_000) / Decimal(per_n))
+                evidence["per_share_amount"] = _context(flat, m.start(), m.end())
+                notes.append(f"金额为「每 {per_n} 股 {yuan_per_n} 元」，已按 {per_n} 股换算为每股")
+
+    if micros is not None and micros % 10_000 == 0:
+        cents_exact = micros // 10_000
+
+    # ---------------------------------------------------------- 三个日期
+    # 表格形态：| 股权登记日 | 最后交易日 | 除权（息）日 | 现金红利发放日 |
+    #           | 2026/6/25  |     -      |  2026/6/26   |   2026/6/26     |
+    # 取值规则：找到标签，取**该标签之后**窗口里第一个日期。
+    #
+    # 不能用"标签 + 任意非数字 + 第一个日期"这种正则：跨度里会包含
+    # 逗号和后续标签，于是「除权除息日为：2026 年 6 月 12 日」中的
+    # "除权除息日"会先吃掉前面「股权登记日为：2026 年 6 月 11 日」的日期，
+    # 把除权日解析成登记日——两个日期都合理，账面上完全看不出来。
+    label_patterns: dict[str, list[str]] = {
+        "record_date": [r"股权登记日", r"登记日"],
+        "ex_date": [r"除权除息日", r"除权（息）日", r"除息日"],
+        "pay_date": [r"现金红利发放日", r"红利发放日"],
+    }
+
+    #: 标签与其日期之间允许的最大间隔字符数。
+    #: "股权登记日为：2026年6月11日" 的间隔是 "为：" 两个字符；
+    #: 留一点余量以容忍连接词差异，但不能大到跨过另一个日期：
+    #: 平安的句子是"股权登记日为6月11日，除权除息日为6月12日"，
+    #: 若允许任意跨度，"除权除息日"后面第一个日期会是**登记日**，
+    #: 于是除权日被解析成登记日——两个日期都合理，账面上看不出来。
+    LABEL_DATE_MAX_GAP = 15
+
+    def first_date_after(labels: list[str], *,
+                         window: int = 120) -> tuple[date, str] | None:
+        """取**紧贴标签之后**的日期。"""
+
+        best: tuple[date, str, int] | None = None
+        for label in labels:
+            for m in re.finditer(re.escape(label), flat):
+                # 密集段：标签与日期之间只隔连接词与单位
+                dense = flat[m.end():m.end() + LABEL_DATE_MAX_GAP]
+                dates = _dates_in(dense)
+                if not dates:
+                    continue
+                candidate = (dates[0], dense[:40], m.end())
+                if best is None or candidate[2] < best[2]:
+                    best = candidate
+                break
+            # 宽松窗口仅用于兜底：标签与值之间隔着别的列名（表格）
+            if best is None:
+                m = re.search(re.escape(label), flat)
+                if m is not None:
+                    tail = flat[m.end():m.end() + window]
+                    dates = _dates_in(tail)
+                    if dates:
+                        best = (dates[0], tail[:40], m.end() + 10_000)
+        if best is None:
+            return None
+        return best[0], best[1]
+
+    found: dict[str, date] = {}
+
+    # 表格形态优先：表头给出列顺序，紧随其后的取值行按**列位置**对应。
+    #
+    # 表格里日期是挤在一起的（"2026/6/25－2026/6/262026/6/26"），
+    # 按"标签后第一个日期"取值会让三列全部落到第一个日期上——
+    # 登记日、除权日、发放日都变成同一天，而且看起来完全合理。
+    header = re.search(r"股权登记日.{0,10}?最后交易日.{0,10}?除权（?息）?日.{0,10}?现金红利发放日",
+                       flat)
+    if header:
+        tail = flat[header.end():header.end() + 80]
+        table_dates = _dates_in(tail)
+        if len(table_dates) >= 3:
+            found["record_date"], found["ex_date"], found["pay_date"] = table_dates[:3]
+            pos = flat.find(tail[:12]) if tail[:12] in flat else header.start()
+            evidence["table_dates"] = _slice_sentence(text, pos)
+            notes.append("三个日期取自表头「股权登记日/最后交易日/除权（息）日/现金红利发放日」"
+                         "之后的取值行，按列位置对应")
+
+    # 非表格形态：按标签取该标签之后窗口里第一个日期
+    if len(found) < 3:
+        for key, labels in label_patterns.items():
+            if key in found:
+                continue
+            hit = first_date_after(labels)
+            if hit is None:
+                continue
+            found[key], snippet = hit
+            evidence[key] = snippet
+
+    # 表格形态兜底：标题行给出列顺序，下一段给出值
+    if len(found) < 3:
+        header = re.search(r"股权登记日.{0,20}?除权（?息）?日.{0,20}?现金红利发放日", flat)
+        if header:
+            tail = flat[header.end():header.end() + 80]
+            dates = _dates_in(tail)
+            if len(dates) >= 3:
+                found.setdefault("record_date", dates[0])
+                found.setdefault("ex_date", dates[1])
+                found.setdefault("pay_date", dates[2])
+                evidence.setdefault("table_dates", _slice_sentence(
+                    text, text.find(dates[0].isoformat()) if dates[0].isoformat() in text else 0))
+                notes.append("三个日期取自表头「股权登记日/除权（息）日/现金红利发放日」后的取值行")
+
+    # 只有"股权登记日"与"除权除息日"而没写发放日的，按同日处理是**错的**：
+    # 很多公告确实同日，但那是事实而非规则。缺失就报不完整。
+    tax = "PRE_TAX"
+    if "（含税）" in flat or "(含税)" in flat:
+        notes.append("公告标注「含税」，按税前口径记账（§12.6）")
+
+    record = found.get("record_date")
+    ex = found.get("ex_date")
+    pay = found.get("pay_date")
+
+    if micros is None or not (record and ex and pay):
+        missing = [k for k, v in (("每股金额", micros),
+                                  ("股权登记日", record), ("除权除息日", ex),
+                                  ("现金红利发放日", pay)) if not v]
+        notes.append("未能解析：" + "、".join(missing) + "；需人工复核")
+        return DividendParse("INCOMPLETE", f"ca-{announcement_id}", announced_on,
+                             record, ex, pay, micros, cents_exact, tax, evidence, notes)
+
+    if not (record <= ex <= pay):
+        notes.append(f"日期顺序异常：登记日 {record}、除权日 {ex}、发放日 {pay}")
+        return DividendParse("INCOMPLETE", f"ca-{announcement_id}", announced_on,
+                             record, ex, pay, micros, cents_exact, tax, evidence, notes)
+
+    return DividendParse("OK", f"ca-{announcement_id}", announced_on,
+                         record, ex, pay, micros, cents_exact, tax, evidence, notes)
 
 
 class CninfoClient:
