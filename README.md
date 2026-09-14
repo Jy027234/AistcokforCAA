@@ -34,13 +34,31 @@ A股研究与模拟决策工作台。首期定位为**自用研究与模拟**，
 | 领域与接口测试 | `pytest tests` | 全过 |
 | 界面写路径（真实浏览器 + 隔离账本） | `python tools/check_ui_flow.py` | 22/22 |
 | 归档字节离线复核 | `python tools/verify_archive.py` | 21/21 |
-| **真实数据**快照验收 | `python -m tests.integration.t6_real_snapshot` | 16/16（24 只 / 1464 条行情） |
-| **真实数据**闭环验收 | `python tools/check_real_flow.py` | 31/31 |
+| **真实数据**快照验收 | `python -m tests.integration.t6_real_snapshot` | 19/19（24 只 / 1464 条行情 / 2 条真实分红） |
+| **真实数据**闭环验收 | `python tools/check_real_flow.py` | 38/38（含真实派息精确核对） |
+| 分红公告解析 | `python -m pytest tests/integration/test_dividend_parsing.py` | 8/8（真实公告正文，离线） |
 | 公告原文归档 | `python -m tests.integration.t5_cninfo_archive_run` | 5/5 哈希复核 |
 | HEAD 可复现性 | `python tools/check_reproducible.py` | 35/35 |
 
 T5/T6 需要放行本机透明代理网段（`AQUANT_TRUSTED_PROXY_NETWORKS`，见 ADR-002）并会联网。
-T6 只做只读抓取，不下单、不连券商。
+T5/T6 只做只读抓取，不下单、不连券商。
+
+**真实数据链**（按顺序跑）：
+
+```powershell
+# 1) 从巨潮公告解析真实分红（联网）
+python tools\build_dividend_actions.py
+# 2) 建成并发布真实快照（联网）
+python -m tests.integration.t6_real_snapshot
+# 3) 在真实数据上走完决策闭环（本地）
+python tools\check_real_flow.py
+```
+
+顺序不能颠倒：T6 会清空并重建快照目录，分红文件因此存放在
+`deploy/agentctl-q0/`，作为 T6 的**输入**而不是它的产物。
+
+分红金额以**整数微元**（10`-6` 元）记账：真实分红常常不是整数分
+（茅台 2025 年度每股 28.02423 元），按分存储只能截断，误差随股数放大。
 
 界面检查是**真浏览器交互**，不是截图：截图只能证明渲染，证明不了"点下去
 真的发生了"。它每次都用全新的临时账本启动独立 API，因此重复运行的结论可信。
