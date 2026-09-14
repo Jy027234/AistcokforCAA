@@ -44,6 +44,7 @@ deploy/agentctl-q0/forward-archive/meta.sqlite
 deploy/agentctl-q0/universe-bars.json
 deploy/agentctl-q0/universe-bars.tmp
 deploy/agentctl-q0/baostock-archive/
+deploy/universe-snapshot/
 
 # --- 真实数据快照 ---
 # 由 tests/integration/t6_real_snapshot.py 重建（免费源 + 固定研究池）。

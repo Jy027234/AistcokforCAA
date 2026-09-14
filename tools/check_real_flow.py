@@ -36,8 +36,11 @@ ROOT = Path(__file__).resolve().parents[1]
 # 因此需要把 src 加进 import 路径（服务端子进程另外用 PYTHONPATH 指定）。
 sys.path.insert(0, str(ROOT / "src"))
 
-SNAPSHOT_DIR = ROOT / "deploy" / "real-snapshot"
-SNAPSHOT_ID = "snap-real-61d"
+#: 允许指向另一份快照：全市场快照用 snap-universe，
+#: 手工池快照用 snap-real-61d。两者跑的是同一套断言。
+SNAPSHOT_DIR = Path(os.environ.get(
+    "AQUANT_FLOW_SNAPSHOT_DIR", str(ROOT / "deploy" / "real-snapshot")))
+SNAPSHOT_ID = os.environ.get("AQUANT_FLOW_SNAPSHOT_ID", "snap-real-61d")
 API_PORT = 8124
 
 checks: list[tuple[str, bool, str]] = []
@@ -174,8 +177,9 @@ def _wait_http(url: str, *, timeout: float = 60.0) -> bool:
 
 def main() -> int:
     if not (SNAPSHOT_DIR / "meta.sqlite").exists():
-        print("缺少真实快照——先运行：")
-        print("  python -m tests.integration.t6_real_snapshot")
+        print(f"缺少快照：{SNAPSHOT_DIR}")
+        print("手工池快照：python -m tests.integration.t6_real_snapshot")
+        print("全市场快照：python -m tests.integration.t10_universe_snapshot")
         return 2
 
     # 用真实快照的**副本**跑：验收不应改动被复核的那份数据。

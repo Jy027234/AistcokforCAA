@@ -1,5 +1,5 @@
 {
-  "snapshot_id": "snap-real-61d",
+  "snapshot_id": "snap-universe",
   "trading_day": "2026-09-14",
   "portfolio_id": "pf-real-m",
   "checks": [
@@ -11,7 +11,7 @@
     {
       "name": "快照 ID 正确",
       "ok": true,
-      "detail": "snap-real-61d"
+      "detail": "snap-universe"
     },
     {
       "name": "数据模式为真实数据",
@@ -26,7 +26,7 @@
     {
       "name": "候选非空",
       "ok": true,
-      "detail": "24 只"
+      "detail": "898 只"
     },
     {
       "name": "候选全部来自真实池",
@@ -36,7 +36,7 @@
     {
       "name": "存在可模拟（沪深主板）候选",
       "ok": true,
-      "detail": "15 只"
+      "detail": "300 只"
     },
     {
       "name": "成长板块候选被标为不可模拟",
@@ -46,7 +46,7 @@
     {
       "name": "预览成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_074e98d846f741cab7d8\", \"portfolio_id\": \"pf-real-m\", \"snapshot_id\": \"snap-real-61d\", \"plan_version\": \"plan-188b5125e3144971\", \"account_version\": \"acct-630260631f727e5e\", \"trading_day\""
+      "detail": "{\"plan_id\": \"plan_4028f648cdc6497ab125\", \"portfolio_id\": \"pf-real-m\", \"snapshot_id\": \"snap-universe\", \"plan_version\": \"plan-dc84882719a13804\", \"account_version\": \"acct-630260631f727e5e\", \"trading_day\""
     },
     {
       "name": "参考价日早于执行日",
@@ -61,12 +61,12 @@
     {
       "name": "有订单或全部有排除原因",
       "ok": true,
-      "detail": "orders=4 excluded=20"
+      "detail": "orders=4 excluded=894"
     },
     {
       "name": "预估费用非负",
       "ok": true,
-      "detail": "10236"
+      "detail": "10272"
     },
     {
       "name": "签发令牌",
@@ -76,12 +76,12 @@
     {
       "name": "冻结成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_074e98d846f741cab7d8\", \"status\": \"FROZEN\", \"frozen_at\": \"2026-09-14T15:15:42.538349+00:00\", \"expires_at\": \"2026-09-15T03:15:42.538349+00:00\", \"confirmed_by\": \"user:real\", \"idempotenc"
+      "detail": "{\"plan_id\": \"plan_4028f648cdc6497ab125\", \"status\": \"FROZEN\", \"frozen_at\": \"2026-09-14T16:54:07.674019+00:00\", \"expires_at\": \"2026-09-15T04:54:07.674019+00:00\", \"confirmed_by\": \"user:real\", \"idempotenc"
     },
     {
       "name": "执行成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_074e98d846f741cab7d8\", \"status\": \"EXECUTED\", \"trading_day\": \"2026-09-14\", \"corporate_actions\": [], \"fills\": [{\"fill_id\": \"fill-plan_074e98d846f741cab7d8-000\", \"order_id\": \"plan_074e9"
+      "detail": "{\"plan_id\": \"plan_4028f648cdc6497ab125\", \"status\": \"EXECUTED\", \"trading_day\": \"2026-09-14\", \"corporate_actions\": [], \"fills\": [{\"fill_id\": \"fill-plan_4028f648cdc6497ab125-000\", \"order_id\": \"plan_4028f"
     },
     {
       "name": "执行结果自洽：成交+未成交=订单数",
@@ -101,12 +101,12 @@
     {
       "name": "估值成功",
       "ok": true,
-      "detail": "{\"trading_day\": \"2026-09-14\", \"cash_available_cents\": 60600458, \"cash_frozen_cents\": 0, \"receivables_cents\": 0, \"positions_value_cents\": 39770300, \"payables_cents\": 0, \"net_value_cents\": 100370758, \"p"
+      "detail": "{\"trading_day\": \"2026-09-14\", \"cash_available_cents\": 60448219, \"cash_frozen_cents\": 0, \"receivables_cents\": 0, \"positions_value_cents\": 39982300, \"payables_cents\": 0, \"net_value_cents\": 100430519, \"p"
     },
     {
       "name": "净值恒等式成立",
       "ok": true,
-      "detail": "100370758 vs 100370758"
+      "detail": "100430519 vs 100430519"
     },
     {
       "name": "净值已发布",
@@ -116,12 +116,12 @@
     {
       "name": "对账成功",
       "ok": true,
-      "detail": "{\"portfolio_id\": \"pf-real-m\", \"cash_cents\": 60600458, \"positions\": {\"SH.600036\": 2400, \"SH.601398\": 12300, \"SZ.000001\": 8500, \"SZ.000333\": 1100}, \"receivables_cents\": 0, \"fill_count\": 4, \"fees_total_c"
+      "detail": "{\"portfolio_id\": \"pf-real-m\", \"cash_cents\": 60448219, \"positions\": {\"SH.600036\": 2400, \"SH.601328\": 13300, \"SZ.002142\": 2800, \"SZ.002714\": 2300}, \"receivables_cents\": 0, \"fill_count\": 4, \"fees_total_c"
     },
     {
       "name": "对账结论为一致",
       "ok": true,
-      "detail": "{\"portfolio_id\": \"pf-real-m\", \"cash_cents\": 60600458, \"positions\": {\"SH.600036\": 2400, \"SH.601398\": 12300, \"SZ.000001\": 8500, \"SZ.000333\": 1100}, \"receivables_cents\": 0, \"fill_count\": 4, \"fees_total_c"
+      "detail": "{\"portfolio_id\": \"pf-real-m\", \"cash_cents\": 60448219, \"positions\": {\"SH.600036\": 2400, \"SH.601328\": 13300, \"SZ.002142\": 2800, \"SZ.002714\": 2300}, \"receivables_cents\": 0, \"fill_count\": 4, \"fees_total_c"
     },
     {
       "name": "现金与账本一致",
@@ -171,12 +171,12 @@
     {
       "name": "除权日可预览",
       "ok": true,
-      "detail": "200 {\"plan_id\": \"plan_70b6ee7d113e4d498338\", \"portfolio_id\": \"pf-real-div\", \"snapshot_id\": \"snap-real-61d\", \"plan_version\": \"plan-d10d29dfee472b3e\", \"account_version\": \"acct-bbde4c7123368494\", \"trading_day\": \"2026-06-26\", \"reference_price_day\": \"2026-06-25\", \"frozen\": false, \"orders\": [{\"instrument_id\": \"SZ.000333\", \"side\": \"BUY\", \"quantity\": 2800, \"price_cents\": 7650, \"rationale\": \"new entry at signa"
+      "detail": "200 {\"plan_id\": \"plan_c565ca08113d4c7fb360\", \"portfolio_id\": \"pf-real-div\", \"snapshot_id\": \"snap-universe\", \"plan_version\": \"plan-33d9251c53ec4e4a\", \"account_version\": \"acct-bbde4c7123368494\", \"trading_day\": \"2026-06-26\", \"reference_price_day\": \"2026-06-25\", \"frozen\": false, \"orders\": [{\"instrument_id\": \"SZ.002142\", \"side\": \"BUY\", \"quantity\": 7100, \"price_cents\": 3079, \"rationale\": \"new entry at signa"
     },
     {
       "name": "除权日执行成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_70b6ee7d113e4d498338\", \"status\": \"EXECUTED\", \"trading_day\": \"2026-06-26\", \"corporate_actions\": [{\"action_id\": \"ca-1225379934\", \"instrument_id\""
+      "detail": "{\"plan_id\": \"plan_c565ca08113d4c7fb360\", \"status\": \"EXECUTED\", \"trading_day\": \"2026-06-26\", \"corporate_actions\": [{\"action_id\": \"ca-1225379934\", \"instrument_id\""
     },
     {
       "name": "分红被识别并落账",

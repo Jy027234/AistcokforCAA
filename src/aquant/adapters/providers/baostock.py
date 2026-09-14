@@ -82,9 +82,20 @@ class BaostockClient:
 
     source_id = "baostock"
 
+    #: 单次查询的 socket 超时（秒）。
+    #:
+    #: BaoStock 的底层 socket **没有超时**：服务端偶发不响应时，
+    #: recv 会一直阻塞，进程 CPU 掉到 0、看起来还活着，实际已经不动了。
+    #: 我在全市场采集里连续遇到两次——输出与缓存都停在同一个位置，
+    #: 而作业状态仍是 running。长任务里这种"静默停摆"比直接报错更难处理，
+    #: 因此设置进程级默认超时，让阻塞变成可捕获的异常。
+    #: 60 秒足够覆盖实测最慢的批量查询（全量行业约 90 秒，故留足余量）。
+    DEFAULT_QUERY_TIMEOUT = 120.0
+
     def __init__(self, archive_root: str | Path, *,
                  sleep: Callable[[float], None] = time.sleep,
-                 min_interval_seconds: float = 0.0) -> None:
+                 min_interval_seconds: float = 0.0,
+                 query_timeout: float | None = None) -> None:
         self.root = Path(archive_root)
         self.root.mkdir(parents=True, exist_ok=True)
         self._sleep = sleep
@@ -92,6 +103,9 @@ class BaostockClient:
         self._last_call = 0.0
         self._bs: Any = None
         self.receipts: list[Receipt] = []
+        self._query_timeout = (self.DEFAULT_QUERY_TIMEOUT
+                               if query_timeout is None else query_timeout)
+        self._previous_default_timeout: Any = None
 
     # ------------------------------------------------------------ lifecycle
     def __enter__(self) -> "BaostockClient":
@@ -107,11 +121,28 @@ class BaostockClient:
         except ImportError as err:                       # pragma: no cover
             raise BaostockUnavailable(
                 "baostock 未安装：pip install baostock") from err
+        # 进程级默认超时：BaoStock 自己创建 socket，不暴露超时参数，
+        # 因此只能设全局默认值。记录原值以便 logout 时还原——
+        # 不改回去会污染同进程里其它库的网络行为。
+        import socket as _socket
+
+        if self._query_timeout and self._previous_default_timeout is None:
+            self._previous_default_timeout = _socket.getdefaulttimeout()
+            _socket.setdefaulttimeout(self._query_timeout)
+
         result = bs.login()
         if result.error_code != "0":
+            self._restore_socket_timeout()
             raise BaostockUnavailable(
                 f"baostock login failed: {result.error_code} {result.error_msg}")
         self._bs = bs
+
+    def _restore_socket_timeout(self) -> None:
+        if self._previous_default_timeout is not None:
+            import socket as _socket
+
+            _socket.setdefaulttimeout(self._previous_default_timeout)
+            self._previous_default_timeout = None
 
     def logout(self) -> None:
         if self._bs is not None:
@@ -119,6 +150,7 @@ class BaostockClient:
                 self._bs.logout()
             finally:
                 self._bs = None
+                self._restore_socket_timeout()
 
     #: 会话失效的错误码。BaoStock 的服务端会话大约在 100 次查询后过期，
     #: 之后所有查询都返回"用户未登录"。

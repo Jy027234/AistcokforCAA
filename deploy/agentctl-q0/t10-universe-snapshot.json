@@ -1,0 +1,80 @@
+{
+  "ran_at": "2026-09-14T16:53:56.323582+00:00",
+  "snapshot_id": "snap-universe",
+  "pool_id": "real-pool-universe-2026-09-15",
+  "instruments": 900,
+  "boards": {
+    "GEM": 300,
+    "MAIN": 300,
+    "STAR": 300
+  },
+  "quotes": 54884,
+  "window": {
+    "first_day": "2026-06-22",
+    "last_day": "2026-09-14",
+    "trading_days": 61
+  },
+  "checks": [
+    {
+      "name": "池内标的都有行情",
+      "ok": true,
+      "detail": "缺失 0 只"
+    },
+    {
+      "name": "行情条数充足",
+      "ok": true,
+      "detail": "54884 条"
+    },
+    {
+      "name": "成交额覆盖率 >= 99%",
+      "ok": true,
+      "detail": "54794/54884（缺失 90 条，真实无成交）"
+    },
+    {
+      "name": "行业齐全",
+      "ok": true,
+      "detail": "900/900"
+    },
+    {
+      "name": "覆盖主板（可模拟）",
+      "ok": true,
+      "detail": "{'GEM': 300, 'MAIN': 300, 'STAR': 300}"
+    },
+    {
+      "name": "公司行为带来源公告",
+      "ok": true,
+      "detail": "2 条"
+    },
+    {
+      "name": "入库证券数正确",
+      "ok": true,
+      "detail": "900"
+    },
+    {
+      "name": "入库交易日数正确",
+      "ok": true,
+      "detail": "61"
+    },
+    {
+      "name": "入库公司行为数正确",
+      "ok": true,
+      "detail": "2"
+    },
+    {
+      "name": "快照已发布",
+      "ok": true,
+      "detail": "snap-universe"
+    },
+    {
+      "name": "读取器可读",
+      "ok": true,
+      "detail": "SZ.300308 61 条"
+    },
+    {
+      "name": "读取器返回全部证券",
+      "ok": true,
+      "detail": "900"
+    }
+  ],
+  "conclusion": "PASS"
+}
