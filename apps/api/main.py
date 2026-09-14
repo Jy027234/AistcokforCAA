@@ -664,7 +664,7 @@ def create_app(state: AppState | None = None) -> FastAPI:
             CashDividend(
                 action_id=a.action_id, instrument_id=a.instrument_id,
                 record_date=a.record_date, ex_date=a.ex_date, pay_date=a.pay_date,
-                cash_per_share_cents=a.cash_per_share_cents,
+                cash_per_share_cents_input=a.cash_per_share_cents,
                 tax_treatment=a.tax_treatment,
             )
             for a in body.corporate_actions

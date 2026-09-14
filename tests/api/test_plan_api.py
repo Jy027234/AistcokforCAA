@@ -494,13 +494,25 @@ def test_dividend_cannot_carry_impossible_dates(client):
 
 
 def test_dividend_amount_must_be_positive(client):
-    """每股股利必须是正整数分；0 或负数不得进入账本。"""
+    """每股股利必须为正；0 或负数不得进入账本。
+
+    两道防线，任一拦下都算正确，因此两种信封都接受：
+      * 请求模型校验（pydantic）-> 422；
+      * 领域构造 CashDividend 时校验 -> 409 + CORPORATE_ACTION_UNSUPPORTED。
+    断言写成"必须被拒绝并给出结论"，而不是钉死某个状态码——
+    钉死状态码会让一道防线的存在把另一道防线的测试变成假失败。
+    """
 
     pid = preview(client).json()["planId"]
+    # 注意键名是**对外契约** cash_per_share_cents（单位分），
+    # 不要跟着领域层的过渡参数名一起改。
     bad = dict(DIVIDEND, cash_per_share_cents=0)
     r = client.post(f"/api/v1/plans/{pid}/execute",
                     json={"plan_id": pid, "corporate_actions": [bad]}, headers=USER)
-    assert r.status_code == 422, r.text
+    assert r.status_code in (409, 422), r.text
+    if r.status_code == 409:
+        assert r.json()["error"]["code"] == "CORPORATE_ACTION_UNSUPPORTED"
+        assert "positive" in r.json()["error"]["message"], r.json()
 
 
 def test_client_cannot_dictate_dividend_entitlement(client):

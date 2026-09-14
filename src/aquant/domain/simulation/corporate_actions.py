@@ -15,10 +15,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import InitVar, dataclass
 from datetime import date
 
 from .simulator import Lot, SimError
+
+
+#: 一元 = 10^6 微元。分红金额按**整数微元**记账。
+MICROS_PER_YUAN = 1_000_000
+#: 一元 = 100 分
+CENTS_PER_YUAN = 100
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,14 +34,70 @@ class CashDividend:
     record_date: date
     ex_date: date
     pay_date: date
-    cash_per_share_cents: int
+    #: 每股现金红利，单位**整数微元**（10^-6 元）。这是权威单位。
+    #:
+    #: 真实分红往往不是整数分：贵州茅台 2025 年度每股 28.02423 元
+    #: = 2,802.423 分。若只按整数分存储，误差会随股数线性放大，
+    #: 而账面看起来仍然"对得上"——这是最危险的一类错误。
+    #: 交易所披露要求精确到厘（10^-3 元），微元足以精确表示。
+    cash_per_share_micros: int = 0
     #: §12.6 未实现完整红利税处理前必须标注 PRE_TAX 或 CONSERVATIVE
     tax_treatment: str = "PRE_TAX"
+    #: 过渡构造参数：按"分"传入每股红利（内部换算为微元）。
+    #:
+    #: 存在的唯一理由是让既有调用点（合成样例、测试）不必立刻改写；
+    #: 真实公告解析一律走 `cash_per_share_micros`，因为真实分红
+    #: 常常不是整数分。**新增代码请用微元。**
+    cash_per_share_cents_input: InitVar[int | None] = None
 
-    def __post_init__(self) -> None:
-        if self.cash_per_share_cents < 0:
-            raise SimError("CORPORATE_ACTION_UNSUPPORTED", "negative dividend per share",
-                           self.action_id, "fix the corporate action record")
+    @property
+    def cash_per_share_cents(self) -> int:
+        """每股红利的分值（四舍五入到分）。
+
+        仅用于展示与"以分为单位"的旧接口。**计算一律用微元**：
+        用它去乘股数会把舍入误差放大，这不是"精度小问题"，
+        而是账面金额与实际派发金额不符。
+        """
+
+        return (self.cash_per_share_micros + MICROS_PER_YUAN // CENTS_PER_YUAN // 2) \
+            // (MICROS_PER_YUAN // CENTS_PER_YUAN)
+
+    def total_micros(self, shares: int) -> int:
+        """给定股数下的应收总额（微元），精确无舍入。"""
+
+        return shares * self.cash_per_share_micros
+
+    def total_cents_exact(self, shares: int) -> int | None:
+        """应收总额的分值；不能整除到分时返回 None，**不四舍五入**。
+
+        资金账本以分为最小单位。若总额不是整数分，说明还有不足一分的
+        尾差需要单独处理——返回 None 让调用方显式决定，而不是悄悄抹掉。
+        """
+
+        micros = self.total_micros(shares)
+        if micros % (MICROS_PER_YUAN // CENTS_PER_YUAN) != 0:
+            return None
+        return micros // (MICROS_PER_YUAN // CENTS_PER_YUAN)
+
+    def __post_init__(self, cash_per_share_cents_input: int | None) -> None:
+        if cash_per_share_cents_input is not None:
+            if self.cash_per_share_micros:
+                raise SimError(
+                    "CORPORATE_ACTION_UNSUPPORTED",
+                    "deliver the per-share dividend either in micros or in cents, not both",
+                    self.action_id,
+                    "use cash_per_share_micros; the cents argument is transitional",
+                )
+            object.__setattr__(self, "cash_per_share_micros",
+                               cash_per_share_cents_input
+                               * (MICROS_PER_YUAN // CENTS_PER_YUAN))
+        if self.cash_per_share_micros <= 0:
+            raise SimError(
+                "CORPORATE_ACTION_UNSUPPORTED",
+                f"per-share dividend must be positive, got {self.cash_per_share_micros} micros",
+                self.action_id,
+                "record the per-share cash dividend in micros (10^-6 yuan)",
+            )
         if not (self.record_date <= self.ex_date <= self.pay_date):
             raise SimError(
                 "CORPORATE_ACTION_UNSUPPORTED",
@@ -144,7 +206,22 @@ def apply_cash_dividend(
         return DividendOutcome(0, 0, 0, False,
                                "no entitlement: position was not held on the record date")
 
-    total = shares * action.cash_per_share_cents
+    # 精确保留尾差：资金账本以分为最小单位，若按分四舍五入，
+    # 每股的舍入误差会随股数放大。这里按微元计算总额，
+    # 只有在**确实**能整除到分时才落分；否则显式报未支持，
+    # 而不是悄悄抹掉不足一分的部分。
+    micros = action.total_micros(shares)
+    total = action.total_cents_exact(shares)
+    if total is None:
+        raise SimError(
+            "CORPORATE_ACTION_UNSUPPORTED",
+            (f"dividend total {micros} micros ({micros / MICROS_PER_YUAN:.6f} yuan) "
+             f"is not a whole number of cents for {shares} shares; the cash ledger "
+             "cannot represent the remainder exactly"),
+            action.action_id,
+            ("record the per-share amount at cent precision, or add explicit "
+             "rounding-remainder handling before booking this dividend"),
+        )
 
     if trading_day == action.ex_date:
         return DividendOutcome(

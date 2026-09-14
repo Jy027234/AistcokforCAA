@@ -81,7 +81,7 @@ def _dividend() -> CashDividend:
     return CashDividend(
         action_id="ca-div-1", instrument_id=INSTRUMENT,
         record_date=RECORD_DAY, ex_date=EX_DAY, pay_date=PAY_DAY,
-        cash_per_share_cents=CASH_PER_SHARE,
+        cash_per_share_cents_input=CASH_PER_SHARE,
     )
 
 

@@ -218,11 +218,19 @@ class SnapshotBuilder:
                 self.con.execute(
                     "INSERT OR REPLACE INTO corporate_action (action_id,instrument_id,"
                     "action_type,announced_on,record_date,ex_date,pay_date,"
-                    "cash_per_share_cents,bonus_ratio,rights_price_cents,supported,source_id,notes) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "cash_per_share_micros,cash_per_share_cents,bonus_ratio,"
+                    "rights_price_cents,supported,source_id,notes) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (ca.get("action_id"), ca.get("instrument_id"), ca.get("action_type"),
                      ca.get("announced_on"), ca.get("record_date"), ca.get("ex_date"),
-                     ca.get("pay_date"), ca.get("cash_per_share_cents"),
+                     ca.get("pay_date"),
+                     # 微元是权威单位；清单只给"分"时按 1 分 = 10000 微元换算。
+                     # 两个都不给就是数据缺失，写 NULL 而不是 0——
+                     # 0 会被读成"每股分红 0 元"，那是一个具体且错误的结论。
+                     ca.get("cash_per_share_micros",
+                            (ca["cash_per_share_cents"] * 10_000)
+                            if ca.get("cash_per_share_cents") is not None else None),
+                     ca.get("cash_per_share_cents"),
                      ca.get("bonus_ratio"), ca.get("rights_price_cents"),
                      1 if ca.get("supported") else 0, source_id, ca.get("notes")),
                 )

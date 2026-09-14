@@ -46,7 +46,7 @@
     {
       "name": "预览成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_a10ab9ccdd15462f8a06\", \"portfolio_id\": \"pf-real-m\", \"snapshot_id\": \"snap-real-61d\", \"plan_version\": \"plan-188b5125e3144971\", \"account_version\": \"acct-630260631f727e5e\", \"trading_day\""
+      "detail": "{\"plan_id\": \"plan_9b92e49acb754bbf867f\", \"portfolio_id\": \"pf-real-m\", \"snapshot_id\": \"snap-real-61d\", \"plan_version\": \"plan-188b5125e3144971\", \"account_version\": \"acct-630260631f727e5e\", \"trading_day\""
     },
     {
       "name": "参考价日早于执行日",
@@ -76,12 +76,12 @@
     {
       "name": "冻结成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_a10ab9ccdd15462f8a06\", \"status\": \"FROZEN\", \"frozen_at\": \"2026-09-14T12:53:34.376708+00:00\", \"expires_at\": \"2026-09-15T00:53:34.376708+00:00\", \"confirmed_by\": \"user:real\", \"idempotenc"
+      "detail": "{\"plan_id\": \"plan_9b92e49acb754bbf867f\", \"status\": \"FROZEN\", \"frozen_at\": \"2026-09-14T12:58:38.587838+00:00\", \"expires_at\": \"2026-09-15T00:58:38.587838+00:00\", \"confirmed_by\": \"user:real\", \"idempotenc"
     },
     {
       "name": "执行成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_a10ab9ccdd15462f8a06\", \"status\": \"EXECUTED\", \"trading_day\": \"2026-09-14\", \"corporate_actions\": [], \"fills\": [{\"fill_id\": \"fill-plan_a10ab9ccdd15462f8a06-000\", \"order_id\": \"plan_a10ab"
+      "detail": "{\"plan_id\": \"plan_9b92e49acb754bbf867f\", \"status\": \"EXECUTED\", \"trading_day\": \"2026-09-14\", \"corporate_actions\": [], \"fills\": [{\"fill_id\": \"fill-plan_9b92e49acb754bbf867f-000\", \"order_id\": \"plan_9b92e"
     },
     {
       "name": "执行结果自洽：成交+未成交=订单数",

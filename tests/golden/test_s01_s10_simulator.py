@@ -293,7 +293,7 @@ def test_s07_dividend_receivable_and_cash_move_on_different_days():
     div = CashDividend(
         action_id="ca-1", instrument_id="SYN.A.600003",
         record_date=date(2026, 9, 9), ex_date=date(2026, 9, 10),
-        pay_date=date(2026, 9, 14), cash_per_share_cents=50,
+        pay_date=date(2026, 9, 14), cash_per_share_cents_input=50,
     )
     # 必须在登记日（2026-09-09）当日或之前买入才有分红权利
     held = lot(iid="SYN.A.600003", qty=1000, acquired=date(2026, 9, 8))
@@ -330,7 +330,7 @@ def test_s07_no_entitlement_when_not_held_on_record_date():
 
     div = CashDividend(action_id="ca-2", instrument_id="SYN.A.600003",
                        record_date=date(2026, 9, 9), ex_date=date(2026, 9, 10),
-                       pay_date=date(2026, 9, 14), cash_per_share_cents=50)
+                       pay_date=date(2026, 9, 14), cash_per_share_cents_input=50)
     # 批次在登记日之后才买入
     bought_late = lot(iid="SYN.A.600003", qty=1000, acquired=date(2026, 9, 10))
     entitlement = record_dividend_entitlement(
@@ -348,7 +348,7 @@ def test_s07_lot_sold_before_record_date_has_no_entitlement():
 
     div = CashDividend(action_id="ca-3", instrument_id="SYN.A.600003",
                        record_date=date(2026, 9, 9), ex_date=date(2026, 9, 10),
-                       pay_date=date(2026, 9, 14), cash_per_share_cents=50)
+                       pay_date=date(2026, 9, 14), cash_per_share_cents_input=50)
     sold = lot(iid="SYN.A.600003", qty=1000, acquired=date(2026, 9, 8))
     sold.quantity_remaining = 0
     entitlement = record_dividend_entitlement(

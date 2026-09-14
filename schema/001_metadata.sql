@@ -711,6 +711,14 @@ CREATE TABLE IF NOT EXISTS corporate_action (
     record_date     TEXT,
     ex_date         TEXT,
     pay_date        TEXT,
+    -- 每股现金红利。**权威单位是整数微元（10^-6 元）**，不是分。
+    --
+    -- 真实分红常常不是整数分：贵州茅台 2025 年度每股 28.02423 元
+    -- = 2,802.423 分，用整数分存储只能四舍五入，误差会随股数放大。
+    -- 微元对所有 A 股实际披露精度都精确（交易所要求分到厘，即 10^-3 元）。
+    -- 需要"分"时由派生值给出（整除才给，否则为 NULL，见解析层）。
+    cash_per_share_micros INTEGER,
+    -- 早期版本用整数分存储；保留以便读取历史数据，新数据一律写微元。
     cash_per_share_cents INTEGER,
     bonus_ratio     REAL,
     rights_price_cents INTEGER,
