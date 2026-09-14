@@ -1,0 +1,83 @@
+{
+  "ran_at": "2026-09-14T14:39:24.472899+00:00",
+  "record_count": 5553,
+  "classification_systems": {
+    "证监会行业分类": 5553
+  },
+  "update_date_values": {
+    "2026-09-14": 5553
+  },
+  "empty_industry": 334,
+  "latency_seconds": {
+    "bulk": 0.0,
+    "per_instrument": 0.09
+  },
+  "checks": [
+    {
+      "name": "无需凭证即可登录",
+      "ok": true,
+      "detail": "0 success (0.0s)"
+    },
+    {
+      "name": "全量查询返回数据",
+      "ok": true,
+      "detail": "5553 条"
+    },
+    {
+      "name": "字段含分类体系与行业名",
+      "ok": true,
+      "detail": "['updateDate', 'code', 'code_name', 'industry', 'industryClassification']"
+    },
+    {
+      "name": "分类体系唯一（不混多套口径）",
+      "ok": true,
+      "detail": "{'证监会行业分类': 5553}"
+    },
+    {
+      "name": "行业名为空的比例可接受",
+      "ok": true,
+      "detail": "334/5553 为空（多为退市或早期证券）"
+    },
+    {
+      "name": "updateDate 仍是快照日（记为已知限制）",
+      "ok": true,
+      "detail": "1 个不同取值；它不是变更史，故分类不可用于历史时点查询"
+    },
+    {
+      "name": "代码都带市场前缀",
+      "ok": true,
+      "detail": "0 条异常"
+    },
+    {
+      "name": "映射到内部 ID 无损",
+      "ok": true,
+      "detail": "['SH.600000', 'SH.600001', 'SH.600002']"
+    },
+    {
+      "name": "单只查询与全量结果一致",
+      "ok": true,
+      "detail": "'C15酒、饮料和精制茶制造业' vs 'C15酒、饮料和精制茶制造业'"
+    },
+    {
+      "name": "研究池标的全在权威分类里",
+      "ok": true,
+      "detail": "24 只全部命中"
+    },
+    {
+      "name": "每只都能查到权威行业名",
+      "ok": true,
+      "detail": "19 只行业名与权威口径不同（预期，见下）"
+    },
+    {
+      "name": "门类数量符合证监会分类",
+      "ok": true,
+      "detail": "['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S']"
+    },
+    {
+      "name": "单只查询延迟可接受（<2s）",
+      "ok": true,
+      "detail": "0.09s/只"
+    }
+  ],
+  "conclusion": "PASS"
+}

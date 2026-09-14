@@ -1,0 +1,55 @@
+{
+  "ran_at": "2026-09-14T14:16:58.545588+00:00",
+  "all_stock_rows": 7378,
+  "stocks": 4805,
+  "indices": 908,
+  "unclassified": 1665,
+  "boards": {
+    "MAIN": 2783,
+    "STAR": 616,
+    "GEM": 1406
+  },
+  "latency": {
+    "query_all_stock_s": 34.7,
+    "per_instrument_s": 0.22
+  },
+  "projected_full_market_minutes": 18.0,
+  "checks": [
+    {
+      "name": "能区分股票与指数",
+      "ok": true,
+      "detail": "股票 4805、指数 908、无法判定 1665"
+    },
+    {
+      "name": "覆盖沪深主板",
+      "ok": true,
+      "detail": "2783"
+    },
+    {
+      "name": "含成长板块（可展示不可模拟）",
+      "ok": true,
+      "detail": "GEM 1406、STAR 616"
+    },
+    {
+      "name": "每只 61 日行情延迟可接受（<3s）",
+      "ok": true,
+      "detail": "0.22s/只"
+    },
+    {
+      "name": "全市场扩池时间可接受（<180 分钟）",
+      "ok": true,
+      "detail": "18 分钟"
+    },
+    {
+      "name": "收盘价与腾讯源一致（跨源校验）",
+      "ok": true,
+      "detail": "腾讯 129956 分 vs BaoStock 129956 分"
+    },
+    {
+      "name": "成交量差异在舍入范围内",
+      "ok": true,
+      "detail": "腾讯 3266400 vs BaoStock 3266402（差 2）"
+    }
+  ],
+  "conclusion": "PASS"
+}
