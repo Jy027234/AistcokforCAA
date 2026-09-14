@@ -223,6 +223,56 @@ def test_pay_date_settles_into_cash_and_net_value_does_not_double_count(world):
         (PORTFOLIO,)).fetchone()["n"] == 1
 
 
+# ============================== 登记日持有、除权日卖出：权利不因当日卖出消失
+def test_position_sold_on_ex_date_keeps_the_dividend(world):
+    """除权日当天卖出，仍享有本次分红。
+
+    权利在**登记日收盘**就已固化。逐笔模拟器按 §12.4 先卖后买，如果直接
+    拿"成交后持仓"去算权利，当天卖掉的持仓会被判成"从没持有过"，
+    应收凭空少一笔，而账面看不出任何异常。
+    """
+
+    con, reader, svc, store = world
+    lots = _setup(svc, snapshot_id=SNAPSHOT_ID)          # 登记日买入 1000 股
+
+    # 模拟"除权日当天全部卖出"之后的持仓
+    sold = [_lot(SHARES)]
+    sold[0].quantity_remaining = 0
+
+    pre_trade = [_lot(SHARES)]                            # 成交前：1000 股
+    entitlement_lots = svc._entitlement_lots(pre_trade, sold + [_lot(SHARES)])
+
+    out = svc._advance_corporate_actions(
+        portfolio_id=PORTFOLIO, trading_day=EX_DAY, actions=[_dividend()],
+        lots=entitlement_lots, now=datetime(2026, 9, 9, tzinfo=timezone.utc),
+    )
+
+    assert out[0]["entitlement_shares"] == SHARES, "当日卖出不得丧失已固化的权利"
+    assert _open_receivable(con) == EXPECTED_RECEIVABLE
+
+
+def test_entitlement_lots_never_double_counts_a_lot(world):
+    """成交后持仓里同一批次不得出现两次。
+
+    simulate() 把当日新建批次**追加进传入的 lots 列表**，因此
+    "ledger_lots + result.lots_created" 会让同一批次被计两次、股数扣两遍。
+    这里直接断言口径：取较大值，且每个证券只产出一个权利批次。
+    """
+
+    con, reader, svc, store = world
+    lot = _lot(SHARES)
+    pre = [lot]
+    # 同一批次既在传入列表里、又被当成"新建"再出现一次（模拟错误的拼接）
+    post = [lot, _lot(SHARES)]
+
+    entitlement = svc._entitlement_lots(pre, post)
+    by_instrument = {}
+    for l in entitlement:
+        by_instrument[l.instrument_id] = by_instrument.get(l.instrument_id, 0) +             l.quantity_remaining
+    assert by_instrument == {INSTRUMENT: SHARES}, by_instrument
+    assert len(entitlement) == 1, "每个证券只应产出一个权利批次"
+
+
 # ================================================= 幂等：重复推进不得重复入账
 def test_repeated_advance_does_not_double_book(world):
     con, reader, svc, store = world

@@ -71,6 +71,13 @@ class Candidate:
     instrument_id: str
     industry_code: str
     signal_rank: float
+    #: 是否进入**可执行模拟池**（主文档 §4.1 默认可模拟范围）。
+    #:
+    #: 创业板、科创板、北交所首期**可展示但不可模拟**。这项约束如果只写在
+    #: 研究池配置或调用方的心里，就随时会在某次重构里丢掉——标的会悄悄
+    #: 重新进入可模拟池，而涨跌幅规则却按 20% 执行，成交结果无从复核。
+    #: 因此它是候选自身的属性，由组合构建强制。
+    simulatable: bool = True
 
     def sort_key(self) -> tuple[float, str]:
         """名次由 signal_rank 降序决定，同分用 instrument_id 稳定打破平局（§10.3）。"""
@@ -153,6 +160,17 @@ def construct_targets(
     total_equity_pct = Decimal(0)
 
     for cand in ordered:
+        if not cand.simulatable:
+            # §4.1 首期只模拟沪深主板。展示与模拟是两种权限，
+            # 不可模拟不等于"数据有问题"，因此给的是规则说明而不是错误。
+            excluded.append({
+                "instrument_id": cand.instrument_id,
+                "reason": "BOARD_NOT_SIMULATABLE_IN_PHASE_1",
+                "detail": ("创业板/科创板/北交所首期可展示但不进入可执行模拟池；"
+                           "需先补齐该板块的交易规则版本与验收用例"),
+            })
+            continue
+
         if len(targets) >= params.max_holdings:
             excluded.append({"instrument_id": cand.instrument_id,
                              "reason": "MAX_HOLDINGS_REACHED"})

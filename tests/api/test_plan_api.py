@@ -295,17 +295,38 @@ def _run_plan(client, **extra):
     return client.post(f"/api/v1/plans/{pid}/execute", json=body, headers=USER)
 
 
+def _seed_position(client, instrument_id: str, shares: int) -> None:
+    """直接给账户建一笔底仓。
+
+    分红用例需要的持仓，不能靠"跑一轮组合构建碰巧买到"来获得：
+    构建结果取决于持仓上限与权重上限，任何一次参数调整都会让它换标的，
+    于是分红用例会以一种与分红毫无关系的方式失败。
+    """
+
+    from datetime import date as _date, datetime as _dt, timezone as _tz
+
+    from aquant.domain.simulation.simulator import Lot
+
+    service = client.app.state.aquant.service
+    lot = Lot(
+        lot_id=f"lot-seed-{instrument_id}", instrument_id=instrument_id,
+        acquired_trading_day=_date(2026, 9, 7), earliest_sellable_day=_date(2026, 9, 7),
+        quantity_original=shares, quantity_remaining=shares,
+        cost_basis_cents_per_share=1000,
+    )
+    service._ensure_account("pf-syn-m", initial_cash_cents=100_000_000,
+                            initial_lots=[lot], now=_dt(2026, 9, 8, tzinfo=_tz.utc))
+
+
 def test_execute_recognises_dividend_receivable_on_ex_date(client):
     """除权日执行时必须落一条应收，且**现金不得因此增加**。
 
-    先跑一轮建立底仓，再用第二轮带上分红。权利取**登记日收盘**持仓，
-    所以第二轮当日的成交也算数——这也是为什么必须先有一轮：
-    这里要验的是"执行链路把分红落库了"，而不是权利算法本身
-    （后者由 tests/golden/test_dividend_persistence.py 覆盖）。
+    这里验的是"执行链路把分红落库了"，因此底仓用显式建仓获得，
+    不依赖组合构建买到哪只。权利算法本身由
+    tests/golden/test_dividend_persistence.py 覆盖。
     """
 
-    first = _run_plan(client)
-    assert first.status_code == 200 and first.json()["fills"]
+    _seed_position(client, "SYN.A.600519", 100)
 
     ex = _run_plan(client, corporate_actions=[DIVIDEND])
     assert ex.status_code == 200, ex.text

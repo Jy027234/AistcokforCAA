@@ -1,0 +1,166 @@
+# 真实研究池：用于 T6 真实快照验收
+#
+# 为什么要有这个文件，而不是在脚本里写死一串代码
+# --------------------------------------------------
+# 候选池是**研究口径**，不是实现细节。它决定了组合构建的上限约束
+# （持仓数、单票权重、行业上限）到底有没有真正的选择压力，也决定了
+# 验收结论能外推到多大的范围。写死在脚本里，等于把口径藏在代码里，
+# 没人能复核"为什么是这些标的"。
+#
+# 选择规则（可复现）
+# ------------------
+# 目标：让组合构建的**上限约束真正生效**，因此池子必须显著大于持仓上限，
+# 并且覆盖不同交易所与不同涨跌幅板块。
+#
+#   1. 只取 A 股主板 / 创业板 / 科创板，不含北交所、不含 ST；
+#   2. 按流动性（近 61 个交易日成交额）与市值代表性挑选，
+#      每个板块至少 4 只，使 10% 单票上限与 20%/10% 涨跌幅规则都被触及；
+#   3. 覆盖多个行业，使行业上限（默认 30%）在池内具有约束力；
+#   4. 只保留在数据源上**确实能取到完整 61 日行情**的标的。
+#
+# 关于来源的一个重要事实
+# ----------------------
+# 本想用东财股票列表接口（`push2.eastmoney.com/api/qt/clist/get`，
+# 沪深 A 股共 5558 只）按成交额自动排序生成池子，测试当天该接口
+# 第一次调用成功、随后**连续 RemoteDisconnected**——与 ADR-001 记录的
+# "按出口 IP 长时段封锁"完全一致。
+#
+# 因此这个池子是**显式声明**的，而不是每次运行自动发现的：
+# 自动发现依赖一个会封 IP 的接口，会让验收结果时好时坏；
+# 而池子一旦显式化，它就成了可复核、可归档的输入。
+# 选择规则写在上面，任何人都能按同一规则重新生成并对照。
+
+pool_id: real-pool-2026-09
+as_of: "2026-09-14"
+selection_rule: "流动性/市值代表性 + 覆盖三个板块与多个行业；见文件头说明"
+universe_source_attempted: "eastmoney clist (push2.eastmoney.com) -- 5558 只，随后被 IP 封锁"
+universe_source_used: "显式声明（本文件）"
+
+instruments:
+  # ---------------- 上交所主板（涨跌幅 10%）----------------
+  - code: sh600519        # 贵州茅台
+    exchange: SSE
+    board: MAIN
+    industry_code: SW_FOOD_BEV
+    industry_name: 食品饮料
+  - code: sh601398        # 工商银行
+    exchange: SSE
+    board: MAIN
+    industry_code: SW_BANK
+    industry_name: 银行
+  - code: sh601288        # 农业银行
+    exchange: SSE
+    board: MAIN
+    industry_code: SW_BANK
+    industry_name: 银行
+  - code: sh600036        # 招商银行
+    exchange: SSE
+    board: MAIN
+    industry_code: SW_BANK
+    industry_name: 银行
+  - code: sh601857        # 中国石油
+    exchange: SSE
+    board: MAIN
+    industry_code: SW_ENERGY
+    industry_name: 石油石化
+  - code: sh600028        # 中国石化
+    exchange: SSE
+    board: MAIN
+    industry_code: SW_ENERGY
+    industry_name: 石油石化
+  - code: sh601318        # 中国平安
+    exchange: SSE
+    board: MAIN
+    industry_code: SW_INSURANCE
+    industry_name: 非银金融
+  - code: sh600900        # 长江电力
+    exchange: SSE
+    board: MAIN
+    industry_code: SW_UTILITY
+    industry_name: 公用事业
+
+  # ---------------- 深交所主板（涨跌幅 10%）----------------
+  - code: sz000001        # 平安银行
+    exchange: SZSE
+    board: MAIN
+    industry_code: SW_BANK
+    industry_name: 银行
+  - code: sz000858        # 五粮液
+    exchange: SZSE
+    board: MAIN
+    industry_code: SW_FOOD_BEV
+    industry_name: 食品饮料
+  - code: sz000333        # 美的集团
+    exchange: SZSE
+    board: MAIN
+    industry_code: SW_APPLIANCE
+    industry_name: 家用电器
+  - code: sz000651        # 格力电器
+    exchange: SZSE
+    board: MAIN
+    industry_code: SW_APPLIANCE
+    industry_name: 家用电器
+  - code: sz002594        # 比亚迪
+    exchange: SZSE
+    board: MAIN
+    industry_code: SW_AUTO
+    industry_name: 汽车
+  - code: sz000725        # 京东方A
+    exchange: SZSE
+    board: MAIN
+    industry_code: SW_ELECTRONICS
+    industry_name: 电子
+  - code: sz002415        # 海康威视
+    exchange: SZSE
+    board: MAIN
+    industry_code: SW_ELECTRONICS
+    industry_name: 电子
+
+  # ---------------- 创业板（涨跌幅 20%）----------------
+  - code: sz300750        # 宁德时代
+    exchange: SZSE
+    board: GEM
+    industry_code: SW_BATTERY
+    industry_name: 电力设备
+  - code: sz300059        # 东方财富
+    exchange: SZSE
+    board: GEM
+    industry_code: SW_BROKER
+    industry_name: 非银金融
+  - code: sz300124        # 汇川技术
+    exchange: SZSE
+    board: GEM
+    industry_code: SW_MACHINERY
+    industry_name: 机械设备
+  - code: sz300760        # 迈瑞医疗
+    exchange: SZSE
+    board: GEM
+    industry_code: SW_MEDICAL
+    industry_name: 医药生物
+  - code: sz300015        # 爱尔眼科
+    exchange: SZSE
+    board: GEM
+    industry_code: SW_MEDICAL
+    industry_name: 医药生物
+
+  # ---------------- 科创板（涨跌幅 20%）----------------
+  - code: sh688981        # 中芯国际
+    exchange: SSE
+    board: STAR
+    industry_code: SW_SEMICONDUCTOR
+    industry_name: 电子
+  - code: sh688111        # 金山办公
+    exchange: SSE
+    board: STAR
+    industry_code: SW_SOFTWARE
+    industry_name: 计算机
+  - code: sh688036        # 传音控股
+    exchange: SSE
+    board: STAR
+    industry_code: SW_ELECTRONICS
+    industry_name: 电子
+  - code: sh688599        # 天合光能
+    exchange: SSE
+    board: STAR
+    industry_code: SW_PHOTOVOLTAIC
+    industry_name: 电力设备

@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import shutil
 import sqlite3
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -44,7 +45,9 @@ from aquant.domain.simulation.simulator import Bar, BoardRule, SimError
 ROOT = Path(__file__).resolve().parents[2]
 SNAPSHOT_ID = "snap-syn-001"
 
-#: 演示用行情与规则。真实部署应由 M1 存储与规则表提供。
+#: 合成快照的交易所/板块清单；真实快照一律从快照内生证券读取。
+#: 用运行时解析而不是写死：指向真实快照时，写死的清单会让真实标的
+#: 落到"未知板块"，从而拿不到涨跌幅规则。
 LISTINGS: dict[str, tuple[str, str]] = {
     "SYN.A.600519": ("SSE", "MAIN"),
     "SYN.A.000001": ("SZSE", "MAIN"),
@@ -53,19 +56,53 @@ LISTINGS: dict[str, tuple[str, str]] = {
     "SYN.A.300001": ("SZSE", "GEM"),
 }
 
+
+def _listings_for(state: "AppState", snapshot_id: str) -> dict[str, tuple[str, str]]:
+    """从快照内生的证券记录构造 证券 -> (交易所, 板块)。
+
+    必须来自快照而不是常量：涨跌幅规则、手数、可模拟性都按板块决定，
+    拿不到板块就等于拿不到交易规则。
+    """
+
+    ref = state.reader.ref(snapshot_id)
+    out: dict[str, tuple[str, str]] = {}
+    for inst in state.reader.instruments(snapshot_id, as_of=ref.as_of_time):
+        iid, exchange, board = (inst.get("instrument_id"), inst.get("exchange"),
+                                inst.get("board"))
+        if iid and exchange and board:
+            out[iid] = (exchange, board)
+    return out
+
 BOARD_RULES = [
     BoardRule(exchange="SSE", board="MAIN", price_limit_pct=Decimal("10"),
               lot_size=100, effective_from=date(2026, 7, 6)),
     BoardRule(exchange="SZSE", board="MAIN", price_limit_pct=Decimal("10"),
               lot_size=100, effective_from=date(2026, 7, 6)),
+    # 创业板与科创板是 20% 涨跌幅。它们**可展示但默认不进入可执行模拟池**
+    # （主文档 §4.1），但规则本身必须齐备：研究卡片要按
+    # 交易所+板块+生效日匹配规则来回答"这个标的为什么不能模拟"。
+    # 缺规则会显示成"无适用规则"，那是把"尚未接入"说成了"规则不存在"。
+    #
+    # 生效日按两板注册制改革时点：科创板 2019-07-22 开市即 20%，
+    # 创业板 2020-08-24 起 20%。
+    BoardRule(exchange="SSE", board="STAR", price_limit_pct=Decimal("20"),
+              lot_size=200, effective_from=date(2019, 7, 22)),
+    BoardRule(exchange="SZSE", board="GEM", price_limit_pct=Decimal("20"),
+              lot_size=100, effective_from=date(2020, 8, 24)),
 ]
 
-#: 演示候选。真实部署应由 S1 在全池上产生。
+#: 合成快照下的演示候选。真实快照一律走 S1（见 _s1_candidates）。
 DEMO_CANDIDATES = [
     Candidate("SYN.A.600519", "SW_SYN_01", 0.90),
     Candidate("SYN.A.000001", "SW_SYN_02", 0.70),
     Candidate("SYN.A.600003", "SW_SYN_05", 0.55),
 ]
+
+#: 主文档 §4.1：首期只模拟沪深主板。其余板块可展示但不可模拟。
+SIMULATABLE_BOARDS = {"MAIN"}
+
+#: 计算 S1 所需的最少收盘价根数（F02 是 60 日动量跳过近 5 日，故需 61 根）
+S1_MIN_CLOSES = 61
 
 
 # ======================================================================
@@ -82,16 +119,42 @@ class AppState:
         self.root = root
         self.store = SnapshotStore(con, root)
         self.reader = SnapshotReader(self.store)
+        self.snapshot_id = active_snapshot()
         self.fees = synthetic_fee_table()
+        # 组合参数与研究配置保持一致（单票 10% / 行业 30%）。持仓上限取 4：
+        # 研究池有 24 只（其中 18 只沪深主板可模拟），因此上限确实是紧的——
+        # 池子只够填满上限时，"上限"就测不出任何东西。
         self.params = ConstructionParams(
-            max_holdings=4, max_single_name_pct=Decimal("20"),
-            max_single_industry_pct=Decimal("50"),
+            max_holdings=4, max_single_name_pct=Decimal("10"),
+            max_single_industry_pct=Decimal("30"),
         )
+        # 板块来自快照内生证券。指向真实快照时用写死的合成清单，
+        # 会让真实标的落到"未知板块"，从而拿不到涨跌幅规则与手数。
+        self.listings: dict[str, tuple[str, str]] = {}
+        self.refresh_listings()
         self.service = PlanService(con, self.reader, self.fees, BOARD_RULES,
-                                   LISTINGS, self.params)
+                                   self.listings, self.params)
         #: plan_id -> 最近一次预览。确认令牌与冻结都必须针对**同一个预览**，
         #: 因此服务端要保留它；进程重启后预览失效，必须重新预览（这是正确行为）。
         self.previews: dict[str, Any] = {}
+
+    def refresh_listings(self) -> None:
+        """按当前快照刷新 证券 -> (交易所, 板块)。
+
+        板块决定涨跌幅、手数与可模拟性，因此它必须来自**当前快照内生的
+        证券记录**，不能来自写死的合成清单：指向真实快照时，
+        写死清单会让真实标的落到"未知板块"，从而拿不到交易规则。
+        """
+
+        if self.snapshot_id == SNAPSHOT_ID:
+            self.listings = dict(LISTINGS)
+            return
+        try:
+            self.listings = _listings_for(self, self.snapshot_id)
+        except (SnapshotError, KeyError):
+            # 快照读不出来时保持为空字典：宁可在下单前报"无适用规则"，
+            # 也不要拿一份猜出来的板块去算涨跌停。
+            self.listings = {}
 
 
 def _data_dir_from_env() -> Path | None:
@@ -123,10 +186,39 @@ def _data_dir_from_env() -> Path | None:
     return data_dir
 
 
-def build_state(data_dir: Path | None = None) -> AppState:
-    """构建状态。默认在临时目录自举一份合成快照，使 API 可独立运行。"""
+def active_snapshot() -> str:
+    """当前生效的快照 ID。
+
+    `AQUANT_SNAPSHOT_ID` 可以指向**已经发布过**的快照（例如真实数据快照
+    `snap-real-61d`），使得同一套 API 与界面既能跑合成验收、也能跑真实验收，
+    不必为真实数据再写一个服务。默认仍是合成快照。
+    """
+
+    return os.environ.get("AQUANT_SNAPSHOT_ID", "").strip() or SNAPSHOT_ID
+
+
+def _seed_synthetic(con: sqlite3.Connection, root: Path) -> None:
+    """自举合成快照。仅在该快照尚不存在时执行。"""
 
     import sys
+
+    # 复用资料包自带的合成样例，避免为此再维护一份数据
+    sys.path.insert(0, str(ROOT / "tests" / "integration"))
+    from test_m1_ingest_e2e import build_snapshot  # noqa: PLC0415
+
+    builder = SnapshotBuilder(con, root / "datasets")
+    store = SnapshotStore(con, root)
+    build_snapshot(con, builder, store)
+
+
+def build_state(data_dir: Path | None = None) -> AppState:
+    """构建状态。默认在临时目录自举一份合成快照，使 API 可独立运行。
+
+    若 `AQUANT_SNAPSHOT_ID` 指向一个已存在的快照，则**直接使用它**，
+    不再重建合成数据——否则真实快照会被合成数据盖掉，
+    而请求仍然拿着真实快照的 ID，界面就会读到一份对不上的账。
+    """
+
     import tempfile
 
     if data_dir is None:
@@ -141,13 +233,21 @@ def build_state(data_dir: Path | None = None) -> AppState:
 
     root = data_dir / "api"
     root.mkdir(exist_ok=True)
-    builder = SnapshotBuilder(con, root / "datasets")
-    # 复用资料包自带的合成样例，避免为此再维护一份数据
-    sys.path.insert(0, str(ROOT / "tests" / "integration"))
-    from test_m1_ingest_e2e import build_snapshot  # noqa: PLC0415
-
     store = SnapshotStore(con, root)
-    build_snapshot(con, builder, store)
+
+    wanted = active_snapshot()
+    try:
+        # require_published 同时校验状态：只认已发布快照，
+        # 半成品快照不能拿来跑决策（否则会读到一份"看起来有数据"的空壳）。
+        store.require_published(wanted)
+        print(f"[api] 使用已发布的快照 {wanted}")
+    except SnapshotError:
+        if wanted != SNAPSHOT_ID:
+            raise RuntimeError(
+                f"AQUANT_SNAPSHOT_ID={wanted} 指向的快照不存在或未发布；"
+                "先用对应脚本建成并发布该快照，或去掉这个环境变量使用合成快照"
+            ) from None
+        _seed_synthetic(con, root)
     return AppState(con, root)
 
 
@@ -156,7 +256,7 @@ def build_state(data_dir: Path | None = None) -> AppState:
 # ======================================================================
 class PreviewRequest(BaseModel):
     portfolio_id: str = Field(min_length=1, max_length=64)
-    snapshot_id: str = SNAPSHOT_ID
+    snapshot_id: str = Field(default_factory=active_snapshot)
     trading_day: date
     cash_available_cents: int | None = Field(
         default=None, ge=0,
@@ -191,13 +291,120 @@ class ExecuteRequest(BaseModel):
 
 class ValueRequest(BaseModel):
     portfolio_id: str = Field(min_length=1, max_length=64)
-    snapshot_id: str = SNAPSHOT_ID
+    snapshot_id: str = Field(default_factory=active_snapshot)
     trading_day: date
 
 
 # ======================================================================
 # 应用
 # ======================================================================
+def _display_name(state: "AppState", snapshot_id: str, instrument_id: str) -> str | None:
+    """证券简称。取不到就返回 None，不编一个像名字的字符串。"""
+
+    try:
+        for inst in state.reader.instruments(snapshot_id,
+                                             as_of=state.reader.ref(snapshot_id).as_of_time):
+            if inst.get("instrument_id") == instrument_id:
+                return inst.get("short_name")
+    except Exception:                                   # noqa: BLE001
+        return None
+    return None
+
+
+def _is_simulatable(board: str | None) -> bool:
+    """§4.1：只有沪深主板进入可执行模拟池。"""
+
+    return (board or "").upper() in SIMULATABLE_BOARDS
+
+
+@dataclass(frozen=True, slots=True)
+class RankedCandidate:
+    """候选的对外形状：S1 信号 + 该板块能否进入可执行模拟池。
+
+    单独定义而不是往 `S1Signal` 上挂字段：板块可模拟性是**交易规则**，
+    不是策略输出。策略模块不该知道哪块板能交易，否则换一个策略或换一套
+    市场规则时，两边都会被牵动。
+    """
+
+    instrument_id: str
+    industry_code: str
+    signal_rank: float
+    simulatable: bool
+    f01_rank: float | None = None
+    f02_rank: float | None = None
+    low_vol_rank: float | None = None
+
+
+def _s1_candidates(state: "AppState", snapshot_id: str
+                   ) -> tuple[list["RankedCandidate"], str]:
+    """在当前快照上计算 S1，返回 (信号, 说明)。
+
+    历史窗口用**执行日之前已知**的收盘价，因此这里按快照的 as_of 读取，
+    与 §10.1 的"决策截止时可知输入"一致。
+
+    历史不足 61 根时**不产出候选**，并说明原因：F02 需要 60 日动量，
+    用不足的窗口算出来的排名是另一种口径，不能冒充 S1。
+    """
+
+    from aquant.domain.strategy.s1 import FactorDataError, build_s1_signals
+
+    ref = state.reader.ref(snapshot_id)
+    if snapshot_id == SNAPSHOT_ID:
+        # 合成快照仍是固定的演示候选：它是契约样例，不是研究池
+        return (
+            [RankedCandidate(
+                instrument_id=c.instrument_id, industry_code=c.industry_code,
+                signal_rank=c.signal_rank,
+                simulatable=_is_simulatable(
+                    LISTINGS.get(c.instrument_id, ("", ""))[1]),
+             ) for c in DEMO_CANDIDATES],
+            "合成快照使用固定演示候选",
+        )
+
+    closes: dict[str, list[int]] = {}
+    industry: dict[str, str] = {}
+    boards: dict[str, str] = {}
+    for inst in state.reader.instruments(snapshot_id, as_of=ref.as_of_time):
+        iid = inst.get("instrument_id")
+        code = inst.get("industry_code")
+        # 没有权威行业分类就不参与横截面排名：S1 的排名是"同行业可比"，
+        # 行业缺失时把它塞进某个行业会污染整个横截面。
+        if not iid or not code:
+            continue
+        rows = state.reader.daily_quotes(snapshot_id, as_of=ref.as_of_time,
+                                         instrument_id=iid)
+        prices = [r.close_cents for r in rows]
+        if len(prices) < S1_MIN_CLOSES:
+            continue
+        closes[iid] = prices
+        industry[iid] = code
+        boards[iid] = (inst.get("board") or "").upper()
+
+    if not closes:
+        return [], (f"快照内没有任何证券同时具备行业分类与 {S1_MIN_CLOSES} 根收盘价，"
+                    "因此不产出候选")
+
+    try:
+        signals = build_s1_signals(adjusted_closes_by_instrument=closes,
+                                   industry_by_instrument=industry)
+    except FactorDataError as exc:
+        return [], f"S1 无法计算：{exc}"
+
+    ranked = [
+        RankedCandidate(
+            instrument_id=sig.instrument_id, industry_code=sig.industry_code,
+            signal_rank=sig.signal_rank,
+            simulatable=_is_simulatable(boards.get(sig.instrument_id)),
+            f01_rank=sig.f01_rank, f02_rank=sig.f02_rank,
+            low_vol_rank=sig.low_vol_rank,
+        )
+        for sig in signals
+    ]
+    note = (f"S1 在快照内 {len(closes)} 只证券上计算；"
+            f"其中可模拟（沪深主板）{sum(1 for s in ranked if s.simulatable)} 只")
+    return ranked, note
+
+
 def _cors_origins_from_env() -> list[str]:
     """允许跨源的来源清单，默认**为空**（即不开启 CORS）。
 
@@ -302,23 +509,37 @@ def create_app(state: AppState | None = None) -> FastAPI:
 
     @app.get("/api/v1/status")
     def status(s: AppState = Depends(svc)) -> dict:
-        return build_data_status(s.reader, SNAPSHOT_ID).as_dict()
+        return build_data_status(s.reader, active_snapshot()).as_dict()
 
     @app.get("/api/v1/candidates")
     def candidates(s: AppState = Depends(svc)) -> dict:
-        return {"snapshotId": SNAPSHOT_ID,
-                "candidates": [{"instrumentId": c.instrument_id,
-                                "industryCode": c.industry_code,
-                                "signalRank": c.signal_rank}
-                               for c in DEMO_CANDIDATES]}
+        """候选来自**当前快照上的 S1 计算**，不是硬编码列表。
+
+        `DEMO_CANDIDATES` 只在合成快照下使用；一旦指向真实快照，
+        继续返回固定的三个演示标的，会让界面显示一份与数据无关的排名。
+        """
+
+        signals, note = _s1_candidates(s, active_snapshot())
+        return {
+            "snapshotId": active_snapshot(),
+            "candidates": [
+                {"instrumentId": sig.instrument_id,
+                 "displayName": _display_name(s, active_snapshot(), sig.instrument_id),
+                 "industryCode": sig.industry_code,
+                 "signalRank": sig.signal_rank,
+                 "simulatable": sig.simulatable}
+                for sig in signals
+            ],
+            "note": note,
+        }
 
     @app.get("/api/v1/instruments/{instrument_id}/research")
     def research(instrument_id: str, trading_day: date, s: AppState = Depends(svc)) -> dict:
-        ref = s.reader.ref(SNAPSHOT_ID)
-        bars = s.service._bars(SNAPSHOT_ID, trading_day, ref.as_of_time, [instrument_id])
+        ref = s.reader.ref(active_snapshot())
+        bars = s.service._bars(active_snapshot(), trading_day, ref.as_of_time, [instrument_id])
         try:
             card = build_research_card(
-                s.reader, snapshot_id=SNAPSHOT_ID, as_of=ref.as_of_time,
+                s.reader, snapshot_id=active_snapshot(), as_of=ref.as_of_time,
                 instrument_id=instrument_id, trading_day=trading_day,
                 board_rules=BOARD_RULES, listings=LISTINGS,
                 bar=bars.get(instrument_id),
@@ -337,9 +558,9 @@ def create_app(state: AppState | None = None) -> FastAPI:
     def preview(body: PreviewRequest, s: AppState = Depends(svc)) -> dict:
         """只算不冻。不写计划、不写账本（A08）。"""
 
-        if body.snapshot_id != SNAPSHOT_ID:
+        if body.snapshot_id != active_snapshot():
             raise HTTPException(status_code=404, detail=f"unknown snapshot {body.snapshot_id!r}")
-        ref = s.reader.ref(SNAPSHOT_ID)
+        ref = s.reader.ref(active_snapshot())
 
         # 账户必须先存在，否则预览记录的 account_version 会基于"空账本"，
         # 而随后的令牌签发会先建账户再读账本，两者版本不一致，冻结永远失败。
@@ -359,10 +580,15 @@ def create_app(state: AppState | None = None) -> FastAPI:
             )
         cash = ledger_cash
 
+        # 候选必须与当前快照一致：预览写进计划的目标权重会冻结，
+        # 用另一份快照的排名去建仓，冻结的就是一个无据可查的组合。
+        ranked, _ = _s1_candidates(s, active_snapshot())
         pv = s.service.preview(
-            portfolio_id=body.portfolio_id, snapshot_id=SNAPSHOT_ID,
+            portfolio_id=body.portfolio_id, snapshot_id=active_snapshot(),
             trading_day=body.trading_day, as_of=ref.as_of_time,
-            candidates=DEMO_CANDIDATES, cash_available_cents=cash,
+            candidates=[Candidate(r.instrument_id, r.industry_code, r.signal_rank,
+                                  simulatable=r.simulatable) for r in ranked],
+            cash_available_cents=cash,
             lots=ledger_lots, confirm_subject="server:preview",
         )
         # 服务端保留本次预览：令牌签发与冻结都必须针对同一个预览，
@@ -450,10 +676,10 @@ def create_app(state: AppState | None = None) -> FastAPI:
 
     @app.post("/api/v1/valuations")
     def value(body: ValueRequest, s: AppState = Depends(svc)) -> dict:
-        ref = s.reader.ref(SNAPSHOT_ID)
+        ref = s.reader.ref(active_snapshot())
         lots = s.service._load_lots(body.portfolio_id)
         return s.service.value(
-            portfolio_id=body.portfolio_id, snapshot_id=SNAPSHOT_ID,
+            portfolio_id=body.portfolio_id, snapshot_id=active_snapshot(),
             trading_day=body.trading_day, as_of=ref.as_of_time,
             lots=lots, cash_available_cents=s.service._ledger_cash(body.portfolio_id),
         )

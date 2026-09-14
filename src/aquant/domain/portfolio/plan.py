@@ -842,12 +842,42 @@ class PlanService:
             fee_table=self.fee_table, board_rules=self.board_rules,
             listings=self.listings,
         )
+        # simulate() 会**就地修改**传入的批次（扣减 quantity_remaining）。
+        # 因此必须先留一份成交前快照：
+        #   * 分红权利按登记日收盘持仓算，而当日买入也享有权利，
+        #     所以要用"成交后"的持仓 —— 那是 ledger_lots（已被就地扣减）
+        #     加上 result.lots_created；
+        #   * 但若把 ledger_lots + lots_created 当成两份来源再相加，
+        #     同一批次会被计两次，股数被扣两遍——第一批卖出会凭空翻倍。
+        # 这里的 _pre_trade_lots 只用于落库对比，不参与权利计算。
+        _pre_trade_lots = [
+            Lot(lot_id=l.lot_id, instrument_id=l.instrument_id,
+                acquired_trading_day=l.acquired_trading_day,
+                earliest_sellable_day=l.earliest_sellable_day,
+                quantity_original=l.quantity_original,
+                quantity_remaining=l.quantity_remaining,
+                cost_basis_cents_per_share=l.cost_basis_cents_per_share)
+            for l in ledger_lots
+        ]
         result = simulator.simulate(
             trading_day=trading_day, orders=orders, bars=bars,
             cash_available_cents=ledger_cash, lots=ledger_lots,
             adv_shares=adv,
             lot_id_prefix=f"{lot_id_prefix}-{portfolio_id}-{plan_id}",
         )
+        # 就地修改之后，ledger_lots 自身就已经是成交后的完整持仓。
+        # simulate() 会把当日新建批次**追加进同一个 lots 列表**
+        # （simulator.py: lots.append(lot)），因此再拼一次 result.lots_created
+        # 会让同一批次出现两次、股数被扣两遍——第一批卖出会凭空翻倍。
+        # 下面是这个不变量的机器化断言，防止以后重新踩进来。
+        _ids = [l.lot_id for l in ledger_lots]
+        assert len(_ids) == len(set(_ids)), "成交后持仓出现重复批次"
+        assert all(
+            l.quantity_remaining <= before.quantity_remaining
+            for l, before in zip(ledger_lots, _pre_trade_lots)
+        ), "simulate 必须只减不增地就地扣减批次"
+        assert all(any(l.lot_id == c.lot_id for l in ledger_lots)
+                   for c in result.lots_created), "新建批次必须已在成交后持仓里"
 
         with write_tx(self.con):
             self.con.execute("UPDATE simulation_plan SET status='EXECUTED' WHERE plan_id=?",
@@ -922,10 +952,10 @@ class PlanService:
         #     否则"登记日当天买入"会被判成无权利，凭空少算一笔应收；
         #   * 登记日前卖光的批次 quantity_remaining 已是 0，自然不享权。
         # 两个方向都不需要额外特判——错在取哪一份批次，不在权利算法。
-        holdings_after_fills = list(ledger_lots) + list(result.lots_created)
         dividend_outcomes = self._advance_corporate_actions(
             portfolio_id=portfolio_id, trading_day=trading_day,
-            actions=corporate_actions or (), lots=holdings_after_fills, now=now,
+            actions=corporate_actions or (),
+            lots=self._entitlement_lots(_pre_trade_lots, ledger_lots), now=now,
         )
 
         # Preserve the public API's in-memory view while the database remains authoritative.
@@ -1043,6 +1073,74 @@ class PlanService:
         }
 
     # --------------------------------------------------- corporate actions
+    @staticmethod
+    def _entitlement_lots(pre_trade: list[Lot], post_trade: list[Lot]) -> list[Lot]:
+        """登记日盘后的持仓口径。
+
+        权利看**登记日收盘持仓**，因此包含当日买入；而当日卖出**不会**
+        丧失已经固化的权利。逐笔模拟器先卖后买（§12.4），如果直接拿
+        成交后持仓去算权利，当日卖出的持仓会被判成"没持有过"，
+        凭空少算一笔应收。
+
+        所以按证券取"成交前"与"成交后"剩余股数的**较大值**：
+          * 当日买入 → 成交后更多 → 计入；
+          * 当日卖出 → 成交前更多 → 仍然计入；
+          * 登记日前已卖光 → 两者都是 0 → 不计入。
+        只有日线数据时无法知道盘中先后，这个口径在两个方向上都不会漏记。
+        """
+
+        def by_lot_id(lots: list[Lot]) -> dict[str, Lot]:
+            """按批次 ID 去重，同一批次只保留剩余股数最大的那份。
+
+            这里必须去重而不是直接求和：simulate() 会把新建批次追加进
+            传入的列表，任何调用方只要再拼一次 result.lots_created，
+            同一批次就会出现两次、股数被计两遍。这个函数是不变量防线，
+            应当对错误输入免疫，而不是跟着一起算错。
+            """
+
+            out: dict[str, Lot] = {}
+            for lot in lots:
+                current = out.get(lot.lot_id)
+                if current is None or lot.quantity_remaining > current.quantity_remaining:
+                    out[lot.lot_id] = lot
+            return out
+
+        before_by_id = by_lot_id(pre_trade)
+        after_by_id = by_lot_id(post_trade)
+
+        def quantity_of(lots: dict[str, Lot], instrument_id: str) -> int:
+            return sum(l.quantity_remaining for l in lots.values()
+                       if l.instrument_id == instrument_id)
+
+        def entitlement_quantity(instrument_id: str) -> int:
+            return max(quantity_of(before_by_id, instrument_id),
+                       quantity_of(after_by_id, instrument_id))
+
+        instruments = ({l.instrument_id for l in before_by_id.values()}
+                       | {l.instrument_id for l in after_by_id.values()})
+        out: list[Lot] = []
+        for instrument_id in sorted(instruments):
+            quantity = entitlement_quantity(instrument_id)
+            if quantity <= 0:
+                continue
+            # 权利只关心"持有多少股"与"登记日是否已持有"。取成交前批次里
+            # 最早的那一天作为 acquired_trading_day：当日买入也享有权利，
+            # 因此 acquired 用执行日同样成立。
+            candidates = [l for l in before_by_id.values()
+                          if l.instrument_id == instrument_id]
+            if not candidates:
+                candidates = [l for l in after_by_id.values()
+                              if l.instrument_id == instrument_id]
+            first = min(candidates, key=lambda l: l.acquired_trading_day)
+            out.append(Lot(
+                lot_id=f"entitlement-{instrument_id}", instrument_id=instrument_id,
+                acquired_trading_day=first.acquired_trading_day,
+                earliest_sellable_day=first.earliest_sellable_day,
+                quantity_original=quantity, quantity_remaining=quantity,
+                cost_basis_cents_per_share=first.cost_basis_cents_per_share,
+            ))
+        return out
+
     def _open_receivables(self, portfolio_id: str) -> int:
         """尚未结清的应收合计（分）。
 
