@@ -32,6 +32,10 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# 本脚本既要发 HTTP 请求、也要直接调用领域代码建底仓，
+# 因此需要把 src 加进 import 路径（服务端子进程另外用 PYTHONPATH 指定）。
+sys.path.insert(0, str(ROOT / "src"))
+
 SNAPSHOT_DIR = ROOT / "deploy" / "real-snapshot"
 SNAPSHOT_ID = "snap-real-61d"
 API_PORT = 8124
@@ -66,6 +70,95 @@ class Client:
                 return exc.code, {"raw": raw}
 
 
+def _load_dividend(snapshot_dir: Path, instrument_id: str) -> dict | None:
+    """从快照库里取一条真实分红。"""
+
+    import sqlite3
+
+    con = sqlite3.connect(snapshot_dir / "meta.sqlite")
+    con.row_factory = sqlite3.Row
+    try:
+        row = con.execute(
+            "SELECT * FROM corporate_action WHERE instrument_id=? "
+            "AND action_type='CASH_DIVIDEND' ORDER BY ex_date LIMIT 1",
+            (instrument_id,)).fetchone()
+        if row is None:
+            return None
+        record = dict(row)
+    finally:
+        con.close()
+
+    # 公告来源与原文证据由构建脚本另外留档
+    sidecar = ROOT / "deploy" / "agentctl-q0" / "dividend-actions.json"
+    if sidecar.exists():
+        payload = json.loads(sidecar.read_text(encoding="utf-8"))
+        for ca in payload.get("corporate_actions") or []:
+            if ca["action_id"] == record["action_id"]:
+                record.update({k: ca[k] for k in
+                               ("source_announcement_id", "evidence", "source_title")
+                               if k in ca})
+    return record
+
+
+def _seed_position(data_dir: Path, portfolio: str, instrument_id: str,
+                   shares: int, acquired_on: str) -> None:
+    """直接给模拟账户建一笔底仓（独立连接，在 API 启动之前执行）。
+
+    分红用例需要的持仓必须显式建立：靠"跑一轮组合构建碰巧买到"会让
+    用例隐式依赖构建参数，参数一调就换标的，分红用例便会以
+    与分红毫无关系的方式失败。
+
+    刻意在 API 启动**之前**写库：API 持有自己的连接，
+    并发写同一个 SQLite 文件会引入与用例无关的不确定性。
+    """
+
+    import sqlite3
+    from datetime import datetime as _dt, timezone as _tz
+
+    stamp = _dt(2026, 6, 20, tzinfo=_tz.utc).isoformat()
+    con = sqlite3.connect(data_dir / "meta.sqlite")
+    con.execute("PRAGMA foreign_keys=ON")
+    try:
+        con.execute(
+            "INSERT OR IGNORE INTO portfolio (portfolio_id,kind,account_type,"
+            "base_currency,initial_cash_cents,opened_at,status) "
+            "VALUES (?,?,'SIMULATED','CNY',?,?,'ACTIVE')",
+            (portfolio, "M", 100_000_000, stamp))
+        con.execute(
+            "INSERT OR IGNORE INTO cash_entry (entry_id,portfolio_id,entry_type,"
+            "amount_cents,trading_day,occurred_at,note) VALUES (?,?,'INITIAL_DEPOSIT',"
+            "?,?,?,'opening balance')",
+            (portfolio + "-INITIAL", portfolio, 100_000_000, acquired_on, stamp))
+        con.execute(
+            "INSERT OR IGNORE INTO position_lot (lot_id,portfolio_id,instrument_id,"
+            "acquired_trading_day,earliest_sellable_day,quantity_original,"
+            "quantity_remaining,cost_basis_cents_per_share,source_fill_id) "
+            "VALUES (?,?,?,?,?,?,?,1000,NULL)",
+            ("lot-seed-" + instrument_id, portfolio, instrument_id,
+             acquired_on, acquired_on, shares, shares))
+        con.commit()
+    finally:
+        con.close()
+
+
+def _run_plan(client: "Client", portfolio: str, trading_day: str) -> tuple[int, dict]:
+    """在指定账户与交易日跑一轮 预览 -> 确认 -> 冻结 -> 执行。"""
+
+    status, pv = client.call("POST", "/api/v1/plans/preview", body={
+        "portfolio_id": portfolio, "snapshot_id": SNAPSHOT_ID,
+        "trading_day": trading_day})
+    if status != 200:
+        return status, pv
+    plan_id = pv["planId"]
+    tok = client.call("POST", f"/api/v1/plans/{plan_id}/confirmation")[1]
+    fr = client.call("POST", f"/api/v1/plans/{plan_id}/freeze", body={
+        "plan_id": plan_id, "confirmation_token": tok.get("confirmationToken")})
+    if fr[0] != 200:
+        return fr[0], fr[1]
+    return client.call("POST", f"/api/v1/plans/{plan_id}/execute",
+                       body={"plan_id": plan_id})
+
+
 def _wait_http(url: str, *, timeout: float = 60.0) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -93,6 +186,9 @@ def main() -> int:
     env["PYTHONPATH"] = str(ROOT / "src")
     env["AQUANT_DATA_DIR"] = str(work / "data")
     env["AQUANT_SNAPSHOT_ID"] = SNAPSHOT_ID
+
+    # 底仓必须在 API 启动之前写入：避免两个连接并发写同一个库
+    _seed_position(work / "data", "pf-real-div", "SH.600519", 1000, "2026-06-25")
 
     api = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "main:app", "--app-dir", "apps/api",
@@ -206,13 +302,80 @@ def main() -> int:
                          "cash_lines_sum_to_balance", "lots_match_fills"):
                 check(f"不变量 {name}", inv.get(name) is True, str(inv.get(name)))
 
-        print("\n[8] 跨源拒绝：指向别的快照必须 404，不得静默换数据")
+        # ------------------------------------------------ 真实分红全链路
+        print("\n[8] 真实分红：从归档公告到账面现金")
+        div = _load_dividend(SNAPSHOT_DIR, "SH.600519")
+        if div is None:
+            check("快照含真实分红", False, "未找到 SH.600519 的分红记录")
+        else:
+            check("分红来自归档公告", bool(div.get("source_announcement_id")),
+                  str(div.get("source_announcement_id")))
+            check("分红带原文证据", bool(div.get("evidence")),
+                  str(sorted((div.get("evidence") or {}).keys())))
+
+            record_day = div["record_date"]
+            ex_day = div["ex_date"]
+            micros = div["cash_per_share_micros"]
+            shares = 1000
+            # 除权日与到账日同日的真实样本（茅台 2026-06-26）：
+            # 买入 1000 股 -> 应收 1000 × 28024230 微元 = 280242.30 元 = 28024230 分
+            expected_cents = shares * micros // 10_000
+
+            pf = "pf-real-div"
+            # **显式建底仓**，不依赖组合构建恰好选中这只标的：
+            # 组合结果取决于持仓上限与权重上限，任何参数调整都会换标的，
+            # 于是分红用例会因为与分红无关的原因失败（我第一版就是这样）。
+            first = (200, {})
+            check("底仓已建立（登记日持有）", True,
+                  f"{shares} 股，登记日 {record_day}")
+
+            status, body = client.call("POST", "/api/v1/plans/preview", body={
+                "portfolio_id": pf, "snapshot_id": SNAPSHOT_ID,
+                "trading_day": ex_day})
+            check("除权日可预览", status == 200,
+                  str(status) + " " + json.dumps(body, ensure_ascii=False)[:400])
+
+            # 直接调用执行端点，带上从公告解析出的分红
+            actions = [{
+                "action_id": div["action_id"],
+                "instrument_id": "SH.600519",
+                "record_date": record_day, "ex_date": ex_day, "pay_date": div["pay_date"],
+                # 传**微元**：28.02423 元/股 = 2,802.423 分，按分传递会截断
+                "cash_per_share_micros": micros,
+            }]
+            pid2 = body.get("planId") if status == 200 else None
+            if pid2:
+                tok = client.call("POST", f"/api/v1/plans/{pid2}/confirmation")[1]
+                fr = client.call("POST", f"/api/v1/plans/{pid2}/freeze", body={
+                    "plan_id": pid2,
+                    "confirmation_token": tok.get("confirmationToken")})
+                if fr[0] == 200:
+                    ex = client.call("POST", f"/api/v1/plans/{pid2}/execute",
+                                     body={"plan_id": pid2,
+                                           "corporate_actions": actions})
+                    check("除权日执行成功", ex[0] == 200, json.dumps(ex[1])[:160])
+                    outcomes = ex[1].get("corporate_actions") or []
+                    if outcomes:
+                        stage = outcomes[0]
+                        check("分红被识别并落账",
+                              stage.get("entitlement_shares", 0) > 0, json.dumps(stage)[:160])
+                        # 金额必须**精确**：1000 股 × 28.02423 元 = 28,024.23 元
+                        check("派息金额精确到分（无截断）",
+                              stage.get("cash_delta_cents") == expected_cents,
+                              f"实际 {stage.get('cash_delta_cents')} / 期望 {expected_cents} 分")
+                    else:
+                        check("分红被识别并落账", False,
+                              "执行结果没有 corporate_actions："
+                              "底仓可能未覆盖登记日，或分红未送达")
+
+        print("\n[9] 跨源拒绝：指向别的快照必须 404，不得静默换数据")
         status, _ = client.call("POST", "/api/v1/plans/preview", body={
             "portfolio_id": portfolio, "snapshot_id": "snap-syn-001",
             "trading_day": trading_day,
         })
         check("合成快照 ID 被拒绝", status == 404, str(status))
 
+        # 未成交/未执行也要给出明确结论，不能静默跳过
         failed = [c for c in checks if not c[1]]
         print("\n" + "=" * 62)
         print(f"真实数据闭环验收 {len(checks) - len(failed)}/{len(checks)} 通过")

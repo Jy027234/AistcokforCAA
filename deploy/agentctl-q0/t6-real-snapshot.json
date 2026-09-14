@@ -1,5 +1,5 @@
 {
-  "ran_at": "2026-09-14T12:53:20.781977+00:00",
+  "ran_at": "2026-09-14T13:30:32.156247+00:00",
   "snapshot_id": "snap-real-61d",
   "data_mode": "PRODUCTION",
   "watermark": "REAL MARKET DATA, RECONSTRUCTED POINT-IN-TIME -- NOT VALID FOR FORMAL PIT BACKTESTS",
@@ -64,6 +64,16 @@
       "detail": "GEM×5、MAIN×15、STAR×4"
     },
     {
+      "name": "公司行为带来源公告",
+      "ok": true,
+      "detail": "2 条"
+    },
+    {
+      "name": "公司行为带原文证据",
+      "ok": true,
+      "detail": ""
+    },
+    {
       "name": "入库证券数正确",
       "ok": true,
       "detail": "24"
@@ -72,6 +82,11 @@
       "name": "入库交易日数正确",
       "ok": true,
       "detail": "61"
+    },
+    {
+      "name": "入库公司行为数正确",
+      "ok": true,
+      "detail": "2"
     },
     {
       "name": "快照已发布",

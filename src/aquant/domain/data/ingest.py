@@ -232,7 +232,14 @@ class SnapshotBuilder:
                             if ca.get("cash_per_share_cents") is not None else None),
                      ca.get("cash_per_share_cents"),
                      ca.get("bonus_ratio"), ca.get("rights_price_cents"),
-                     1 if ca.get("supported") else 0, source_id, ca.get("notes")),
+                     1 if ca.get("supported") else 0, source_id,
+                     # 清单里的 notes 可能是字符串（手写 YAML），
+                     # 也可能是列表（公告解析器给出的说明）。统一成 JSON 文本：
+                     # 直接绑 list 会抛 ProgrammingError，而那是数据形状问题，
+                     # 不该在写库时才暴露。
+                     json.dumps(ca["notes"], ensure_ascii=False)
+                     if isinstance(ca.get("notes"), (list, dict))
+                     else ca.get("notes")),
                 )
                 n_ca += 1
 

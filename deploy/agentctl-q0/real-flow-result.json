@@ -46,7 +46,7 @@
     {
       "name": "预览成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_9b92e49acb754bbf867f\", \"portfolio_id\": \"pf-real-m\", \"snapshot_id\": \"snap-real-61d\", \"plan_version\": \"plan-188b5125e3144971\", \"account_version\": \"acct-630260631f727e5e\", \"trading_day\""
+      "detail": "{\"plan_id\": \"plan_3ffe5931cd83493f9b4c\", \"portfolio_id\": \"pf-real-m\", \"snapshot_id\": \"snap-real-61d\", \"plan_version\": \"plan-188b5125e3144971\", \"account_version\": \"acct-630260631f727e5e\", \"trading_day\""
     },
     {
       "name": "参考价日早于执行日",
@@ -76,12 +76,12 @@
     {
       "name": "冻结成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_9b92e49acb754bbf867f\", \"status\": \"FROZEN\", \"frozen_at\": \"2026-09-14T12:58:38.587838+00:00\", \"expires_at\": \"2026-09-15T00:58:38.587838+00:00\", \"confirmed_by\": \"user:real\", \"idempotenc"
+      "detail": "{\"plan_id\": \"plan_3ffe5931cd83493f9b4c\", \"status\": \"FROZEN\", \"frozen_at\": \"2026-09-14T13:35:20.239015+00:00\", \"expires_at\": \"2026-09-15T01:35:20.239015+00:00\", \"confirmed_by\": \"user:real\", \"idempotenc"
     },
     {
       "name": "执行成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_9b92e49acb754bbf867f\", \"status\": \"EXECUTED\", \"trading_day\": \"2026-09-14\", \"corporate_actions\": [], \"fills\": [{\"fill_id\": \"fill-plan_9b92e49acb754bbf867f-000\", \"order_id\": \"plan_9b92e"
+      "detail": "{\"plan_id\": \"plan_3ffe5931cd83493f9b4c\", \"status\": \"EXECUTED\", \"trading_day\": \"2026-09-14\", \"corporate_actions\": [], \"fills\": [{\"fill_id\": \"fill-plan_3ffe5931cd83493f9b4c-000\", \"order_id\": \"plan_3ffe5"
     },
     {
       "name": "执行结果自洽：成交+未成交=订单数",
@@ -152,6 +152,41 @@
       "name": "不变量 lots_match_fills",
       "ok": true,
       "detail": "True"
+    },
+    {
+      "name": "分红来自归档公告",
+      "ok": true,
+      "detail": "1225379934"
+    },
+    {
+      "name": "分红带原文证据",
+      "ok": true,
+      "detail": "['per_share_amount', 'table_dates']"
+    },
+    {
+      "name": "底仓已建立（登记日持有）",
+      "ok": true,
+      "detail": "1000 股，登记日 2026-06-25"
+    },
+    {
+      "name": "除权日可预览",
+      "ok": true,
+      "detail": "200 {\"plan_id\": \"plan_1a8565c9a7a3487693f1\", \"portfolio_id\": \"pf-real-div\", \"snapshot_id\": \"snap-real-61d\", \"plan_version\": \"plan-d10d29dfee472b3e\", \"account_version\": \"acct-bbde4c7123368494\", \"trading_day\": \"2026-06-26\", \"reference_price_day\": \"2026-06-25\", \"frozen\": false, \"orders\": [{\"instrument_id\": \"SZ.000333\", \"side\": \"BUY\", \"quantity\": 2800, \"price_cents\": 7650, \"rationale\": \"new entry at signa"
+    },
+    {
+      "name": "除权日执行成功",
+      "ok": true,
+      "detail": "{\"plan_id\": \"plan_1a8565c9a7a3487693f1\", \"status\": \"EXECUTED\", \"trading_day\": \"2026-06-26\", \"corporate_actions\": [{\"action_id\": \"ca-1225379934\", \"instrument_id\""
+    },
+    {
+      "name": "分红被识别并落账",
+      "ok": true,
+      "detail": "{\"action_id\": \"ca-1225379934\", \"instrument_id\": \"SH.600519\", \"stage\": \"EX_AND_PAY_DATE\", \"receivable_cents\": 0, \"cash_delta_cents\": 2802423, \"entitlement_shares"
+    },
+    {
+      "name": "派息金额精确到分（无截断）",
+      "ok": true,
+      "detail": "实际 2802423 / 期望 2802423 分"
     },
     {
       "name": "合成快照 ID 被拒绝",

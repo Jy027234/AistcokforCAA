@@ -29,7 +29,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from aquant.application.workspace_view import build_data_status, build_research_card
 from aquant.domain.data.db import apply_migrations, connect
@@ -74,6 +74,17 @@ def _listings_for(state: "AppState", snapshot_id: str) -> dict[str, tuple[str, s
     return out
 
 BOARD_RULES = [
+    # 规则按生效日版本化（§7.1）。**必须保留历史版本**：
+    # 主规格记录 2026-04-24 上交所交易规则修订、自 2026-07-06 起实施，
+    # 因此那个日期之前需要另一条覆盖区间。只写"现行版本"会导致
+    # 2026-07-06 之前的交易日无规则可匹配，预览被 RULE_VERSION_MISSING 拒绝——
+    # 拒绝本身是对的（规则不能猜），缺的是历史版本。
+    BoardRule(exchange="SSE", board="MAIN", price_limit_pct=Decimal("10"),
+              lot_size=100, effective_from=date(2020, 1, 1),
+              effective_to=date(2026, 7, 6)),
+    BoardRule(exchange="SZSE", board="MAIN", price_limit_pct=Decimal("10"),
+              lot_size=100, effective_from=date(2020, 1, 1),
+              effective_to=date(2026, 7, 6)),
     BoardRule(exchange="SSE", board="MAIN", price_limit_pct=Decimal("10"),
               lot_size=100, effective_from=date(2026, 7, 6)),
     BoardRule(exchange="SZSE", board="MAIN", price_limit_pct=Decimal("10"),
@@ -270,16 +281,32 @@ class FreezeRequest(BaseModel):
 
 
 class DividendInput(BaseModel):
-    """当日落在除权日或到账日的现金分红。"""
+    """当日落在除权日或到账日的现金分红。
+
+    金额给两种口径之一，**优先用微元**：
+      * `cash_per_share_micros` —— 权威单位。真实分红常常不是整数分
+        （茅台 2025 年度每股 28.02423 元 = 2,802.423 分），
+        按分传递会截断，误差随股数放大；
+      * `cash_per_share_cents` —— 过渡口径，仅当金额确实是整数分时使用。
+    """
 
     action_id: str = Field(min_length=1, max_length=64)
     instrument_id: str = Field(min_length=1, max_length=64)
     record_date: date
     ex_date: date
     pay_date: date
-    cash_per_share_cents: int = Field(gt=0)
+    cash_per_share_micros: int | None = Field(default=None, gt=0)
+    cash_per_share_cents: int | None = Field(default=None, gt=0)
     #: §12.6 未实现完整红利税处理前必须标注口径，默认税前
     tax_treatment: str = Field(default="PRE_TAX", pattern="^(PRE_TAX|CONSERVATIVE|VERIFIED)$")
+
+    @model_validator(mode="after")
+    def _require_one_amount(self) -> "DividendInput":
+        if (self.cash_per_share_micros is None) == (self.cash_per_share_cents is None):
+            raise ValueError(
+                "provide exactly one of cash_per_share_micros / cash_per_share_cents"
+            )
+        return self
 
 
 class ExecuteRequest(BaseModel):
@@ -664,6 +691,9 @@ def create_app(state: AppState | None = None) -> FastAPI:
             CashDividend(
                 action_id=a.action_id, instrument_id=a.instrument_id,
                 record_date=a.record_date, ex_date=a.ex_date, pay_date=a.pay_date,
+                # 微元优先：按分传递会把 28.02423 元截成 28.02 元，
+                # 1000 股就少派 2,242.30 元，而账面完全自洽。
+                cash_per_share_micros=a.cash_per_share_micros or 0,
                 cash_per_share_cents_input=a.cash_per_share_cents,
                 tax_treatment=a.tax_treatment,
             )

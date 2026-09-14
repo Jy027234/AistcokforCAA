@@ -1210,7 +1210,17 @@ class PlanService:
                      f"tax treatment: {action.tax_treatment}"),
                 )
 
-                if outcome.stage == "EX_DATE":
+                if outcome.stage == "EX_AND_PAY_DATE":
+                    # 同日除息与发放：不产生未结应收，直接记现金
+                    self.con.execute(
+                        "INSERT INTO cash_entry (entry_id,portfolio_id,entry_type,"
+                        "amount_cents,trading_day,occurred_at,related_instrument_id) "
+                        "VALUES (?,?,'DIVIDEND_RECEIVABLE_SETTLED',?,?,?,?)",
+                        (f"cash-div-{portfolio_id}-{action.action_id}", portfolio_id,
+                         outcome.cash_delta_cents, trading_day.isoformat(), _iso(now),
+                         action.instrument_id),
+                    )
+                elif outcome.stage == "EX_DATE":
                     self.con.execute(
                         "INSERT OR IGNORE INTO receivable (receivable_id,portfolio_id,"
                         "instrument_id,kind,amount_cents,tax_treatment,recognized_on,"

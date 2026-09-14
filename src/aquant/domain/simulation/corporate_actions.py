@@ -223,6 +223,22 @@ def apply_cash_dividend(
              "rounding-remainder handling before booking this dividend"),
         )
 
+    if trading_day == action.ex_date and action.ex_date == action.pay_date:
+        # 除权日与到账日同日：这是 A 股的常见情形（登记日次一交易日除息、
+        # 同日发放）。此时应收在同一天确认并结清，现金直接增加。
+        #
+        # 不能只走 EX_DATE 分支了事：那一天账面上会留下一条永不结清的应收，
+        # 现金永远少一笔，而对账"应收 + 现金"的总和又是对的，
+        # 于是这个错误可以长期不被发现。
+        return DividendOutcome(
+            receivable_cents=0, cash_delta_cents=total, entitlement_shares=shares,
+            recognised=True,
+            stage="EX_AND_PAY_DATE",
+            expected_settlement_on=action.pay_date,
+            note=("ex-date and pay-date coincide: the receivable is recognised and settled "
+                  f"on the same day, cash increases immediately (tax treatment: "
+                  f"{action.tax_treatment})"),
+        )
     if trading_day == action.ex_date:
         return DividendOutcome(
             receivable_cents=total, cash_delta_cents=0, entitlement_shares=shares,

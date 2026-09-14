@@ -273,6 +273,38 @@ def test_entitlement_lots_never_double_counts_a_lot(world):
     assert len(entitlement) == 1, "每个证券只应产出一个权利批次"
 
 
+# ============================== 除权日与到账日同日：直接进现金，不留未结应收
+def test_same_day_ex_and_pay_settles_immediately(world):
+    """A 股常见情形：登记日次一交易日除息、同日发放。
+
+    这里必须**当天直接进现金**。若只走"除权日确认应收"分支，
+    账面会留下一条永不结清的应收：现金永远少一笔，而"应收 + 现金"
+    的总和又是对的，于是这个错误可以长期不被发现。
+    """
+
+    con, reader, svc, store = world
+    lots = _setup(svc, snapshot_id=SNAPSHOT_ID)
+    same_day = CashDividend(
+        action_id="ca-same-day", instrument_id=INSTRUMENT,
+        record_date=RECORD_DAY, ex_date=EX_DAY, pay_date=EX_DAY,
+        cash_per_share_cents_input=CASH_PER_SHARE,
+    )
+    cash_before = _cash(con)
+
+    out = svc._advance_corporate_actions(
+        portfolio_id=PORTFOLIO, trading_day=EX_DAY, actions=[same_day],
+        lots=lots, now=datetime(2026, 9, 9, tzinfo=timezone.utc),
+    )
+
+    assert out[0]["stage"] == "EX_AND_PAY_DATE"
+    assert out[0]["cash_delta_cents"] == EXPECTED_RECEIVABLE
+    assert _open_receivable(con) == 0, "同日发放不得留下未结应收"
+    assert _cash(con) == cash_before + EXPECTED_RECEIVABLE
+    assert con.execute(
+        "SELECT COUNT(*) AS n FROM receivable WHERE portfolio_id=?",
+        (PORTFOLIO,)).fetchone()["n"] == 0
+
+
 # ================================================= 幂等：重复推进不得重复入账
 def test_repeated_advance_does_not_double_book(world):
     con, reader, svc, store = world

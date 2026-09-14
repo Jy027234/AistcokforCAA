@@ -271,6 +271,35 @@ def main() -> int:
         # 按 §17.2 "未知默认不开放"处理，因此这批数据不得外发到模型。
         rights={},
     )
+    # ---------------------------------------------------- 4b. 真实公司行为
+    # 分红来自 tools/build_dividend_actions.py 从巨潮公告解析出的结果，
+    # 每条都带公告 ID、URL 与原文证据；不是手工构造的。
+    # 只保留落在快照窗口内的：窗口外的事件记进快照会让"这条分红在
+    # 决策时点是否已知"变得无法回答。
+    dividends_path = Path(os.environ.get(
+        "T6_DIVIDENDS",
+        str(ROOT / "deploy" / "agentctl-q0" / "dividend-actions.json")))
+    actions: list[dict] = []
+    if dividends_path.exists():
+        payload = json.loads(dividends_path.read_text(encoding="utf-8"))
+        wanted = {i["instrument_id"] for i in instruments}
+        for ca in payload.get("corporate_actions") or []:
+            if ca["instrument_id"] not in wanted:
+                continue
+            if not (days[0] <= ca["record_date"] <= days[-1]):
+                continue
+            actions.append(ca)
+        print(f"\n[4b] 真实公司行为：采用 {len(actions)} 条"
+              f"（来源 {dividends_path.name}）")
+        for ca in actions:
+            print(f"  {ca['instrument_id']} 每股 {ca['cash_per_share_micros']} 微元，"
+                  f"登记 {ca['record_date']} 除权 {ca['ex_date']} 到账 {ca['pay_date']}")
+    else:
+        print("\n[4b] 未找到分红文件，快照不含公司行为")
+    check("公司行为带来源公告", all(ca.get("source_announcement_id") for ca in actions),
+          f"{len(actions)} 条")
+    check("公司行为带原文证据", all(ca.get("evidence") for ca in actions))
+
     doc = {
         "schema_version": "aquant.real_dataset.v1",
         "data_mode": "PRODUCTION",
@@ -284,12 +313,14 @@ def main() -> int:
         "trading_days": days,
         "instruments": instruments,
         "daily_quotes": quotes,
-        "corporate_actions": [],
+        "corporate_actions": actions,
         "events": [],
     }
     report = builder.ingest(doc, source_id="tencent-ifzq", data_version="real-61d")
     check("入库证券数正确", report.instruments == len(entries), str(report.instruments))
     check("入库交易日数正确", report.trading_days == len(days), str(report.trading_days))
+    check("入库公司行为数正确", report.corporate_actions == len(actions),
+          str(report.corporate_actions))
 
     refs = builder.write_datasets(doc, snapshot_id=SNAPSHOT_ID)
     store = SnapshotStore(con, api_root)
