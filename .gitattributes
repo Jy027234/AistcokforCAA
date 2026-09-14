@@ -1,0 +1,23 @@
+# 统一行尾为 LF。
+#
+# 背景：Windows 上的文本模式写入会把 \n 变成 \r\n（见 T5 归档脚本的
+# 教训）。一旦 CRLF 进了 index，git diff --check 会把每一行都报成
+# 行尾空白，之后每次重跑产物都会生成一份"全文重写"的假 diff，
+# 让真正的变更淹没在噪音里。
+#
+# 证据类文件尤其重要：图省事把同一份证据在不同平台上写出不同字节，
+# 就无法用哈希对照两次运行。
+* text=auto eol=lf
+
+# 二进制产物不要做任何文本转换
+*.PDF binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.sqlite binary
+*.db binary

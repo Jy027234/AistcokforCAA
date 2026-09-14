@@ -61,6 +61,9 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120 Safari/537.36")
 PROXY_ENV = "AQUANT_TRUSTED_PROXY_NETWORKS"
 
+#: 公告原文（PDF）的体积上限。列表响应仍用策略默认的 16 MiB。
+DOCUMENT_MAX_BYTES = 64 * 1024 * 1024
+
 #: 北京时间为 UTC+8
 CST = timezone(timedelta(hours=8))
 
@@ -215,7 +218,8 @@ class CninfoClient:
         self.timeout = timeout
 
     def _fetch(self, url: str, *, label: str, data: bytes | None = None,
-               content_type: str | None = None) -> FetchOutcome:
+               content_type: str | None = None,
+               max_bytes: int | None = None) -> FetchOutcome:
         requested_at = datetime.now(timezone.utc)
         host = urlsplit(url).hostname or ""
 
@@ -247,8 +251,9 @@ class CninfoClient:
             req = urllib.request.Request(url, data=data, headers=headers)
             try:
                 with opener.open(req, timeout=self.timeout) as resp:
-                    check_content_length(resp.headers.get("Content-Length"), self.policy)
-                    body = read_bounded(resp, self.policy)
+                    check_content_length(resp.headers.get("Content-Length"), self.policy,
+                                         max_bytes=max_bytes)
+                    body = read_bounded(resp, self.policy, max_bytes=max_bytes)
                     status = resp.status
                 self.breaker.record_success()
                 media = "application/pdf" if url.lower().endswith(".pdf") else "application/json"
@@ -302,7 +307,15 @@ class CninfoClient:
             return FetchOutcome(False, None, out.receipt_id, out.content_hash,
                                 f"malformed JSON: {exc}"), []
 
-    def document(self, url: str, *, label: str = "") -> FetchOutcome:
-        """抓取公告原文（通常是 PDF）并归档。引用核验必须针对原文，而不是标题。"""
+    def document(self, url: str, *, label: str = "",
+                 max_bytes: int | None = None) -> FetchOutcome:
+        """抓取公告原文（通常是 PDF）并归档。引用核验必须针对原文，而不是标题。
 
-        return self._fetch(url, label=label or f"document:{url.rsplit('/', 1)[-1]}")
+        公告 PDF 天然大于 JSON 列表（年报、募集说明书可达数十 MiB），
+        因此原文字节上限单独放宽——但**仍然有上限**，不使用无界读取（§17.3）。
+        实测 18.8 MiB 的公告会被默认 16 MiB 拒绝，这里默认给到 64 MiB。
+        """
+
+        limit = DOCUMENT_MAX_BYTES if max_bytes is None else max_bytes
+        return self._fetch(url, label=label or f"document:{url.rsplit('/', 1)[-1]}",
+                           max_bytes=limit)

@@ -13,6 +13,27 @@ deploy/agentctl-q0/*.sqlite
 deploy/agentctl-q0/*.sqlite-shm
 deploy/agentctl-q0/*.sqlite-wal
 
+# --- 前向归档的原始字节 ---
+# 归档库本身留在磁盘上（完整、可校验），但只有小体积的探针回执
+# 值得进版本库：它们是可读的证据本体。
+#
+# 不提交大体积第三方内容的理由（2026-09-14 决定）：
+#   1) 单次运行即可产生 20 MiB 以上（年报/募集说明书常有上百页），
+#      历史会线性膨胀，且这些字节无法从版本库里干净地抹除；
+#   2) 巨潮公告的版权归属未确认（README 已声明，模型侧不得外发），
+#      把权利未确认的第三方全文写进版本库并不合适；
+#   3) 可验证性没有损失：hash、URL、体积、可用时间都记在
+#      t5-cninfo-run.json 里，重新拉取一次即可逐字节复核；
+#   4) 完整字节都留在磁盘上，随时可用 verify_archive.py 复核。
+#
+# 整个 raw/ 一律忽略，不做"只留小文件"的例外：
+# 试过 raw/*/* + !raw/*/*.json 的写法，但 git 不会重新纳入
+# "父目录已被排除"的路径，取反静默失效（check-ignore 会揭穿它）。
+# 与其维护一条看起来生效、实际不生效的规则，不如整体排除，
+# 并让 tools/verify_archive.py 成为"字节是否还在"的唯一判据。
+deploy/agentctl-q0/forward-archive/raw/
+deploy/agentctl-q0/forward-archive/meta.sqlite
+
 # --- 产品数据（主文档 §14.4：不提交真实数据、密钥或私人账户记录） ---
 /data/
 *.parquet
@@ -32,6 +53,12 @@ venv/
 node_modules/
 dist/
 .vite/
+
+# --- 临时草稿 ---
+# 提交信息、诊断输出等一次性文件；命名统一用 tmp_ 前缀，
+# 这样 git add -A 不会把它们卷进提交（这个坑踩过一次）。
+tmp_*
+!tmp_.gitkeep
 
 # --- 编辑器 / 系统 ---
 .vscode/

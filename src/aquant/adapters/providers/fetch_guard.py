@@ -185,28 +185,36 @@ def assert_url_allowed(url: str, policy: FetchPolicy) -> str:
     return url
 
 
-def check_content_length(declared: str | None, policy: FetchPolicy) -> None:
-    """在读取正文前，用 Content-Length 做一次快速拒绝。"""
+def check_content_length(declared: str | None, policy: FetchPolicy, *,
+                         max_bytes: int | None = None) -> None:
+    """在读取正文前，用 Content-Length 做一次快速拒绝。
 
+    max_bytes 允许单次调用覆盖策略上限（例如公告 PDF 天然大于 JSON 列表）。
+    **覆盖的是数值，不是检查本身**——上限必须始终存在（§17.3）。
+    """
+
+    limit = policy.max_response_bytes if max_bytes is None else max_bytes
     if declared is None:
         return
     try:
         n = int(declared)
     except ValueError:
         raise FetchDenied("bad-content-length", f"Content-Length {declared!r} is not an integer") from None
-    if n > policy.max_response_bytes:
+    if n > limit:
         raise FetchDenied(
             "response-too-large",
-            f"declared {n} bytes exceeds limit {policy.max_response_bytes}",
+            f"declared {n} bytes exceeds limit {limit}",
         )
 
 
-def read_bounded(stream, policy: FetchPolicy) -> bytes:
+def read_bounded(stream, policy: FetchPolicy, *,
+                 max_bytes: int | None = None) -> bytes:
     """流式读取并在超过上限时立即中止。
 
     先读完再判断会先把内存打满，因此这里逐块累加并在越界的第一时间抛错。
     """
 
+    limit = policy.max_response_bytes if max_bytes is None else max_bytes
     chunks: list[bytes] = []
     total = 0
     while True:
@@ -214,10 +222,10 @@ def read_bounded(stream, policy: FetchPolicy) -> bytes:
         if not chunk:
             break
         total += len(chunk)
-        if total > policy.max_response_bytes:
+        if total > limit:
             raise FetchDenied(
                 "response-too-large",
-                f"body exceeded limit {policy.max_response_bytes} bytes while streaming",
+                f"body exceeded limit {limit} bytes while streaming",
             )
         chunks.append(chunk)
     return b"".join(chunks)
