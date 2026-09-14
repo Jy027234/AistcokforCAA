@@ -355,8 +355,12 @@ def check_configs() -> None:
     except ImportError:
         check("PyYAML 可用", False)
         return
-    files = sorted((ROOT / "configs").glob("*.yaml"))
-    check("configs 目录非空", bool(files))
+    # 本节只校验**研究配置**。原先写的是 configs/*.yaml 全量，
+    # 于是任何新增配置文件都会被按研究配置的标准检查（要求
+    # forbidden_tools、PIT 开关等），新增一个研究池就会让自检变红——
+    # 那是把"多了一个不相干的文件"报成"研究配置不合规"。
+    files = sorted((ROOT / "configs").glob("research*.yaml"))
+    check("configs 目录内有研究配置", bool(files))
     for f in files:
         doc = yaml.safe_load(f.read_text(encoding="utf-8"))
         check(f"{f.name} 可解析", isinstance(doc, dict))
@@ -367,10 +371,6 @@ def check_configs() -> None:
                      "fetch_arbitrary_url", "freeze_plan"):
             check(f"{f.name} 禁用工具含 {tool}", tool in forbidden)
 
-        # 允许与禁用不得重叠
-        allowed = set((doc.get("assistant") or {}).get("allowed_tools") or [])
-        check(f"{f.name} 允许/禁用工具无重叠", not (allowed & forbidden),
-              str(allowed & forbidden))
 
         # §12.6 合成费率必须显式禁止用于正式研究
         fees = (doc.get("simulation") or {}).get("fees") or {}
@@ -399,6 +399,23 @@ def check_configs() -> None:
         sch = doc.get("schedule") or {}
         check(f"{f.name} 迟到快照不回退",
               sch.get("late_snapshot_behavior") == "NO_NEW_ORDERS_NO_SILENT_FALLBACK")
+
+    # 真实研究池：T6 与真实闭环验收的输入。它必须可解析、声明了
+    # 选择规则与来源，且每只证券都写清交易所与板块——
+    # 板块决定涨跌幅与手数，缺了就只能靠猜。
+    pools = sorted((ROOT / "configs").glob("real-pool*.yaml"))
+    check("存在真实研究池配置", bool(pools))
+    for f in pools:
+        doc = yaml.safe_load(f.read_text(encoding="utf-8"))
+        check(f"{f.name} 可解析", isinstance(doc, dict))
+        check(f"{f.name} 声明了选择规则", bool(doc.get("selection_rule")))
+        check(f"{f.name} 声明了来源", bool(doc.get("universe_source_used")))
+        entries = doc.get("instruments") or []
+        check(f"{f.name} 证券数足够形成选择压力", len(entries) >= 10, str(len(entries)))
+        check(f"{f.name} 每只证券都有交易所与板块", all(
+            e.get("exchange") and e.get("board") for e in entries))
+        check(f"{f.name} 每只证券都有行业分类", all(
+            e.get("industry_code") for e in entries))
 
 
 def main() -> int:

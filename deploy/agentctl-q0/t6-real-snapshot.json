@@ -1,22 +1,25 @@
 {
-  "ran_at": "2026-09-14T12:31:28.271835+00:00",
+  "ran_at": "2026-09-14T12:53:20.781977+00:00",
   "snapshot_id": "snap-real-61d",
   "data_mode": "PRODUCTION",
   "watermark": "REAL MARKET DATA, RECONSTRUCTED POINT-IN-TIME -- NOT VALID FOR FORMAL PIT BACKTESTS",
   "pit_mode": "HISTORICAL_RECONSTRUCTED",
   "available_basis": "RECONSTRUCTED",
+  "pool_id": "real-pool-2026-09",
+  "pool_file": "real-pool-2026-09.yaml",
+  "output_dir": "deploy\\real-snapshot",
   "window": {
     "first_day": "2026-06-22",
     "last_day": "2026-09-14",
     "trading_days": 61
   },
-  "symbols": [
-    "sh600519",
-    "sz000001",
-    "sh601398",
-    "sz300750"
-  ],
-  "quote_count": 244,
+  "instrument_count": 24,
+  "board_counts": {
+    "MAIN": 15,
+    "GEM": 5,
+    "STAR": 4
+  },
+  "quote_count": 1464,
   "missing_quote_count": 0,
   "calendar_source": "tencent-ifzq",
   "checks": [
@@ -31,9 +34,14 @@
       "detail": ""
     },
     {
+      "name": "取到证券简称",
+      "ok": true,
+      "detail": "24/24"
+    },
+    {
       "name": "行情覆盖率 100%（缺失即缺失，不补造）",
       "ok": true,
-      "detail": "244/244；缺失 0 条"
+      "detail": "1464/1464；缺失 0 条"
     },
     {
       "name": "价格为正整数分",
@@ -46,14 +54,19 @@
       "detail": ""
     },
     {
-      "name": "行业分类未被编造",
+      "name": "证券简称非空",
       "ok": true,
       "detail": ""
     },
     {
+      "name": "覆盖主板与成长板块",
+      "ok": true,
+      "detail": "GEM×5、MAIN×15、STAR×4"
+    },
+    {
       "name": "入库证券数正确",
       "ok": true,
-      "detail": "4"
+      "detail": "24"
     },
     {
       "name": "入库交易日数正确",
@@ -83,7 +96,7 @@
     {
       "name": "归档留下了收据",
       "ok": true,
-      "detail": "5 条"
+      "detail": "28 条"
     },
     {
       "name": "归档内容可哈希复核",

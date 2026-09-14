@@ -34,7 +34,8 @@ A股研究与模拟决策工作台。首期定位为**自用研究与模拟**，
 | 领域与接口测试 | `pytest tests` | 全过 |
 | 界面写路径（真实浏览器 + 隔离账本） | `python tools/check_ui_flow.py` | 22/22 |
 | 归档字节离线复核 | `python tools/verify_archive.py` | 21/21 |
-| **真实数据**接口验收 | `python -m tests.integration.t6_real_snapshot` | 14/14 |
+| **真实数据**快照验收 | `python -m tests.integration.t6_real_snapshot` | 16/16（24 只 / 1464 条行情） |
+| **真实数据**闭环验收 | `python tools/check_real_flow.py` | 31/31 |
 | 公告原文归档 | `python -m tests.integration.t5_cninfo_archive_run` | 5/5 哈希复核 |
 | HEAD 可复现性 | `python tools/check_reproducible.py` | 35/35 |
 

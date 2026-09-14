@@ -34,6 +34,12 @@ deploy/agentctl-q0/*.sqlite-wal
 deploy/agentctl-q0/forward-archive/raw/
 deploy/agentctl-q0/forward-archive/meta.sqlite
 
+# --- 真实数据快照 ---
+# 由 tests/integration/t6_real_snapshot.py 重建（免费源 + 固定研究池）。
+# 含行情数据与归档原始字节，同样不进版本库；t6-real-snapshot.json
+# 记录了窗口、证券数、覆盖率与全部断言结果，可据此复核。
+deploy/real-snapshot/
+
 # --- 产品数据（主文档 §14.4：不提交真实数据、密钥或私人账户记录） ---
 /data/
 *.parquet
