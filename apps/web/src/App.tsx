@@ -45,6 +45,8 @@ export default function App() {
   //: 服务端实时预览。为 null 时界面回退到只读夹具，并明确标注来源。
   const [livePreview, setLivePreview] = useState<PreviewResponse | null>(null);
   const [apiUp, setApiUp] = useState<boolean | null>(null);
+  //: 已成功冻结的计划。只有它才能被执行——界面不提供"跳过冻结直接执行"。
+  const [frozenPlanId, setFrozenPlanId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setState({ kind: "loading" });
@@ -148,11 +150,13 @@ export default function App() {
       }
       const issued = await api.requestConfirmation(pv.planId);
       const frozen = await api.freeze(pv.planId, issued.confirmationToken);
+      // 记下这一个计划：账本区的执行按钮只对它开放。
+      setFrozenPlanId(pv.planId);
       setConfirmResult({
         ok: true,
         message: "已冻结（服务端复核通过）。计划 ID " + pv.planId +
                  "，冻结时间 " + String(frozen.frozen_at ?? "") +
-                 "。冻结后不可修改，成交将在执行时按规则计算。",
+                 "。冻结后不可修改；可在下方「账本」区执行本交易日。",
       });
     } catch (err) {
       setConfirmResult({ ok: false, message: explain(err) });
@@ -231,6 +235,7 @@ export default function App() {
                 apiUp={apiUp}
                 confirming={confirming}
                 confirmResult={confirmResult}
+                frozenPlanId={frozenPlanId}
               />
             )}
             {tab === "experiments" && <ExperimentsView data={data} />}

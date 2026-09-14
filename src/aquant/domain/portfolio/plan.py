@@ -623,21 +623,65 @@ class PlanService:
                             preview.plan_id, "calculate and confirm a new preview")
 
         with write_tx(self.con):
-            self.con.execute(
-                "INSERT INTO simulation_plan (plan_id,portfolio_id,snapshot_id,account_version,"
-                "plan_version,status,created_at,frozen_at,expires_at,confirmed_by,"
-                "confirmation_token_hash,rule_version,fee_version,diff_preview_json,"
-                "estimated_fees_cents,idempotency_key) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (preview.plan_id, preview.portfolio_id, preview.snapshot_id,
-                 preview.account_version, preview.plan_version, "FROZEN",
-                 _iso(now), _iso(now), _iso(expires_at),
-                 confirm_subject, token_hash,
-                 self._rule_version(preview.trading_day),
-                 self.fee_table.schedule_for(preview.trading_day).fee_version,
-                 json.dumps(preview.as_dict(), ensure_ascii=False),
-                 preview.estimated_fees_cents, idempotency_key),
-            )
+            try:
+                self.con.execute(
+                    "INSERT INTO simulation_plan (plan_id,portfolio_id,snapshot_id,"
+                    "account_version,plan_version,status,created_at,frozen_at,expires_at,"
+                    "confirmed_by,confirmation_token_hash,rule_version,fee_version,"
+                    "diff_preview_json,estimated_fees_cents,idempotency_key) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (preview.plan_id, preview.portfolio_id, preview.snapshot_id,
+                     preview.account_version, preview.plan_version, "FROZEN",
+                     _iso(now), _iso(now), _iso(expires_at),
+                     confirm_subject, token_hash,
+                     self._rule_version(preview.trading_day),
+                     self.fee_table.schedule_for(preview.trading_day).fee_version,
+                     json.dumps(preview.as_dict(), ensure_ascii=False),
+                     preview.estimated_fees_cents, idempotency_key),
+                )
+            except sqlite3.IntegrityError as exc:
+                # 幂等键（组合 + 计划版本 + 账户版本）已存在。
+                #
+                # 这不是异常状态，而是重复提交：用户在界面上再点一次冻结，
+                # 或者换了个新令牌又冻结了同一份内容。原先这里直接让
+                # IntegrityError 冒到 API 层，返回 500 Internal Server Error，
+                # 于是一次无害的重复点击看起来像服务器崩了。
+                #
+                # 但如果既有计划的确认人不是当前主体，就**不能**当幂等返回：
+                # 那等于把一个属于别人的冻结结果回给了调用方。
+                if "idempotency_key" not in str(exc):
+                    raise
+                existing = self.con.execute(
+                    "SELECT plan_id,status,confirmed_by,frozen_at,expires_at "
+                    "FROM simulation_plan WHERE idempotency_key=?", (idempotency_key,),
+                ).fetchone()
+                if existing is None:
+                    raise
+                if not hmac.compare_digest(str(existing["confirmed_by"]),
+                                           str(confirm_subject)):
+                    raise PlanError(
+                        "STALE_SNAPSHOT",
+                        "this plan was already frozen by another subject",
+                        preview.plan_id,
+                        "use the plan that was frozen, or re-preview under your own account",
+                    )
+                self.con.execute(
+                    "UPDATE plan_confirmation SET consumed_at=? WHERE confirmation_id=? "
+                    "AND consumed_at IS NULL",
+                    (_iso(now), confirmation["confirmation_id"]),
+                )
+                return {
+                    "plan_id": existing["plan_id"],
+                    "status": existing["status"],
+                    "frozen_at": existing["frozen_at"],
+                    "expires_at": existing["expires_at"],
+                    "confirmed_by": existing["confirmed_by"],
+                    "idempotency_key": idempotency_key,
+                    "idempotent_replay": True,
+                    "note": ("freeze already applied for this plan version and account "
+                             "version; returned the existing frozen plan instead of "
+                             "creating a second one"),
+                }
             # 冻结的计划拥有自己的订单列表：订单在冻结时一次性写入，此后不可变。
             # 卖单排在前面（§12.4 先卖后买），序号即稳定序。
             ordered = ([o for o in preview.orders if o["side"] == "SELL"]

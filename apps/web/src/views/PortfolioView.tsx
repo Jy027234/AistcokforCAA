@@ -2,15 +2,17 @@ import type { WorkspaceData } from "../lib/types";
 import type { PreviewResponse } from "../lib/api";
 import { Badge, Callout, Card, Empty, Section } from "../components/ui";
 import { DraftPanel } from "../components/DraftPanel";
+import { LedgerPanel } from "../components/LedgerPanel";
 
 /** 组合：模型、事件影子、用户组合；草稿、模拟订单、持仓、账本（§5.2）。
  *  交互原则：自选与模拟持仓在视觉与权限上分离。
  *
- *  账本数据在当前阶段尚未从后端读取，因此这里**明确显示未接入**，
- *  而不是用占位数字冒充。
+ *  冻结之后的执行、估值与对账由 LedgerPanel 接通；账本数字全部来自服务端，
+ *  界面只做展示换算。API 离线时账本段明确显示不可用，不用占位数字冒充。
  */
 export function PortfolioView({
   data, onConfirm, onRequestPreview, livePreview, apiUp, confirming, confirmResult,
+  frozenPlanId,
 }: {
   data: WorkspaceData;
   onConfirm: () => void;
@@ -19,6 +21,8 @@ export function PortfolioView({
   apiUp: boolean | null;
   confirming: boolean;
   confirmResult: { ok: boolean; message: string } | null;
+  /** 已成功冻结的计划 ID；为空表示还没有可执行的计划。 */
+  frozenPlanId: string | null;
 }) {
   return (
     <>
@@ -66,13 +70,26 @@ export function PortfolioView({
         />
       </Section>
 
-      <Section title="账本">
-        <Card>
-          <Callout tone="warn" title="账本尚未接入此视图">
-            成交、费用明细、持仓批次、现金与应收账本目前只在后端账本中可查。
-            此视图**不会**用占位数字冒充账本数据。
-          </Callout>
-        </Card>
+      <Section
+        title="账本"
+        hint="执行、估值、对账全部来自服务端账本"
+      >
+        {apiUp === false ? (
+          <Card>
+            <Callout tone="warn" title="写操作不可用">
+              工作台 API 未运行，因此执行、估值与对账都不可用。
+              界面不会在离线时显示任何未经服务端计算的账本数字。
+            </Callout>
+          </Card>
+        ) : (
+          <LedgerPanel
+            portfolioId={data.draft.portfolioId}
+            snapshotId={data.status.snapshotId}
+            tradingDay={data.draft.tradingDay}
+            planId={frozenPlanId}
+            frozen={frozenPlanId !== null}
+          />
+        )}
       </Section>
 
       <Section title="自选">

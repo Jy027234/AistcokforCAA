@@ -12,6 +12,20 @@ function toCst(iso: string): Date | null {
 export type Tone = "ok" | "warn" | "danger" | "neutral" | "accent";
 export type CalloutTone = Tone | "info";
 
+/** 金额展示：账本一律用**整数分**传输，前端只做显示换算。
+ *
+ * 不在这里做任何再计算——净值、应收、费用都是服务端算好的事实。
+ * 前端算第二遍就会出现"界面上的数字和账本不一样"这种最难查的问题。
+ */
+export function formatCents(cents: number | null | undefined): string {
+  if (cents === null || cents === undefined || !Number.isFinite(cents)) return "—";
+  const sign = cents < 0 ? "-" : "";
+  const abs = Math.abs(Math.trunc(cents));
+  const yuan = Math.floor(abs / 100);
+  const fen = String(abs % 100).padStart(2, "0");
+  return sign + yuan.toLocaleString("en-US") + "." + fen + " 元";
+}
+
 export function formatAsOf(iso: string): string {
   const d = toCst(iso);
   if (!d) return iso;

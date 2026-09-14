@@ -227,6 +227,18 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .kv dt { color: var(--text-3); }
 .kv dd { margin: 0; }
 
+/* 操作行：把"这一步能做什么"排成一行，禁用态也要看得见为什么 */
+.row-actions {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface-2);
+}
+.row-actions .checkbox {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12.5px; color: var(--text-2); margin-left: 4px; cursor: pointer;
+}
+.row-actions .checkbox input { accent-color: var(--accent); cursor: pointer; }
+
 /* 排名条：明确标注这是排名，不是概率 */
 .rankbar { display: flex; align-items: center; gap: 9px; }
 .rankbar-track {

@@ -335,6 +335,55 @@ def test_execute_recognises_dividend_receivable_on_ex_date(client):
     assert rec["reconciled"] is True, rec
 
 
+def test_freezing_the_same_plan_twice_is_idempotent(client):
+    """重复冻结同一份内容必须幂等，而不是 500。
+
+    真实的网页交互会走到这里：用户确认冻结后，冻结结果只存在于前端内存里；
+    一旦刷新页面（或再点一次），前端会重新预览、重新取令牌、再冻结一次。
+    此时幂等键（组合 + 计划版本 + 账户版本）完全相同，而计划已经存在，
+    于是 INSERT 撞上唯一约束——原先直接让 sqlite3.IntegrityError 冒到
+    API 层返回 500 Internal Server Error，一次无害的重复点击看起来
+    像服务器崩了。
+    """
+
+    pid = preview(client).json()["planId"]
+    first = freeze(client, pid, confirm(client, pid).json()["confirmationToken"])
+    assert first.status_code == 200, first.text
+    assert first.json()["status"] == "FROZEN"
+    assert not first.json().get("idempotent_replay")
+
+    # 同一份计划、同一个账户状态，再冻结一次
+    again = freeze(client, pid, confirm(client, pid).json()["confirmationToken"])
+    assert again.status_code == 200, again.text
+    body = again.json()
+    assert body["idempotent_replay"] is True, body
+    assert body["plan_id"] == pid
+
+    # 幂等返回不等于又冻了一份：计划必须只有一条
+    plans = client.app.state.aquant.service
+    count = plans.con.execute(
+        "SELECT COUNT(*) AS n FROM simulation_plan WHERE idempotency_key=?",
+        (body["idempotency_key"],)).fetchone()["n"]
+    assert count == 1, "重复冻结不得产生第二条计划"
+
+
+def test_another_subject_cannot_claim_the_frozen_plan(client):
+    """幂等只在**同一主体**内成立。
+
+    换个人来冻结同一份内容不能拿到别人的冻结结果——那等于把属于
+    另一个用户的计划回给调用方。
+    """
+
+    pid = preview(client).json()["planId"]
+    assert freeze(client, pid, confirm(client, pid).json()["confirmationToken"])         .status_code == 200
+
+    bob = {"X-Aquant-Subject": "user:bob"}
+    token = client.post(f"/api/v1/plans/{pid}/confirmation", headers=bob)         .json()["confirmationToken"]
+    r = freeze(client, pid, token, headers=bob)
+    assert r.status_code == 409, r.text
+    assert "another subject" in r.json()["error"]["message"]
+
+
 def test_dividend_cannot_carry_impossible_dates(client):
     """到账日早于除权日必须被拒，不得静默接受。"""
 

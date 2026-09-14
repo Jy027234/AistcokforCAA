@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -92,12 +94,43 @@ class AppState:
         self.previews: dict[str, Any] = {}
 
 
+def _data_dir_from_env() -> Path | None:
+    """从环境变量决定数据目录。
+
+    `AQUANT_DATA_DIR` 指向固定目录时，账本与快照会**跨重启保留**；
+    `AQUANT_RESET_DATA=1` 会在启动时清空该目录（显式清除、而非静默重建）。
+
+    这两个开关是为验证服务的：界面写路径的检查需要一个**干净且隔离**的
+    账本，否则上一次运行冻结的计划会留到下一次，让重复运行的结论不可信。
+    默认（都不设）仍然是临时目录，不会碰到任何已有数据。
+    """
+
+    raw = os.environ.get("AQUANT_DATA_DIR")
+    data_dir = Path(raw).expanduser() if raw else None
+
+    if os.environ.get("AQUANT_RESET_DATA") == "1":
+        if data_dir is None:
+            # 没有指定目录就"重置"等于删掉一个随机临时目录，毫无意义，
+            # 而且会让人误以为数据被清了。直接拒绝，避免静默的错误结论。
+            raise RuntimeError(
+                "AQUANT_RESET_DATA=1 需要同时设置 AQUANT_DATA_DIR，"
+                "否则无法确定要清空哪个目录"
+            )
+        if data_dir.exists():
+            shutil.rmtree(data_dir)
+        print(f"[api] AQUANT_RESET_DATA=1：已清空 {data_dir}")
+
+    return data_dir
+
+
 def build_state(data_dir: Path | None = None) -> AppState:
     """构建状态。默认在临时目录自举一份合成快照，使 API 可独立运行。"""
 
     import sys
     import tempfile
 
+    if data_dir is None:
+        data_dir = _data_dir_from_env()
     if data_dir is None:
         data_dir = Path(tempfile.mkdtemp(prefix="aquant-api-"))
     data_dir.mkdir(parents=True, exist_ok=True)
@@ -165,10 +198,37 @@ class ValueRequest(BaseModel):
 # ======================================================================
 # 应用
 # ======================================================================
+def _cors_origins_from_env() -> list[str]:
+    """允许跨源的来源清单，默认**为空**（即不开启 CORS）。
+
+    开发时前端通过 Vite 代理访问同源 `/api`，因此不需要 CORS。
+    但把前端与 API 分开部署（或分别指向不同端口的实例做隔离验证）时，
+    浏览器会先发预检请求——那时代理帮不上忙，必须由 API 明确放行。
+
+    用清单而不是 `*`：这个服务的写端点会改变模拟账本，
+    对任意来源开放等于让任何网页都能调用它。
+    """
+
+    raw = os.environ.get("AQUANT_CORS_ORIGINS", "")
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
 def create_app(state: AppState | None = None) -> FastAPI:
     app = FastAPI(title="A-Quant Lab API", version="0.1.0",
                   description="研究与模拟决策工作台。模拟账户，不连接券商。")
     app.state.aquant = state or build_state()
+
+    cors_origins = _cors_origins_from_env()
+    if cors_origins:
+        from fastapi.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=cors_origins,
+            allow_methods=["GET", "POST", "OPTIONS"],
+            allow_headers=["Content-Type", "X-Aquant-Subject"],
+            max_age=600,
+        )
 
     def svc(request: Request) -> AppState:
         return request.app.state.aquant

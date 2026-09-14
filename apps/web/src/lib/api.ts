@@ -16,7 +16,23 @@ export interface ApiError {
   repairAction: string;
 }
 
-const BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? "";
+/** API 基地址。
+ *
+ * 优先取运行时注入的 `window.__AQUANT_API_BASE__`，其次取构建期的
+ * `VITE_API_BASE`，最后回落到同源（由 Vite 代理或反向代理转发 /api）。
+ *
+ * 为什么要有运行时那一层：同一份构建产物需要在不同环境指向不同后端。
+ * 只认构建期变量的话，验证时就得为每个环境重新构建一次，
+ * 而"验证用的产物"和"部署用的产物"不是同一份，验证的意义就打折了。
+ */
+declare global {
+  interface Window { __AQUANT_API_BASE__?: string }
+}
+
+const BASE =
+  (typeof window !== "undefined" ? window.__AQUANT_API_BASE__ : undefined) ??
+  (import.meta.env.VITE_API_BASE as string | undefined) ??
+  "";
 
 /** 演示用的受信任主体头。
  *
@@ -103,6 +119,76 @@ export interface PreviewResponse {
   notes: string[];
 }
 
+export interface DividendInput {
+  action_id: string;
+  instrument_id: string;
+  record_date: string;
+  ex_date: string;
+  pay_date: string;
+  cash_per_share_cents: number;
+  tax_treatment?: "PRE_TAX" | "CONSERVATIVE" | "VERIFIED";
+}
+
+export interface FillRow {
+  fill_id: string;
+  order_id: string;
+  instrument_id: string;
+  side: string;
+  quantity: number;
+  price_cents: number;
+  fees_total_cents: number;
+}
+
+export interface CorporateActionOutcome {
+  action_id: string;
+  instrument_id: string;
+  /** EX_DATE = 当日确认应收；PAY_DATE = 当日转入现金；null = 当日无推进 */
+  stage: "EX_DATE" | "PAY_DATE" | null;
+  receivable_cents: number;
+  cash_delta_cents: number;
+  entitlement_shares: number;
+  note: string;
+}
+
+export interface ExecuteResponse {
+  plan_id: string;
+  status: string;
+  trading_day: string;
+  fills: FillRow[];
+  rejections: { order_id?: string; instrument_id?: string; reason?: string;
+                reason_label?: string; detail?: string }[];
+  cash_entries: { entry_type: string; amount_cents: number }[];
+  lots_created: string[];
+  corporate_actions?: CorporateActionOutcome[];
+}
+
+export interface ValuationResponse {
+  portfolio_id?: string;
+  trading_day: string;
+  cash_available_cents: number;
+  cash_frozen_cents: number;
+  receivables_cents: number;
+  positions_value_cents: number;
+  payables_cents: number;
+  net_value_cents: number;
+  published: boolean;
+  invariants?: Record<string, boolean>;
+  violations?: { code?: string; message?: string; repair_action?: string }[];
+}
+
+export interface ReconcileResponse {
+  portfolio_id: string;
+  cash_cents: number;
+  positions: Record<string, number>;
+  receivables_cents: number;
+  fill_count: number;
+  fees_total_cents: number;
+  invariants: Record<string, unknown> & { violations?: unknown[] };
+  valuation_cash_matches_ledger: boolean;
+  valuation_receivables_matches_ledger: boolean;
+  reconciled: boolean;
+}
+
 export const api = {
   health: () => request<{ status: string }>("/api/v1/health"),
 
@@ -126,19 +212,28 @@ export const api = {
       { method: "POST", body: JSON.stringify({ plan_id: planId, confirmation_token: token }) },
     ),
 
-  execute: (planId: string) =>
-    request<Record<string, unknown>>(
+  /** 执行已冻结的计划。
+   *
+   * corporate_actions 只描述"当天有哪些公司行为"，**不描述谁享有多少**：
+   * 权利由服务端按登记日收盘持仓计算。前端能提供股数或金额就等于
+   * 让调用方决定账本，那正是这条链路要防住的事。
+   */
+  execute: (planId: string, corporateActions: DividendInput[] = []) =>
+    request<ExecuteResponse>(
       "/api/v1/plans/" + encodeURIComponent(planId) + "/execute",
-      { method: "POST", body: JSON.stringify({ plan_id: planId }) },
+      {
+        method: "POST",
+        body: JSON.stringify({ plan_id: planId, corporate_actions: corporateActions }),
+      },
     ),
 
   value: (body: { portfolio_id: string; snapshot_id: string; trading_day: string }) =>
-    request<Record<string, unknown>>("/api/v1/valuations", {
+    request<ValuationResponse>("/api/v1/valuations", {
       method: "POST", body: JSON.stringify(body),
     }),
 
   reconcile: (portfolioId: string) =>
-    request<Record<string, unknown>>(
+    request<ReconcileResponse>(
       "/api/v1/portfolios/" + encodeURIComponent(portfolioId) + "/reconcile",
     ),
 };

@@ -8,6 +8,15 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      运行时 API 基地址。留空则用同源（Vite 代理或反向代理转发 /api）。
+      需要在不同后端之间切换时，由部署方在此注入一行
+      window.__AQUANT_API_BASE__ = "https://..."; 即可，
+      不必为每个环境重新构建前端产物。
+    -->
+    <script>
+      window.__AQUANT_API_BASE__ = window.__AQUANT_API_BASE__ || "";
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
