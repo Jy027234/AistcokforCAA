@@ -52,7 +52,9 @@ class QuoteRow:
     low_cents: int
     close_cents: int
     volume_shares: int
-    amount_cents: int
+    #: 成交额。免费源不提供成交额（腾讯日线只有量，没有额），
+    #: 缺失时如实为 None，**不得用 价格×成交量 之类的方式补造**。
+    amount_cents: int | None
     prev_close_cents: int | None
     board_limit_up: bool = False
 
@@ -116,15 +118,45 @@ class SnapshotReader:
             )
 
     # ------------------------------------------------------------ quotes
+    @staticmethod
+    def _as_day_boundary(value: date | str | None, *, name: str) -> date | None:
+        """把区间边界规整为 date。
+
+        传进来一个 ISO 字符串时，`day > end` 会抛
+        "'>' not supported between instances of 'datetime.date' and 'str'"——
+        错误信息完全不提"边界传成了字符串"，排查成本很高。
+        这里显式规整并说明，把这类错误挡在入口。
+
+        日历日期是**本地日期**，不带时区；字符串一律按 ISO 日期解析，
+        不猜测其它格式（猜错日期会静默改变结果集，比报错危险得多）。
+        """
+
+        if value is None or isinstance(value, date):
+            return value
+        if isinstance(value, str):
+            try:
+                return date.fromisoformat(value)
+            except ValueError as exc:
+                raise TypeError(
+                    f"{name} must be a date or an ISO date string, got {value!r}"
+                ) from exc
+        raise TypeError(f"{name} must be a date or an ISO date string, "
+                        f"got {type(value).__name__}")
+
     def daily_quotes(self, snapshot_id: str, *, as_of: datetime,
                      instrument_id: str | None = None,
-                     start: date | None = None, end: date | None = None) -> list[QuoteRow]:
+                     start: date | str | None = None,
+                     end: date | str | None = None) -> list[QuoteRow]:
         """固定快照上的日行情。
 
         停牌等情况**没有行**——缺失即缺失，不得用前收填充（§12.3、S08）。
+
+        start/end 为闭区间边界，接受 date 或 ISO 日期字符串。
         """
 
         self._assert_as_of_within_snapshot(snapshot_id, as_of)
+        start = self._as_day_boundary(start, name="start")
+        end = self._as_day_boundary(end, name="end")
         raw = self._load_dataset(snapshot_id, "daily_quotes")
         out: list[QuoteRow] = []
         for q in raw:
@@ -139,7 +171,8 @@ class SnapshotReader:
                 instrument_id=q["instrument_id"], trading_day=day,
                 open_cents=q["open_cents"], high_cents=q["high_cents"],
                 low_cents=q["low_cents"], close_cents=q["close_cents"],
-                volume_shares=q["volume_shares"], amount_cents=q["amount_cents"],
+                volume_shares=q["volume_shares"],
+                amount_cents=q.get("amount_cents"),
                 prev_close_cents=q.get("prev_close_cents"),
                 board_limit_up=bool(q.get("board_limit_up")),
             ))

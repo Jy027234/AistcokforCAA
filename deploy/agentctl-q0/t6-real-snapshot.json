@@ -1,0 +1,95 @@
+{
+  "ran_at": "2026-09-14T12:31:28.271835+00:00",
+  "snapshot_id": "snap-real-61d",
+  "data_mode": "PRODUCTION",
+  "watermark": "REAL MARKET DATA, RECONSTRUCTED POINT-IN-TIME -- NOT VALID FOR FORMAL PIT BACKTESTS",
+  "pit_mode": "HISTORICAL_RECONSTRUCTED",
+  "available_basis": "RECONSTRUCTED",
+  "window": {
+    "first_day": "2026-06-22",
+    "last_day": "2026-09-14",
+    "trading_days": 61
+  },
+  "symbols": [
+    "sh600519",
+    "sz000001",
+    "sh601398",
+    "sz300750"
+  ],
+  "quote_count": 244,
+  "missing_quote_count": 0,
+  "calendar_source": "tencent-ifzq",
+  "checks": [
+    {
+      "name": "日历来自真实交易日",
+      "ok": true,
+      "detail": "tencent-ifzq 2026-06-22..2026-09-14 共 61 天"
+    },
+    {
+      "name": "日历不含周末",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "行情覆盖率 100%（缺失即缺失，不补造）",
+      "ok": true,
+      "detail": "244/244；缺失 0 条"
+    },
+    {
+      "name": "价格为正整数分",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "low<=open,close<=high",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "行业分类未被编造",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "入库证券数正确",
+      "ok": true,
+      "detail": "4"
+    },
+    {
+      "name": "入库交易日数正确",
+      "ok": true,
+      "detail": "61"
+    },
+    {
+      "name": "快照已发布",
+      "ok": true,
+      "detail": "snap-real-61d"
+    },
+    {
+      "name": "读取器能读到真实行情",
+      "ok": true,
+      "detail": "SH.600519 截至 2026-08-03 共 31 条"
+    },
+    {
+      "name": "读取器不返回超过截止日的数据",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "未来时点读取被拒绝",
+      "ok": true,
+      "detail": "SnapshotError"
+    },
+    {
+      "name": "归档留下了收据",
+      "ok": true,
+      "detail": "5 条"
+    },
+    {
+      "name": "归档内容可哈希复核",
+      "ok": true,
+      "detail": ""
+    }
+  ],
+  "conclusion": "PASS"
+}

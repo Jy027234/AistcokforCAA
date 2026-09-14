@@ -384,6 +384,77 @@ def test_another_subject_cannot_claim_the_frozen_plan(client):
     assert "another subject" in r.json()["error"]["message"]
 
 
+# ============================================================== 流动性筛选
+def test_liquidity_threshold_is_actually_enforced(client):
+    """配置里写着流动性下限，就必须真的筛。
+
+    此前 `liquidity_min_avg_amount_cents` 只出现在参数类与示例配置里，
+    没有任何代码读取它——使用者会以为组合已经按流动性筛过，
+    实际上门槛完全没生效。这类"配置存在但不生效"比缺功能更危险，
+    因为它看起来是打开的。
+    """
+
+    import dataclasses
+
+    service = client.app.state.aquant.service
+    original = service.params
+
+    # 阈值低于任何合理成交额：不应排除任何人
+    service.params = dataclasses.replace(original, liquidity_min_avg_amount_cents=1)
+    r = preview(client)
+    assert r.status_code == 200, r.text
+    assert r.json()["excluded"] == [], r.json()["excluded"]
+
+    # 阈值高到不可能达到：所有候选都应被排除，且给出可读原因
+    service.params = dataclasses.replace(original, liquidity_min_avg_amount_cents=10 ** 15)
+    r2 = preview(client)
+    assert r2.status_code == 200, r2.text
+    excluded = r2.json()["excluded"]
+    assert excluded, "阈值极高时必须筛掉候选"
+    assert all(e["reason"] == "LIQUIDITY_BELOW_MINIMUM" for e in excluded), excluded
+    assert all("均成交额" in e["detail"] for e in excluded), excluded
+
+    service.params = original
+
+
+def test_missing_turnover_does_not_pass_the_liquidity_gate(client):
+    """没有成交额时必须排除并说明，不得当作"通过"。
+
+    免费源的腾讯日线只提供成交量、没有成交额。若把"没有数据"当成
+    "没超限"，门槛就形同虚设；若用 价格×成交量 估算，则是拿一个
+    未观测的数字做准入判断。
+    """
+
+    import dataclasses
+
+    service = client.app.state.aquant.service
+    original = service.params
+    # 参数是不可变的实验版本（§11.2），改阈值要换成新版本而不是原地改
+    service.params = dataclasses.replace(original, liquidity_min_avg_amount_cents=1)
+
+    # 抹掉候选的成交额，模拟只有量的数据源
+    real_reader = service.reader
+    original_daily = real_reader.daily_quotes
+
+    def without_amount(*args, **kwargs):  # noqa: ANN001, ANN202
+        rows = original_daily(*args, **kwargs)
+        return [type(r)(**{**{f: getattr(r, f) for f in r.__slots__},
+                           "amount_cents": None}) for r in rows]
+
+    real_reader.daily_quotes = without_amount
+    try:
+        r = preview(client)
+        assert r.status_code == 200, r.text
+        # 候选被筛掉之后可能没有订单，但排除原因必须出现
+        excluded = r.json()["excluded"]
+        assert excluded, "无成交额时不得静默放行"
+        assert all(e["reason"] == "LIQUIDITY_UNVERIFIED" for e in excluded), excluded
+        assert all("估算" in e["detail"] for e in excluded), excluded
+    finally:
+        real_reader.daily_quotes = original_daily
+        service.params = original
+
+
 def test_dividend_cannot_carry_impossible_dates(client):
     """到账日早于除权日必须被拒，不得静默接受。"""
 

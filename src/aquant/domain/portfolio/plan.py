@@ -241,6 +241,52 @@ class PlanService:
                 out[iid] = sum(r.volume_shares for r in history) // len(history)
         return out
 
+    def _filter_by_liquidity(self, *, snapshot_id: str, trading_day: date,
+                             as_of: datetime, candidates: list[Candidate],
+                             ) -> tuple[list[Candidate], list[dict]]:
+        """按近 N 日均成交额筛掉流动性不足的候选。
+
+        三条不可让渡的规则：
+
+        1. **未配置阈值就不筛**（阈值 None）。免费源的腾讯日线只有成交量、
+           没有成交额，默认给一个阈值会让筛选把所有标的排除；
+        2. **只看执行日之前已知的数据**，与 §12.4 的 ADV 口径一致；
+        3. **成交额缺失就明确排除并说明原因**，绝不用 价格×成交量 补造——
+           那是在用一个没观测到的数字做准入判断。
+        """
+
+        threshold = self.params.liquidity_min_avg_amount_cents
+        if threshold is None:
+            return list(candidates), []
+
+        lookback = self.params.liquidity_lookback_days
+        kept: list[Candidate] = []
+        excluded: list[dict] = []
+        for candidate in candidates:
+            rows = self.reader.daily_quotes(
+                snapshot_id, as_of=as_of, instrument_id=candidate.instrument_id,
+                end=trading_day,
+            )
+            history = [r for r in rows if r.trading_day < trading_day][-lookback:]
+            amounts = [r.amount_cents for r in history if r.amount_cents is not None]
+            if not amounts:
+                excluded.append({
+                    "instrument_id": candidate.instrument_id,
+                    "reason": "LIQUIDITY_UNVERIFIED",
+                    "detail": (f"近 {lookback} 个交易日无成交额数据，无法证明满足"
+                               f"流动性下限；不使用估算值"),
+                })
+                continue
+            average = sum(amounts) // len(amounts)
+            if average < threshold:
+                excluded.append({
+                    "instrument_id": candidate.instrument_id,
+                    "reason": "LIQUIDITY_BELOW_MINIMUM",
+                    "detail": (f"近 {lookback} 日均成交额 {average} 分 < 下限 {threshold} 分"),
+                })
+                continue
+            kept.append(candidate)
+        return kept, excluded
     # ------------------------------------------------------------ preview
     def preview(
         self,
@@ -277,11 +323,19 @@ class PlanService:
         equity = cash_available_cents + sum(
             q * bars[i].close_cents for i, q in held_qty.items() if i in bars
         )
+        # 流动性在**此处**筛，不在 construct_targets 里：那里拿不到行情。
+        # 配置里写着阈值却不生效，比没有这个配置更糟——使用者会以为
+        # 组合已经按流动性筛过了。
+        liquid, liquidity_excluded = self._filter_by_liquidity(
+            snapshot_id=snapshot_id, trading_day=trading_day, as_of=as_of,
+            candidates=candidates,
+        )
         construction = construct_targets(
-            candidates=candidates, params=self.params, held=held_qty,
+            candidates=liquid, params=self.params, held=held_qty,
             held_industry_value=held_industry_value, equity_value_cents=equity,
             bar_by_instrument=bars,
         )
+        construction.excluded.extend(liquidity_excluded)
 
         orders = weights_to_orders(
             targets=construction.targets, params=self.params,

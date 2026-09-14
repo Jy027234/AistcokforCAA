@@ -46,7 +46,14 @@ class ConstructionParams:
     max_single_name_pct: Decimal = Decimal("10")
     max_single_industry_pct: Decimal = Decimal("30")
     exclude_listing_days: int = 120
-    liquidity_min_avg_amount_cents: int = 5_000_000_000
+    #: 流动性下限（按成交额，单位分）。
+    #: 
+    #: 为 None 表示**不做流动性筛选**，这是免费源下的正确缺省：
+    #: 腾讯日线只有成交量、没有成交额，若给一个默认阈值，筛选会因为
+    #: "没有成交额"而把所有标的都排除，或者更糟——用 价格×成交量 补造
+    #: 成交额，然后假装那是观测到的流动性。两种情况都不该发生。
+    #: 需要成交额门槛时必须显式给值，并自行确保证据里确实有成交额。
+    liquidity_min_avg_amount_cents: int | None = None
     liquidity_lookback_days: int = 20
     retention_buffer_top_n: int = 30
 
