@@ -1,4 +1,5 @@
 import type { WorkspaceData } from "../lib/types";
+import type { PreviewResponse } from "../lib/api";
 import { Badge, Callout, Card, Empty, Section } from "../components/ui";
 import { DraftPanel } from "../components/DraftPanel";
 
@@ -9,10 +10,13 @@ import { DraftPanel } from "../components/DraftPanel";
  *  而不是用占位数字冒充。
  */
 export function PortfolioView({
-  data, onConfirm, confirming, confirmResult,
+  data, onConfirm, onRequestPreview, livePreview, apiUp, confirming, confirmResult,
 }: {
   data: WorkspaceData;
   onConfirm: () => void;
+  onRequestPreview: () => void;
+  livePreview: PreviewResponse | null;
+  apiUp: boolean | null;
   confirming: boolean;
   confirmResult: { ok: boolean; message: string } | null;
 }) {
@@ -42,9 +46,20 @@ export function PortfolioView({
         </div>
       </Section>
 
-      <Section title="草稿与确认">
+      <Section
+        title="草稿与确认"
+        hint={apiUp === null ? "正在检测服务…" : undefined}
+        actions={
+          apiUp === false ? <Badge tone="warn">API 离线 · 仅只读夹具</Badge>
+          : apiUp === true ? <Badge tone="ok">API 在线</Badge>
+          : <Badge tone="neutral">检测中</Badge>
+        }
+      >
         <DraftPanel
           draft={data.draft}
+          livePreview={livePreview}
+          apiUp={apiUp}
+          onRequestPreview={onRequestPreview}
           onConfirm={onConfirm}
           confirming={confirming}
           confirmResult={confirmResult}

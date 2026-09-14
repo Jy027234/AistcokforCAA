@@ -212,6 +212,29 @@ def test_supplied_cash_must_match_ledger(client):
     assert "ledger" in envelope["message"], payload
 
 
+def test_preview_works_again_after_the_account_has_traded(client):
+    """回归：执行过一轮之后，再次预览必须仍然可用。
+
+    预览是**只读入口**，它只是要求账户存在，并不声明账户状态；
+    若拿一个占位开户金额去和已经变化的账本比对，第二次预览会永远 409，
+    而用户其实只是"再看看"。真正的比对属于冻结与执行。
+    """
+
+    pv = preview(client).json()
+    pid = pv["planId"]
+    tok = confirm(client, pid).json()["confirmationToken"]
+    assert freeze(client, pid, tok).status_code == 200
+    assert client.post(f"/api/v1/plans/{pid}/execute",
+                       json={"plan_id": pid}, headers=USER).status_code == 200
+
+    again = preview(client)
+    assert again.status_code == 200, again.text
+    body = again.json()
+    assert body["frozen"] is False
+    # 账户已建仓，订单应反映当前持仓而不是重新建仓
+    assert "planId" in body
+
+
 def test_execute_requires_subject(client):
     pid = preview(client).json()["planId"]
     r = client.post(f"/api/v1/plans/{pid}/execute", json={"plan_id": pid})

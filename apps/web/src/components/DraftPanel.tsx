@@ -1,4 +1,5 @@
 import type { Draft } from "../lib/types";
+import type { PreviewResponse } from "../lib/api";
 import { Badge, Callout, Card } from "../components/ui";
 
 /** 模拟草稿与差异预览（§5.4 底部、§5.5）。
@@ -7,14 +8,18 @@ import { Badge, Callout, Card } from "../components/ui";
  * 自选与模拟持仓在这里保持分离：本面板只展示模拟持仓相关草稿。
  */
 export function DraftPanel({
-  draft, onConfirm, confirming, confirmResult,
+  draft, livePreview, apiUp, onRequestPreview, onConfirm, confirming, confirmResult,
 }: {
   draft: Draft;
+  livePreview: PreviewResponse | null;
+  apiUp: boolean | null;
+  onRequestPreview: () => void;
   onConfirm: () => void;
   confirming: boolean;
   confirmResult: { ok: boolean; message: string } | null;
 }) {
   const failed = draft.ruleChecks.filter((c) => !c.passed);
+  const offline = apiUp === false;
 
   return (
     <Card
@@ -115,6 +120,38 @@ export function DraftPanel({
         </>
       )}
 
+      {/* 服务端预览：与夹具来源不同，必须让使用者分得清哪份数字是服务端算的 */}
+      <div style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+          <button className="btn btn-sm" onClick={onRequestPreview} disabled={offline}>
+            请求服务端预览
+          </button>
+          {livePreview ? (
+            <Badge tone="ok">服务端预览已生成 · {livePreview.orders.length} 笔</Badge>
+          ) : (
+            <span className="note">当前显示的是只读夹具数据</span>
+          )}
+        </div>
+        {livePreview && (
+          <Callout tone="info" title="服务端预览结果">
+            <dl className="kv">
+              <dt>计划 ID</dt><dd className="mono">{livePreview.planId}</dd>
+              <dt>参考价日</dt>
+              <dd>{livePreview.reference_price_day ?? "—"}
+                <span className="note">（执行日之前，不使用当日价格）</span></dd>
+              <dt>预计费用</dt><dd className="mono">{livePreview.estimatedFeesCents} 分</dd>
+              <dt>状态</dt><dd><Badge tone="neutral">{livePreview.frozenLabel}</Badge></dd>
+            </dl>
+          </Callout>
+        )}
+        {offline && (
+          <Callout tone="warn" title="写操作不可用">
+            工作台 API 未运行，因此预览、确认与冻结都不可用。
+            界面不会在离线时伪造一次成功的冻结。
+          </Callout>
+        )}
+      </div>
+
       <div style={{ marginTop: 16 }}>
         {failed.length > 0 ? (
           <Callout tone="warn" title="存在未通过的规则检查，不能冻结">
@@ -139,7 +176,7 @@ export function DraftPanel({
           <button
             className="btn btn-primary"
             onClick={onConfirm}
-            disabled={confirming || failed.length > 0 || draft.orders.length === 0}
+            disabled={confirming || failed.length > 0 || draft.orders.length === 0 || offline}
           >
             {confirming ? "冻结中…" : draft.confirmAction.label}
           </button>

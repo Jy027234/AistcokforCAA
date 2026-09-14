@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { LoadState, WorkspaceData } from "./lib/types";
 import { formatRelative } from "./lib/format";
 import { TopBar, StatusDrawer, type Tab } from "./components/TopBar";
+import { api, AquantApiError, type PreviewResponse } from "./lib/api";
 import { ErrorState, Loading } from "./components/ui";
 import { EvidenceDrawer } from "./components/ResearchCard";
 import { TodayView } from "./views/TodayView";
@@ -41,6 +42,9 @@ export default function App() {
   const [confirming, setConfirming] = useState(false);
   const [confirmResult, setConfirmResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  //: 服务端实时预览。为 null 时界面回退到只读夹具，并明确标注来源。
+  const [livePreview, setLivePreview] = useState<PreviewResponse | null>(null);
+  const [apiUp, setApiUp] = useState<boolean | null>(null);
 
   const load = useCallback(async () => {
     setState({ kind: "loading" });
@@ -64,6 +68,44 @@ export default function App() {
   useEffect(() => { void load(); }, [load]);
 
   const data = state.kind === "ready" ? state.data : null;
+
+  // 探测 API。界面不假装它在线——离线时明确显示为只读预览。
+  useEffect(() => {
+    if (!data) return;
+    let alive = true;
+    api.health()
+      .then(() => { if (alive) setApiUp(true); })
+      .catch(() => { if (alive) setApiUp(false); });
+    return () => { alive = false; };
+  }, [data]);
+
+  const explain = useCallback((err: unknown): string => {
+    if (err instanceof AquantApiError) {
+      return err.envelope.message + "（" + err.envelope.code + "）\n修复：" +
+             err.envelope.repairAction;
+    }
+    return err instanceof Error ? err.message : String(err);
+  }, []);
+
+  /** 第一步：向服务端请求预览。只算不冻。 */
+  const onRequestPreview = useCallback(async () => {
+    if (!data) return;
+    setNotice(null);
+    setConfirmResult(null);
+    try {
+      const pv = await api.preview({
+        portfolio_id: data.draft.portfolioId,
+        snapshot_id: data.status.snapshotId,
+        trading_day: data.draft.tradingDay,
+      });
+      setLivePreview(pv);
+      setNotice("服务端预览已生成：" + pv.orders.length + " 笔订单，参考价日 " +
+                (pv.reference_price_day ?? "—") + "（执行日之前）。仍未冻结。");
+    } catch (err) {
+      setNotice("预览失败：" + explain(err));
+    }
+  }, [data, explain]);
+
   const evidenceCard = useMemo(
     () => (data && evidenceFor
       ? data.researchCards.find((c) => c.instrumentId === evidenceFor) ?? null
@@ -85,20 +127,39 @@ export default function App() {
     }
   }, []);
 
-  const onConfirm = useCallback(() => {
+  /** 第二步：取服务端签发的一次性令牌，第三步用它冻结。
+   *
+   * 令牌由服务端绑定主体、计划、快照、账户版本与完整预览哈希；
+   * 前端只负责传递，不负责声明身份。
+   */
+  const onConfirm = useCallback(async () => {
+    if (!data) return;
     setConfirming(true);
     setConfirmResult(null);
-    // 当前阶段前端没有冻结接口；这里明确说明，而不是假装成功。
-    window.setTimeout(() => {
-      setConfirming(false);
+    try {
+      let pv = livePreview;
+      if (!pv) {
+        pv = await api.preview({
+          portfolio_id: data.draft.portfolioId,
+          snapshot_id: data.status.snapshotId,
+          trading_day: data.draft.tradingDay,
+        });
+        setLivePreview(pv);
+      }
+      const issued = await api.requestConfirmation(pv.planId);
+      const frozen = await api.freeze(pv.planId, issued.confirmationToken);
       setConfirmResult({
-        ok: false,
-        message:
-          "冻结接口尚未接入前端。后端已实现 freeze（含五项复核与人类主体校验），" +
-          "但本工作台当前为只读数据视图，不会伪造一次成功的冻结。",
+        ok: true,
+        message: "已冻结（服务端复核通过）。计划 ID " + pv.planId +
+                 "，冻结时间 " + String(frozen.frozen_at ?? "") +
+                 "。冻结后不可修改，成交将在执行时按规则计算。",
       });
-    }, 600);
-  }, []);
+    } catch (err) {
+      setConfirmResult({ ok: false, message: explain(err) });
+    } finally {
+      setConfirming(false);
+    }
+  }, [data, livePreview, explain]);
 
   return (
     <div className="app">
@@ -165,6 +226,9 @@ export default function App() {
               <PortfolioView
                 data={data}
                 onConfirm={onConfirm}
+                onRequestPreview={onRequestPreview}
+                livePreview={livePreview}
+                apiUp={apiUp}
                 confirming={confirming}
                 confirmResult={confirmResult}
               />

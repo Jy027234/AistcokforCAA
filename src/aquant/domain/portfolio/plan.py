@@ -386,13 +386,21 @@ class PlanService:
         return int(row["cash"])
 
     def _ensure_account(self, portfolio_id: str, *, initial_cash_cents: int,
-                        initial_lots: list[Lot], now: datetime) -> None:
-        """Create the account once, then require callers to match its authoritative ledger."""
+                        initial_lots: list[Lot], now: datetime,
+                        enforce_match: bool = True) -> None:
+        """Create the account once, then require callers to match its authoritative ledger.
+
+        enforce_match=False 用于**只读入口**（如预览）：调用方此刻并没有声明账户状态，
+        只是要求账户存在，因此不应拿一个占位开户金额去和已变化的账本比对。
+        真正的比对发生在冻结与执行——那时调用方必须与账本一致。
+        """
 
         existing = self.con.execute(
             "SELECT portfolio_id FROM portfolio WHERE portfolio_id=?", (portfolio_id,)
         ).fetchone()
         if existing is not None:
+            if not enforce_match:
+                return
             db_lots = self._load_lots(portfolio_id)
             db_cash = self._ledger_cash(portfolio_id)
             if _account_version(db_lots, db_cash) != _account_version(

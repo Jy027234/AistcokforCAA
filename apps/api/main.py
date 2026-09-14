@@ -256,8 +256,11 @@ def create_app(state: AppState | None = None) -> FastAPI:
         # 而随后的令牌签发会先建账户再读账本，两者版本不一致，冻结永远失败。
         # 因此这里先幂等建账，再统一从账本读取权威状态。
         opening = body.cash_available_cents or 100_000_000
+        # 预览只要求账户存在，不声明账户状态，因此不做账本比对
+        # （比对发生在冻结与执行，那时调用方必须与账本一致）。
         s.service._ensure_account(body.portfolio_id, initial_cash_cents=opening,
-                                  initial_lots=[], now=datetime.now(timezone.utc))
+                                  initial_lots=[], now=datetime.now(timezone.utc),
+                                  enforce_match=False)
         ledger_cash = s.service._ledger_cash(body.portfolio_id)
         ledger_lots = s.service._load_lots(body.portfolio_id)
         if body.cash_available_cents is not None and body.cash_available_cents != ledger_cash:
