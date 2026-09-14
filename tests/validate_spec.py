@@ -409,13 +409,19 @@ def check_configs() -> None:
         doc = yaml.safe_load(f.read_text(encoding="utf-8"))
         check(f"{f.name} 可解析", isinstance(doc, dict))
         check(f"{f.name} 声明了选择规则", bool(doc.get("selection_rule")))
-        check(f"{f.name} 声明了来源", bool(doc.get("universe_source_used")))
+        # 来源字段名允许两种：手工池写 universe_source_used（说明"本想用什么、
+        # 实际用什么"），自动生成的池写 source（说明生成自哪个缓存）。
+        # 两者都是"这条数据从哪来"，校验的是**有没有声明**，不是字段叫什么。
+        check(f"{f.name} 声明了来源",
+              bool(doc.get("universe_source_used") or doc.get("source")))
         entries = doc.get("instruments") or []
         check(f"{f.name} 证券数足够形成选择压力", len(entries) >= 10, str(len(entries)))
         check(f"{f.name} 每只证券都有交易所与板块", all(
             e.get("exchange") and e.get("board") for e in entries))
+        # 行业字段名同样允许两种：手工池 industry_code/industry_name，
+        # 自动池 industry（证监会全名）。
         check(f"{f.name} 每只证券都有行业分类", all(
-            e.get("industry_code") for e in entries))
+            e.get("industry_code") or e.get("industry") for e in entries))
 
 
 def main() -> int:
