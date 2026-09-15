@@ -1,0 +1,26 @@
+# 本地试运行编排。
+#
+#   docker compose up --build      构建并启动
+#   打开 http://127.0.0.1:8080     前端与 API 同端口
+#
+# 数据落在命名卷里，容器重建不会丢账本；
+# 想从零开始：docker compose down -v
+services:
+  aquant:
+    build: .
+    image: aquant-lab:local
+    ports:
+      - "8080:8000"
+    environment:
+      # 不设 AQUANT_SNAPSHOT_ID：让 API 用内置合成夹具自举一份快照，
+      # 这样容器一起来界面就有内容。指向真实快照时再设它，
+      # 并按 §12.6 提供券商佣金（否则真实数据会被费率闸门拒绝）。
+      AQUANT_SNAPSHOT_ID: ${AQUANT_SNAPSHOT_ID:-}
+      AQUANT_COMMISSION_RATE: ${AQUANT_COMMISSION_RATE:-}
+      AQUANT_COMMISSION_MIN_CENTS: ${AQUANT_COMMISSION_MIN_CENTS:-}
+    volumes:
+      - aquant-data:/data
+    restart: unless-stopped
+
+volumes:
+  aquant-data:

@@ -47,12 +47,19 @@ def test_fee_error_becomes_a_422_envelope_not_a_500(client):
     而不是只断言"我能构造一个 FeeError"。
     """
 
+    from fastapi import FastAPI
     from fastapi.testclient import TestClient as _TC
 
     from aquant.domain.simulation.fees import FeeError
     from main import create_app as _create
 
-    probe = _create(state=client.app.state.aquant)
+    # 刻意**不**用 create_app()：它会把前端产物挂在 "/" 上（部署用），
+    # 那个 catch-all 会吃掉这里临时注册的探针路由。
+    # 这条用例要验的是异常处理器，不是静态服务。
+    probe = FastAPI()
+    probe.state.aquant = client.app.state.aquant
+    for handler in client.app.exception_handlers.items():
+        probe.add_exception_handler(*handler)
 
     @probe.get("/api/v1/_probe_fee_error")
     def _boom():                                          # pragma: no cover

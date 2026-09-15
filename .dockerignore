@@ -1,0 +1,15 @@
+# 镜像里不需要的东西。**保留 tests/**：API 启动时用其中的合成夹具自举快照。
+.git
+apps/web/node_modules
+**/__pycache__
+**/*.pyc
+.pytest_cache
+deploy/agentctl-q0/baostock-archive
+deploy/agentctl-q0/forward-archive
+deploy/agentctl-q0/universe-bars.json
+deploy/universe-snapshot
+deploy/real-snapshot
+deploy/screens
+deploy/agentctl-q0/*.log
+deploy/agentctl-q0/daily-runs.jsonl
+deploy/agentctl-q0/daily-run.lock

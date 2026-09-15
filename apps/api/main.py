@@ -28,7 +28,8 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 from aquant.application.workspace_queries import events, portfolio_ledger
@@ -1480,7 +1481,41 @@ def create_app(state: AppState | None = None) -> FastAPI:
             lots=lots, cash_available_cents=s.service._ledger_cash(body.portfolio_id),
         )
 
+    # 静态挂载必须放在**最后**：它挂在 "/" 上，是个 catch-all，
+    # 在它之后注册的路由不会被匹配到（FastAPI 先看显式路由，
+    # 但 Mount 一旦先注册就会吃下所有未匹配路径）。
+    # 测试里动态添加的探针路由正是这样被截走过一次。
+    _mount_web(app)
     return app
+
+
+def _mount_web(app: FastAPI) -> None:
+    """把前端构建产物挂到同源根路径（部署用）。
+
+    为什么在 API 进程里挂静态文件，而不是再起一个 nginx：
+
+      * 前端用**相对路径**请求 /api，同源即可，因此不需要 CORS 配置，
+        也不需要反向代理；
+      * 试运行的目的是"一个容器起来就能看"，多一个进程就多一处会配错的地方。
+
+    生产形态仍然是分开部署（ADR-013）：那时静态文件由 CDN/nginx 提供，
+    API 只回答 /api。因此这里**不**做任何只有这一种部署才成立的事。
+
+    产物不存在时**不挂载**，也不报错：开发时前端跑在 Vite 开发服务器上，
+    API 只需要回答 /api。挂载一个空目录会让所有未知路径返回 404 页面，
+    把"前端没构建"这件事伪装成"路由不存在"。
+    """
+
+    dist = ROOT / "apps" / "web" / "dist"
+    index = dist / "index.html"
+    if not index.exists():
+        print(f"[api] 未找到前端产物 {index}；只提供 /api（开发时的正常状态）")
+        return
+
+    # 挂载顺序有讲究：/api 的路由先注册，因此 StaticFiles 挂在 "/" 上
+    # 不会截走它们（FastAPI 按注册顺序匹配）。
+    app.mount("/", StaticFiles(directory=str(dist), html=True), name="web")
+    print(f"[api] 已挂载前端产物 {dist}")
 
 
 app = create_app()
