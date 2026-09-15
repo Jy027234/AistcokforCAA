@@ -1,5 +1,5 @@
 {
-  "ran_at": "2026-09-15T14:37:18.584146+00:00",
+  "ran_at": "2026-09-15T15:06:41.638846+00:00",
   "snapshot_id": "snap-universe",
   "pool_id": "real-pool-universe-2026-09-15",
   "instruments": 900,
@@ -54,6 +54,11 @@
       "name": "公司行为带来源公告",
       "ok": true,
       "detail": "2 条"
+    },
+    {
+      "name": "公司行为的来源已登记",
+      "ok": true,
+      "detail": "已登记 ['baostock', 'cninfo']；被引用 []"
     },
     {
       "name": "入库证券数正确",

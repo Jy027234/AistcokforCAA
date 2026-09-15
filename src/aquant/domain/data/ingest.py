@@ -273,9 +273,10 @@ class SnapshotBuilder:
                 self.con.execute(
                     "INSERT OR REPLACE INTO corporate_action (action_id,instrument_id,"
                     "action_type,announced_on,record_date,ex_date,pay_date,"
-                    "cash_per_share_micros,cash_per_share_cents,bonus_ratio,"
+                    "cash_per_share_micros,cash_per_share_cents,evidence_json,"
+                    "source_url,source_title,bonus_ratio,"
                     "rights_price_cents,supported,source_id,notes) "
-                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     (ca.get("action_id"), ca.get("instrument_id"), ca.get("action_type"),
                      ca.get("announced_on"), ca.get("record_date"), ca.get("ex_date"),
                      ca.get("pay_date"),
@@ -286,6 +287,11 @@ class SnapshotBuilder:
                             (ca["cash_per_share_cents"] * 10_000)
                             if ca.get("cash_per_share_cents") is not None else None),
                      ca.get("cash_per_share_cents"),
+                     # 公告原文摘录：证据随快照一起冻结，事后可引用
+                     json.dumps(ca["evidence"], ensure_ascii=False)
+                     if isinstance(ca.get("evidence"), (dict, list))
+                     else ca.get("evidence"),
+                     ca.get("source_url"), ca.get("source_title"),
                      ca.get("bonus_ratio"), ca.get("rights_price_cents"),
                      1 if ca.get("supported") else 0, source_id,
                      # 清单里的 notes 可能是字符串（手写 YAML），

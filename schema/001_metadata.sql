@@ -363,8 +363,12 @@ CREATE TABLE IF NOT EXISTS citation (
     event_id        TEXT NOT NULL REFERENCES event(event_id),
     document_id     TEXT NOT NULL REFERENCES document(document_id),
     quote           TEXT NOT NULL,
+    -- WHITESPACE_INSENSITIVE：逐字命中失败但只差空白。
+    -- 单列一档而不是并入 EXACT_MATCH：两者的证据强度不同，
+    -- 合并会让"只差空白"看起来像逐字命中。
     locator_kind    TEXT NOT NULL CHECK (locator_kind IN
-                      ('CHAR_OFFSET','PAGE_LINE','SECTION','EXACT_MATCH')),
+                      ('CHAR_OFFSET','PAGE_LINE','SECTION','EXACT_MATCH',
+                       'WHITESPACE_INSENSITIVE')),
     locator_start   INTEGER,
     locator_end     INTEGER,
     locator_page    INTEGER,
@@ -738,6 +742,12 @@ CREATE TABLE IF NOT EXISTS corporate_action (
     cash_per_share_micros INTEGER,
     -- 早期版本用整数分存储；保留以便读取历史数据，新数据一律写微元。
     cash_per_share_cents INTEGER,
+    -- §9 / §15.3：公告**原文摘录**。证据必须随快照一起可引用，
+    -- 否则事后只剩一个数字，无法回答"这个值是从哪句话来的"。
+    -- 存 JSON：{字段名: 解析时看到的原样文本}。
+    evidence_json   TEXT,
+    source_url      TEXT,
+    source_title    TEXT,
     bonus_ratio     REAL,
     rights_price_cents INTEGER,
     -- §12.7 无法正确核验的复杂公司行为必须标记为未支持，而不是近似处理

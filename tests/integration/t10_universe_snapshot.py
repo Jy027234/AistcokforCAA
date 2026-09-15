@@ -165,6 +165,21 @@ def main() -> int:
         pit_basis="RECONSTRUCTED",
         rights={},   # 权利未确认：按 §17.2 未知默认不开放
     )
+    # 公司行为的原文证据来自**巨潮公告**，因此 cninfo 也是这个快照的来源。
+    # 原先只登记了 baostock，于是 document.source_id='cninfo' 的外键插入失败——
+    # 而 cninfo 在 docs/data-rights-register.md 里是权威来源，
+    # 快照的登记表里缺了它本身就是不一致。来源登记必须覆盖数据里真正
+    # 出现过的每一个来源，而不是"我们主要用哪个"。
+    builder.ensure_source(
+        "cninfo",
+        display_name="巨潮资讯（法定信息披露平台）",
+        # 域名必须取自受控词表（data_capability_card 的 CHECK）
+        domains=["ANNOUNCEMENTS", "CORPORATE_ACTIONS"],
+        integration_state="TEST_PASSED",
+        pit_available="NO",
+        pit_basis="RECONSTRUCTED",
+        rights={},
+    )
     # 公司行为：从公告解析结果里取，只保留落在池内且在窗口内的。
     # 与 T6 同源（tools/build_dividend_actions.py），不是手工构造。
     actions: list[dict] = []
@@ -177,6 +192,13 @@ def main() -> int:
                 actions.append(ca)
     check("公司行为带来源公告", all(a.get("source_announcement_id") for a in actions),
           f"{len(actions)} 条")
+    # 快照里每一个被引用的 source_id 都必须在 source_registry 里。
+    # 这条卡口来自一次真实失败：公司行为来自 cninfo，但只登记了 baostock，
+    # 于是写证据时 document.source_id 的外键失败——报错点在很远的地方。
+    registered = {r[0] for r in con.execute("SELECT source_id FROM source_registry")}
+    referenced = {a["source_id"] for a in actions if a.get("source_id")}
+    check("公司行为的来源已登记", referenced <= registered,
+          f"已登记 {sorted(registered)}；被引用 {sorted(referenced)}")
 
     doc = {
         "schema_version": "aquant.real_dataset.v1",
