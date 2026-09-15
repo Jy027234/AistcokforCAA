@@ -372,6 +372,13 @@ export const api = {
       "/api/v1/decisions" + (portfolioId ? "?portfolio_id=" + encodeURIComponent(portfolioId) : ""),
     ),
 
+  /** 研究卡。字段名与 workspace.json 的 ResearchCard 一致，可直接复用类型。 */
+  research: (instrumentId: string, tradingDay: string) =>
+    request<import("./types").ResearchCard>(
+      "/api/v1/instruments/" + encodeURIComponent(instrumentId) + "/research" +
+      "?trading_day=" + encodeURIComponent(tradingDay),
+    ),
+
   runFactors: (limit = 0) =>
     request<ResearchRunResponse>("/api/v1/research/runs", {
       method: "POST", body: JSON.stringify({ limit }),

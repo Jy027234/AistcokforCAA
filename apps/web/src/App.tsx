@@ -240,7 +240,8 @@ export default function App() {
               />
             )}
             {tab === "workspace" && (
-              <WorkspaceView apiUp={apiUp} portfolioId={data.draft.portfolioId} />
+              <WorkspaceView apiUp={apiUp} portfolioId={data.draft.portfolioId}
+                              tradingDay={data.draft.tradingDay} />
             )}
             {tab === "experiments" && <ExperimentsView data={data} />}
           </>

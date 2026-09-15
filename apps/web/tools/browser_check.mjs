@@ -357,6 +357,23 @@ async function main() {
     check("自选已落库（服务端计数 > 0）", typeof count === "number" && count > 0,
           "count=" + count + " status=" + stored.status);
 
+    console.log("\n[9c] 研究卡：从自选点开必须真的加载");
+    await cdp.evaluate(
+      "(() => { const b = [...document.querySelectorAll('button')]" +
+      ".find(x => x.textContent.trim() === '研究卡' && !x.disabled);" +
+      "if (!b) return false; b.click(); return true; })()",
+    );
+    await cdp.waitFor(
+      "document.body.innerText.includes('排名构成')",
+      { label: "研究卡已渲染", timeout: 15000 },
+    );
+    const cardText = await cdp.evaluate("document.body.innerText");
+    check("研究卡已打开并渲染", cardText.includes("排名构成"));
+    check("研究卡标出可模拟性与规则",
+          cardText.includes("可进入模拟池") || cardText.includes("不可进入模拟池"));
+    check("研究卡给出不确定性", cardText.includes("不确定性"));
+    check("研究卡给出反证", cardText.includes("反证"));
+
     console.log("\n[10] 其余页签可切换");
     for (const [hash, marker] of [["today", "今日"], ["research", "研究"],
                                   ["experiments", "实验"]]) {

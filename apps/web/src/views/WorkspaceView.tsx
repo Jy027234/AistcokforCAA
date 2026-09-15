@@ -3,13 +3,14 @@ import {
   api, AquantApiError, type DecisionRow, type ExperimentRow,
   type FactorRowValue, type ResearchRunResponse, type WatchItem,
 } from "../lib/api";
+import type { ResearchCard } from "../lib/types";
 import { Badge, Callout, Card, Empty, Section } from "../components/ui";
 
-/** 工作区：自选、因子排名、决策日志、实验登记（§5.5、§10.2、§13.2）。
+/** 工作区：自选、因子排名、研究卡、决策日志、实验登记。
  *
- * 这一页存在的理由：后端此前已经能算因子、记决策、登记实验，
+ * 这一页存在的理由：后端此前已经能算因子、记决策、登记实验、管自选，
  * 但界面上完全看不到——使用者能感知到的只有四页只读演示。
- * 能力没有出口就等于不存在。
+ * **能力没有出口就等于不存在。**
  *
  * 三条界面原则：
  *   1. **缺失必须说清原因**，而不是显示 0 或留空；
@@ -18,8 +19,8 @@ import { Badge, Callout, Card, Empty, Section } from "../components/ui";
  *      而是一条有价值的记录。
  */
 export function WorkspaceView({
-  apiUp, portfolioId,
-}: { apiUp: boolean | null; portfolioId: string }) {
+  apiUp, portfolioId, tradingDay,
+}: { apiUp: boolean | null; portfolioId: string; tradingDay: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,6 +28,8 @@ export function WorkspaceView({
   const [watchInput, setWatchInput] = useState("");
   const [run, setRun] = useState<ResearchRunResponse | null>(null);
   const [factorRows, setFactorRows] = useState<FactorRowValue[] | null>(null);
+  const [card, setCard] = useState<ResearchCard | null>(null);
+  const [cardError, setCardError] = useState<string | null>(null);
   const [decisions, setDecisions] = useState<DecisionRow[] | null>(null);
   const [experiments, setExperiments] = useState<ExperimentRow[] | null>(null);
 
@@ -64,6 +67,15 @@ export function WorkspaceView({
     void loadExperiments();
   }, [apiUp, loadWatch, loadDecisions, loadExperiments]);
 
+  /** 看某只证券的研究卡。此时不再只看排名，而是看数值、证据、反证与限制。 */
+  const onOpenCard = (instrumentId: string) => {
+    setCardError(null);
+    setCard(null);
+    void step("载入研究卡",
+      () => api.research(instrumentId, tradingDay),
+      setCard).catch(() => undefined);
+  };
+
   if (apiUp === false) {
     return (
       <Section title="工作区">
@@ -84,7 +96,7 @@ export function WorkspaceView({
     <>
       <Section
         title="工作区"
-        hint="自选、因子排名、决策日志、实验登记"
+        hint="自选、因子排名、研究卡、决策日志、实验登记"
         actions={<Badge tone={apiUp === true ? "ok" : "neutral"}>
           {apiUp === true ? "API 在线" : "检测中"}</Badge>}
       >
@@ -97,7 +109,7 @@ export function WorkspaceView({
           <div className="row-actions">
             <input
               className="input"
-              placeholder="证券 ID，例如 SH.600519"
+              placeholder="证券 ID，例如 SYN.A.600519"
               value={watchInput}
               onChange={(e) => setWatchInput(e.target.value)}
               style={{ flex: "1 1 260px" }}
@@ -133,7 +145,9 @@ export function WorkspaceView({
                       </td>
                       <td className="mono">{w.added_at.slice(0, 10)}</td>
                       <td className="note">{w.note ?? "—"}</td>
-                      <td>
+                      <td style={{ display: "flex", gap: 6 }}>
+                        <button className="btn btn-sm" disabled={busy !== null}
+                          onClick={() => onOpenCard(w.instrument_id)}>研究卡</button>
                         <button className="btn btn-sm" disabled={busy !== null}
                           onClick={() => step("移出自选",
                             () => api.removeWatch(w.instrument_id), loadWatch)}>
@@ -148,6 +162,97 @@ export function WorkspaceView({
           )}
         </Card>
       </Section>
+
+      {/* ---------------------------------------------- 研究卡 */}
+      {(card || cardError || busy === "载入研究卡") && (
+        <Section title="研究卡" hint="数值、证据、反证与限制（§5.1）">
+          <Card>
+            {busy === "载入研究卡" && <p className="note">正在载入研究卡…</p>}
+            {cardError && <Callout tone="danger" title="无法载入研究卡">{cardError}</Callout>}
+            {card && (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 8,
+                              flexWrap: "wrap", marginBottom: 10 }}>
+                  <h3>{card.displayName}</h3>
+                  <span className="mono">{card.instrumentId}</span>
+                  <Badge tone="neutral">{card.exchange}/{card.board}</Badge>
+                  <Badge tone={card.tradability.simulatable ? "ok" : "warn"}>
+                    {card.tradability.reasonLabel}</Badge>
+                </div>
+
+                <Callout tone={card.tradability.simulatable ? "ok" : "warn"}
+                         title={card.tradability.simulatable ? "可进入模拟池" : "不可进入模拟池"}>
+                  {card.tradability.detail}
+                  {card.tradability.effectiveFrom && (
+                    <div className="note">规则生效日：{card.tradability.effectiveFrom}</div>
+                  )}
+                  {card.tradability.repair && (
+                    <div className="note">修复：{card.tradability.repair}</div>
+                  )}
+                </Callout>
+
+                <h4 style={{ marginTop: 14 }}>排名构成</h4>
+                <p className="note">{card.rankSemantics}</p>
+                {card.rankBreakdown.length === 0 ? (
+                  <p className="note">本快照未计算该标的的因子值。</p>
+                ) : (
+                  <div className="table-wrap">
+                    <table className="data">
+                      <thead><tr><th>因子</th><th className="num">数值</th>
+                        <th className="num">排名</th></tr></thead>
+                      <tbody>
+                        {card.rankBreakdown.map((f) => (
+                          <tr key={f.factorId}>
+                            <td>{f.name} <span className="mono">{f.factorId}</span></td>
+                            <td className="num mono">{f.value}</td>
+                            <td className="num mono">{f.rankLabel}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {card.uncertainties.length > 0 && (
+                  <>
+                    <h4 style={{ marginTop: 14 }}>不确定性</h4>
+                    <ul className="list">
+                      {card.uncertainties.map((u, i) => (
+                        <li key={i} className="note">{u}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+
+                <h4 style={{ marginTop: 14 }}>反证</h4>
+                {card.counterEvidence.length === 0 ? (
+                  <p className="note">未记录反证。</p>
+                ) : (
+                  <ul className="list">
+                    {card.counterEvidence.map((e, i) => (
+                      <li key={i} className="note">
+                        {e.noneFound ? "未找到反证" : (e.statement ?? "")}
+                        {e.note ? "　" + e.note : ""}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {card.limitations.length > 0 && (
+                  <>
+                    <h4 style={{ marginTop: 14 }}>限制</h4>
+                    <ul className="list">
+                      {card.limitations.map((l, i) => (
+                        <li key={i} className="note">{l}</li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </>
+            )}
+          </Card>
+        </Section>
+      )}
 
       {/* -------------------------------------------- 因子排名 */}
       <Section title="因子排名" hint="横截面排名，不是概率（§5.3）">
