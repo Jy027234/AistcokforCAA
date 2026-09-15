@@ -1,0 +1,238 @@
+{
+  "days": [
+    "2026-09-08",
+    "2026-09-09",
+    "2026-09-10",
+    "2026-09-11",
+    "2026-09-14"
+  ],
+  "perDay": [
+    {
+      "day": "2026-09-08",
+      "fills": 4,
+      "net_value_cents": 99954579,
+      "cash_cents": 60675779,
+      "positions": {
+        "SH.600036": 2400,
+        "SH.601328": 13600,
+        "SZ.002142": 2900,
+        "SZ.002714": 2200
+      },
+      "reconciled": true
+    },
+    {
+      "day": "2026-09-09",
+      "fills": 6,
+      "net_value_cents": 99989390,
+      "cash_cents": 70793190,
+      "positions": {
+        "SH.600887": 3700,
+        "SZ.000333": 1100,
+        "SZ.002714": 2300
+      },
+      "reconciled": true
+    },
+    {
+      "day": "2026-09-10",
+      "fills": 1,
+      "net_value_cents": 100094254,
+      "cash_cents": 61038254,
+      "positions": {
+        "SH.600887": 3700,
+        "SZ.000333": 1100,
+        "SZ.002142": 2800,
+        "SZ.002714": 2300
+      },
+      "reconciled": true
+    },
+    {
+      "day": "2026-09-11",
+      "fills": 1,
+      "net_value_cents": 100036070,
+      "cash_cents": 61396870,
+      "positions": {
+        "SH.600887": 3700,
+        "SZ.000333": 1100,
+        "SZ.002142": 2700,
+        "SZ.002714": 2300
+      },
+      "reconciled": true
+    },
+    {
+      "day": "2026-09-14",
+      "fills": 1,
+      "net_value_cents": 100332266,
+      "cash_cents": 61041266,
+      "positions": {
+        "SH.600887": 3700,
+        "SZ.000333": 1100,
+        "SZ.002142": 2800,
+        "SZ.002714": 2300
+      },
+      "reconciled": true
+    }
+  ],
+  "checks": [
+    {
+      "name": "第 1 天对账通过",
+      "ok": true,
+      "detail": "{\"portfolio_id\": \"pf-multiday-M\", \"cash_cents\": 60675779, \"positions\": {\"SH.600036\": 2400, \"SH.601328\": 13600, \"SZ.002142\": 2900, \"SZ.002714\": 2200}, \"receivabl"
+    },
+    {
+      "name": "第 1 天净值已发布",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "第 2 天进程已重启",
+      "ok": true,
+      "detail": "端口 8125"
+    },
+    {
+      "name": "第 2 天对账通过",
+      "ok": true,
+      "detail": "{\"portfolio_id\": \"pf-multiday-M\", \"cash_cents\": 70793190, \"positions\": {\"SH.600887\": 3700, \"SZ.000333\": 1100, \"SZ.002714\": 2300}, \"receivables_cents\": 0, \"fill_"
+    },
+    {
+      "name": "第 2 天净值已发布",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "第 2 天起始现金与上日终一致",
+      "ok": true,
+      "detail": "60675779 vs 60675779"
+    },
+    {
+      "name": "第 2 天起始持仓与上日终一致",
+      "ok": true,
+      "detail": "{'SH.600036': 2400, 'SH.601328': 13600, 'SZ.002142': 2900, 'SZ.002714': 2200} vs {'SH.600036': 2400, 'SH.601328': 13600, 'SZ.002142': 2900, 'SZ.002714': 2200}"
+    },
+    {
+      "name": "第 3 天进程已重启",
+      "ok": true,
+      "detail": "端口 8125"
+    },
+    {
+      "name": "第 3 天对账通过",
+      "ok": true,
+      "detail": "{\"portfolio_id\": \"pf-multiday-M\", \"cash_cents\": 61038254, \"positions\": {\"SH.600887\": 3700, \"SZ.000333\": 1100, \"SZ.002142\": 2800, \"SZ.002714\": 2300}, \"receivable"
+    },
+    {
+      "name": "第 3 天净值已发布",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "第 3 天起始现金与上日终一致",
+      "ok": true,
+      "detail": "70793190 vs 70793190"
+    },
+    {
+      "name": "第 3 天起始持仓与上日终一致",
+      "ok": true,
+      "detail": "{'SH.600887': 3700, 'SZ.000333': 1100, 'SZ.002714': 2300} vs {'SH.600887': 3700, 'SZ.000333': 1100, 'SZ.002714': 2300}"
+    },
+    {
+      "name": "第 4 天进程已重启",
+      "ok": true,
+      "detail": "端口 8125"
+    },
+    {
+      "name": "第 4 天对账通过",
+      "ok": true,
+      "detail": "{\"portfolio_id\": \"pf-multiday-M\", \"cash_cents\": 61396870, \"positions\": {\"SH.600887\": 3700, \"SZ.000333\": 1100, \"SZ.002142\": 2700, \"SZ.002714\": 2300}, \"receivable"
+    },
+    {
+      "name": "第 4 天净值已发布",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "第 4 天起始现金与上日终一致",
+      "ok": true,
+      "detail": "61038254 vs 61038254"
+    },
+    {
+      "name": "第 4 天起始持仓与上日终一致",
+      "ok": true,
+      "detail": "{'SH.600887': 3700, 'SZ.000333': 1100, 'SZ.002142': 2800, 'SZ.002714': 2300} vs {'SH.600887': 3700, 'SZ.000333': 1100, 'SZ.002142': 2800, 'SZ.002714': 2300}"
+    },
+    {
+      "name": "第 5 天进程已重启",
+      "ok": true,
+      "detail": "端口 8125"
+    },
+    {
+      "name": "第 5 天对账通过",
+      "ok": true,
+      "detail": "{\"portfolio_id\": \"pf-multiday-M\", \"cash_cents\": 61041266, \"positions\": {\"SH.600887\": 3700, \"SZ.000333\": 1100, \"SZ.002142\": 2800, \"SZ.002714\": 2300}, \"receivable"
+    },
+    {
+      "name": "第 5 天净值已发布",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "第 5 天起始现金与上日终一致",
+      "ok": true,
+      "detail": "61396870 vs 61396870"
+    },
+    {
+      "name": "第 5 天起始持仓与上日终一致",
+      "ok": true,
+      "detail": "{'SH.600887': 3700, 'SZ.000333': 1100, 'SZ.002142': 2700, 'SZ.002714': 2300} vs {'SH.600887': 3700, 'SZ.000333': 1100, 'SZ.002142': 2700, 'SZ.002714': 2300}"
+    },
+    {
+      "name": "全部交易日都已执行",
+      "ok": true,
+      "detail": "5/5"
+    },
+    {
+      "name": "每日对账全部通过",
+      "ok": true,
+      "detail": "[True, True, True, True, True]"
+    },
+    {
+      "name": "净值逐日可达且为正",
+      "ok": true,
+      "detail": "[99954579, 99989390, 100094254, 100036070, 100332266]"
+    },
+    {
+      "name": "末日估值可重复计算（幂等）",
+      "ok": true,
+      "detail": "100332266"
+    },
+    {
+      "name": "账本有跨日分录",
+      "ok": true,
+      "detail": "47 条"
+    },
+    {
+      "name": "账本现金合计自洽",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "批次带最早可卖日（T+1 依据）",
+      "ok": true,
+      "detail": "9 个批次"
+    },
+    {
+      "name": "每条费用码都有对应现金分录（§12.6）",
+      "ok": true,
+      "detail": "['COMMISSION', 'MIN_COMMISSION_TOPUP', 'STAMP_DUTY', 'TRANSFER_FEE']"
+    },
+    {
+      "name": "费用分录金额与费用表逐项相等",
+      "ok": true,
+      "detail": "{'COMMISSION': (-24780, -24780), 'MIN_COMMISSION_TOPUP': (-1213, -1213), 'STAMP_DUTY': (-15050, -15050), 'TRANSFER_FEE': (-991, -991)}"
+    },
+    {
+      "name": "账本记录了最低佣金补足（触发过小额成交）",
+      "ok": true,
+      "detail": "['COMMISSION', 'INITIAL_DEPOSIT', 'MIN_COMMISSION_TOPUP', 'STAMP_DUTY', 'TRADE_SETTLEMENT', 'TRANSFER_FEE']"
+    }
+  ],
+  "conclusion": "PASS"
+}

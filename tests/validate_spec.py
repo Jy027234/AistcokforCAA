@@ -347,9 +347,75 @@ def check_sql() -> None:
         con.close()
 
 
-# ---------------------------------------------------------------- 5. configs
+# ------------------------------------------------- 5. 枚举域一致性
+def check_enum_domains() -> None:
+    """契约、SQL、以及"用费用码当分录类型"这一实现约定，必须说的是同一件事。
+
+    这条检查来自一次真实事故：小额成交触发最低佣金补足，费用码
+    MIN_COMMISSION_TOPUP 被当作 cash_entry.entry_type 写入，
+    而该列的 CHECK 白名单里没有它——成交已经算出，账却记不下来，
+    接口返回 500。两个枚举分别在 contracts/ 与 schema/ 里各自维护，
+    自然会漂移；所以必须用机器卡住它们的关系，而不是靠人记得同步。
+    """
+    print("\n[5] 枚举域一致性：fee_code 必须能作为 entry_type 落库")
+
+    ledger = load_json(ROOT / "contracts" / "ledger.schema.json")
+    fee_codes = set(
+        ledger["definitions"]["fill"]["properties"]["fee_breakdown"]["items"]
+        ["properties"]["fee_code"]["enum"]
+    )
+
+    con = sqlite3.connect(":memory:")
+    try:
+        con.executescript((ROOT / "schema" / "001_metadata.sql").read_text(encoding="utf-8"))
+        # 直接从 SQL 取白名单，而不是在这里再写一份——写第二份就又多了一个漂移点
+        ddl = con.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='cash_entry'"
+        ).fetchone()[0]
+        m = re.search(r"entry_type\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(\s*entry_type\s+IN\s*\((.*?)\)\s*\)",
+                      ddl, re.S)
+        check("能从 DDL 解析出 entry_type 白名单", m is not None, ddl[:160])
+        if m is None:
+            return
+        entry_types = set(re.findall(r"'([A-Z_]+)'", m.group(1)))
+
+        check("费用码全部可作为分录类型落库（§12.6）",
+              fee_codes <= entry_types,
+              f"缺 {sorted(fee_codes - entry_types)}")
+
+        # 反向也要求：白名单里的取值必须真的有人写，或是明确登记的保留值。
+        # 保留"多出来"的能力是必要的（冲正、其他），但必须是**有意的**。
+        # 这些是**代码里真的会写**的取值，但不由费用码派生：
+        #   INITIAL_DEPOSIT / TRADE_SETTLEMENT —— plan.py、simulator.py 直接写入
+        #   DIVIDEND_*      —— §12.7 公司行为的应收与发放
+        #   REVERSAL / OTHER —— §11.4 冲正与其它，属登记保留值
+        reserved = {"INITIAL_DEPOSIT", "TRADE_SETTLEMENT",
+                    "DIVIDEND_RECEIVABLE_RECOGNIZED", "DIVIDEND_RECEIVABLE_SETTLED",
+                    "DIVIDEND_TAX", "REVERSAL", "OTHER"}
+        check("白名单无未登记的取值", entry_types - fee_codes - reserved == set(),
+              f"多 {sorted(entry_types - fee_codes - reserved)}")
+
+        # 逐个真插一次：白名单本身写错（例如漏引号）只有插进去才知道
+        con.execute("INSERT INTO portfolio (portfolio_id,kind,initial_cash_cents,opened_at)"
+                    " VALUES ('pf-e','M',100000000,'2026-09-11T00:00:00Z')")
+        for code in sorted(fee_codes | reserved):
+            try:
+                con.execute(
+                    "INSERT INTO cash_entry (entry_id,portfolio_id,entry_type,amount_cents,"
+                    "trading_day,occurred_at) VALUES (?,?,?,-1,'2026-09-11',"
+                    "'2026-09-11T00:00:00Z')",
+                    (f"e-{code}", "pf-e", code))
+                ok, detail = True, ""
+            except sqlite3.IntegrityError as exc:
+                ok, detail = False, str(exc)
+            check(f"分录类型 {code} 可写入", ok, detail)
+    finally:
+        con.close()
+
+
+# ---------------------------------------------------------------- 6. configs
 def check_configs() -> None:
-    print("\n[5] configs/research.example.yaml")
+    print("\n[6] configs/research.example.yaml")
     try:
         import yaml
     except ImportError:
@@ -430,6 +496,7 @@ def main() -> int:
     check_contracts()
     check_examples()
     check_sql()
+    check_enum_domains()
     check_configs()
 
     print()

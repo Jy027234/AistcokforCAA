@@ -699,9 +699,13 @@ CREATE TABLE IF NOT EXISTS lot_consumption (
 CREATE TABLE IF NOT EXISTS cash_entry (
     entry_id        TEXT PRIMARY KEY,
     portfolio_id    TEXT NOT NULL REFERENCES portfolio(portfolio_id),
+    -- §12.6 费用行会以 fee_code 作为分录类型写入（见 simulation/simulator.py），
+    -- 因此这里必须容纳 fee_charge.fee_code 的全部取值，否则一笔不足最低佣金的
+    -- 小额成交会在**写账时**抛 CHECK 失败——成交已经算出，账却记不下来。
     entry_type      TEXT NOT NULL CHECK (entry_type IN
-                      ('INITIAL_DEPOSIT','TRADE_SETTLEMENT','COMMISSION','STAMP_DUTY',
-                       'TRANSFER_FEE','DIVIDEND_RECEIVABLE_RECOGNIZED',
+                      ('INITIAL_DEPOSIT','TRADE_SETTLEMENT','COMMISSION',
+                       'MIN_COMMISSION_TOPUP','STAMP_DUTY','TRANSFER_FEE',
+                       'DIVIDEND_RECEIVABLE_RECOGNIZED',
                        'DIVIDEND_RECEIVABLE_SETTLED','DIVIDEND_TAX','REVERSAL','OTHER')),
     -- §12.6 金额为整数分；符号表示方向
     amount_cents    INTEGER NOT NULL,
