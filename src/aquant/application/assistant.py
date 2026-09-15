@@ -97,7 +97,7 @@ def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
                   job_id: str | None = None,
                   research_run_id: str | None = None,
                   instructions: str = ASSISTANT_INSTRUCTIONS_V1,
-                  max_output_tokens: int = 2048,
+                  max_output_tokens: int = 8192,
                   snapshot_context: dict | None = None) -> dict:
     """把材料发给模型并留档。失败同样留档（outcome=ERROR/REJECTED）。
 

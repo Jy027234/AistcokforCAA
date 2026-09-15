@@ -112,9 +112,28 @@ def research_evidence(con: sqlite3.Connection, reader: SnapshotReader,
                 contains_personal_data=False)],
             purpose=f"独立抽取公司行为字段 {action['action_id']}",
             data_mode=ref.data_mode, job_id=job.job_id,
-            instructions=EXTRACTION_INSTRUCTIONS, max_output_tokens=2048)
+            instructions=EXTRACTION_INSTRUCTIONS,
+            # 8192 而不是 2048：本次实测 deepseek-flash 会把 2048 个 token
+            # 全部用在思考上，正文为空——JSON 被 token 上限截没了。
+            # 而"正文为空"在解析层表现为"模型没给引用"，
+            # 于是一次截断看起来像模型不听话。
+            max_output_tokens=8192)
 
         parsed = _parse_output(out["text"])
+        if not parsed.get("fields"):
+            # 解析不出 JSON 时**必须显式失败**。
+            #
+            # 第一版静默降级：所有字段变成"未抽取"、引用全空，
+            # 于是作业"成功"、交叉核对"无不一致"，而实际上什么都没抽到。
+            # 那是这个项目里最危险的一种失败——看起来完全正常。
+            # 真实原因当时是 token 上限截断（finish_reason=length）。
+            raise ResearchJobError(
+                "DATA_NOT_READY",
+                f"模型没有返回可解析的抽取结果（action={action['action_id']}，"
+                f"输出 {out.get('outputTokens')} tokens）："
+                + out["text"][:200],
+                "检查模型输出是否被 token 上限截断；必要时提高 max_output_tokens，"
+                "或换用非思考型模型")
         comparison = _compare(parsed, action, source_text)
         bundle = record_evidence(
             con, instrument_id=instrument_id, source_id=source_id,

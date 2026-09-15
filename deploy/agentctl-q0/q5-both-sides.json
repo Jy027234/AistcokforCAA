@@ -1,0 +1,168 @@
+{
+  "ran_at": "2026-09-15T15:32:23.163438+00:00",
+  "checks": [
+    {
+      "side": "synthetic",
+      "name": "快照已发布且可读",
+      "ok": true,
+      "detail": "snap-syn-001"
+    },
+    {
+      "side": "synthetic",
+      "name": "研究作业已入队",
+      "ok": true,
+      "detail": "job_b812ede9c5d0412fbedb"
+    },
+    {
+      "side": "synthetic",
+      "name": "重复提交返回同一条作业（§8.4）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "side": "synthetic",
+      "name": "作业执行成功",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "side": "synthetic",
+      "name": "至少一条引用可在来源正文中定位",
+      "ok": true,
+      "detail": "1/4"
+    },
+    {
+      "side": "synthetic",
+      "name": "证据已落库并带字符偏移",
+      "ok": true,
+      "detail": "5 条引用"
+    },
+    {
+      "side": "synthetic",
+      "name": "预览不冻结（A08）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "side": "synthetic",
+      "name": "预览产生了可执行订单",
+      "ok": true,
+      "detail": "4"
+    },
+    {
+      "side": "synthetic",
+      "name": "冻结需要一次性令牌",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "side": "synthetic",
+      "name": "执行产生了成交",
+      "ok": true,
+      "detail": "4"
+    },
+    {
+      "side": "synthetic",
+      "name": "执行产生了账本分录",
+      "ok": true,
+      "detail": "12"
+    },
+    {
+      "side": "synthetic",
+      "name": "估值已发布（不变量全过）",
+      "ok": true,
+      "detail": "{\"cash_not_overdrawn\": true, \"positions_not_negative\": true, \"shares_match_lots\": true, \"fill_le_order\": true, \"fees_booked_once\": true, \"cash_lines_sum_to_balance\": true, \"violations\": [], \"all_ok\": true}"
+    },
+    {
+      "side": "synthetic",
+      "name": "对账通过",
+      "ok": true,
+      "detail": "{\"portfolio_id\": \"pf-q5-synthetic-M\", \"cash_cents\": 60292179, \"positions\": {\"SYN.A.000001\": 8600, \"SYN.A.300001\": 4900, \"SYN.A.600002\": 1100, \"SYN.A.600003\": 66"
+    },
+    {
+      "side": "real",
+      "name": "快照已发布且可读",
+      "ok": true,
+      "detail": "snap-universe"
+    },
+    {
+      "side": "real",
+      "name": "研究作业已入队",
+      "ok": true,
+      "detail": "job_b7d2b75b0ede47f0bab1"
+    },
+    {
+      "side": "real",
+      "name": "重复提交返回同一条作业（§8.4）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "side": "real",
+      "name": "作业执行成功",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "side": "real",
+      "name": "模型抽取与解析结果一致",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "side": "real",
+      "name": "至少一条引用可在来源正文中定位",
+      "ok": true,
+      "detail": "4/4"
+    },
+    {
+      "side": "real",
+      "name": "证据已落库并带字符偏移",
+      "ok": true,
+      "detail": "4 条引用"
+    },
+    {
+      "side": "real",
+      "name": "预览不冻结（A08）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "side": "real",
+      "name": "预览产生了可执行订单",
+      "ok": true,
+      "detail": "6"
+    },
+    {
+      "side": "real",
+      "name": "冻结需要一次性令牌",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "side": "real",
+      "name": "执行产生了成交",
+      "ok": true,
+      "detail": "6"
+    },
+    {
+      "side": "real",
+      "name": "执行产生了账本分录",
+      "ok": true,
+      "detail": "18"
+    },
+    {
+      "side": "real",
+      "name": "估值已发布（不变量全过）",
+      "ok": true,
+      "detail": "{\"cash_not_overdrawn\": true, \"positions_not_negative\": true, \"shares_match_lots\": true, \"fill_le_order\": true, \"fees_booked_once\": true, \"cash_lines_sum_to_balance\": true, \"violations\": [], \"all_ok\": true}"
+    },
+    {
+      "side": "real",
+      "name": "对账通过",
+      "ok": true,
+      "detail": "{\"portfolio_id\": \"pf-q5-real-M\", \"cash_cents\": 46488992, \"positions\": {\"SZ.300285\": 1500, \"SZ.300308\": 100, \"SZ.300394\": 300, \"SZ.300408\": 800, \"SZ.300475\": 500"
+    }
+  ],
+  "conclusion": "PASS"
+}

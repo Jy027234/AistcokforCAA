@@ -29,7 +29,10 @@ class ModelRequest:
     context: str
     #: prompt 版本标识。落进 model_call.prompt_version，用于事后复现。
     prompt_version: str = "v1"
-    max_output_tokens: int = 2048
+    #: 输出上限。默认 8192 而不是 2048：思考型模型会把上限**全部**用在
+    #: 思考上，正文为空——实测 2048 时输出正好 2048 tokens 且内容为空串，
+    #: 而那在解析层看起来像"模型不听话"，不是"被截断了"。
+    max_output_tokens: int = 8192
     temperature: float = 0.0
 
 

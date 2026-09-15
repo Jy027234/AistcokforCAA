@@ -428,7 +428,8 @@ class AssistantDraftRequest(BaseModel):
 class AssistantMessageRequest(BaseModel):
     purpose: str = Field(min_length=1, max_length=200)
     materials: list[AssistantMaterial] = Field(min_length=1, max_length=50)
-    max_output_tokens: int = Field(default=2048, ge=64, le=8192)
+    #: 默认 8192：思考型模型会把上限全部用在思考上（见 domain/ai/model.py）
+    max_output_tokens: int = Field(default=8192, ge=64, le=8192)
     #: 可选：顺带算一份草稿与差异预览。算完即弃，不落库。
     draft: AssistantDraftRequest | None = None
 
