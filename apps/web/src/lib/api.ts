@@ -189,6 +189,116 @@ export interface ReconcileResponse {
   reconciled: boolean;
 }
 
+export interface LedgerEntry {
+  entry_id: string;
+  entry_type: string;
+  amount: { cents: number | null; display: string };
+  trading_day: string;
+  occurred_at: string;
+  note: string | null;
+}
+
+export interface LedgerLot {
+  lot_id: string;
+  instrument_id: string;
+  acquired_trading_day: string;
+  earliest_sellable_day: string;
+  quantity_original: number;
+  quantity_remaining: number;
+  cost_basis: { cents: number | null; display: string };
+}
+
+export interface LedgerResponse {
+  portfolio_id: string;
+  kind: string;
+  account_type: string;
+  status: string;
+  opened_at: string;
+  cash: {
+    cents: number | null;
+    display: string;
+    entry_count: number;
+    entries: LedgerEntry[];
+  };
+  positions: { instrument_id: string; quantity: number }[];
+  lots: LedgerLot[];
+  fills: {
+    fill_id: string; instrument_id: string; side: string; quantity: number;
+    price: { cents: number | null; display: string };
+    fees_total: { cents: number | null; display: string };
+    trading_day: string;
+  }[];
+  fees_by_code: { fee_code: string; total: { cents: number | null; display: string } }[];
+  receivables: {
+    receivable_id: string; instrument_id: string; kind: string;
+    amount: { cents: number | null; display: string };
+    tax_treatment: string; recognized_on: string;
+    expected_settlement_on: string; settled_on: string | null; status: string;
+  }[];
+}
+
+export interface WatchItem {
+  instrument_id: string;
+  added_at: string;
+  note: string | null;
+  short_name: string | null;
+  exchange: string | null;
+  board: string | null;
+}
+
+export interface DecisionRow {
+  decision_id: string;
+  portfolio_id: string;
+  plan_id: string | null;
+  snapshot_id: string;
+  decision_type: string;
+  diff: {
+    comparable?: boolean; identical?: boolean; changed_keys?: string[];
+    removed_keys?: string[]; added_keys?: string[];
+    model_hash?: string; human_hash?: string; reason?: string;
+  };
+  reason_category: string | null;
+  reason_note: string | null;
+  external_information_used: boolean;
+  submitted_at: string;
+}
+
+export interface FactorRowValue {
+  instrument_id: string;
+  factor_id: string;
+  raw_value: number | null;
+  cross_sectional_rank: number | null;
+  exclusion_reason: string | null;
+  coverage_ratio: number | null;
+}
+
+export interface ResearchRunResponse {
+  research_run_id: string;
+  researchRunId: string;
+  snapshotId: string;
+  asOfTime: string;
+  factorId: string;
+  factorName: string;
+  stored: number;
+  valued: number;
+  excluded: number;
+  factors: string[];
+  financialStatements: number;
+  exclusionBreakdown: Record<string, number>;
+  note: string;
+}
+
+export interface ExperimentRow {
+  experiment_id: string;
+  hypothesis: string;
+  registered_at: string;
+  status: string;
+  test_set_access_count: number;
+  primary_metric: string | null;
+  outcome_notes: string | null;
+}
+
+
 export const api = {
   health: () => request<{ status: string }>("/api/v1/health"),
 
@@ -236,4 +346,42 @@ export const api = {
     request<ReconcileResponse>(
       "/api/v1/portfolios/" + encodeURIComponent(portfolioId) + "/reconcile",
     ),
+
+  ledger: (portfolioId: string) =>
+    request<LedgerResponse>(
+      "/api/v1/portfolios/" + encodeURIComponent(portfolioId) + "/ledger",
+    ),
+
+  watchlist: () => request<{ subjectId: string; count: number; items: WatchItem[]; note: string }>(
+    "/api/v1/watchlist",
+  ),
+
+  addWatch: (instrumentId: string, note?: string) =>
+    request<{ instrument_id: string; watching: boolean }>("/api/v1/watchlist/items", {
+      method: "POST", body: JSON.stringify({ instrument_id: instrumentId, note: note ?? null }),
+    }),
+
+  removeWatch: (instrumentId: string) =>
+    request<{ instrument_id: string; watching: boolean }>(
+      "/api/v1/watchlist/items/" + encodeURIComponent(instrumentId),
+      { method: "DELETE" },
+    ),
+
+  decisions: (portfolioId?: string) =>
+    request<{ count: number; decisions: DecisionRow[]; note: string }>(
+      "/api/v1/decisions" + (portfolioId ? "?portfolio_id=" + encodeURIComponent(portfolioId) : ""),
+    ),
+
+  runFactors: (limit = 0) =>
+    request<ResearchRunResponse>("/api/v1/research/runs", {
+      method: "POST", body: JSON.stringify({ limit }),
+    }),
+
+  factorValues: (runId: string) =>
+    request<{ researchRunId: string; count: number; factors: FactorRowValue[] }>(
+      "/api/v1/research/runs/" + encodeURIComponent(runId) + "/factors",
+    ),
+
+  experiments: () =>
+    request<{ count: number; experiments: ExperimentRow[]; note: string }>("/api/v1/experiments"),
 };

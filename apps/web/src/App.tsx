@@ -9,10 +9,11 @@ import { TodayView } from "./views/TodayView";
 import { ResearchView } from "./views/ResearchView";
 import { PortfolioView } from "./views/PortfolioView";
 import { ExperimentsView } from "./views/ExperimentsView";
+import { WorkspaceView } from "./views/WorkspaceView";
 
 const WS_URL = "/workspace.json";
 
-const TAB_IDS: Tab[] = ["today", "research", "portfolio", "experiments"];
+const TAB_IDS: Tab[] = ["today", "research", "portfolio", "workspace", "experiments"];
 
 function tabFromHash(): Tab {
   const h = window.location.hash.replace(/^#\/?/, "").split("?")[0] ?? "";
@@ -237,6 +238,9 @@ export default function App() {
                 confirmResult={confirmResult}
                 frozenPlanId={frozenPlanId}
               />
+            )}
+            {tab === "workspace" && (
+              <WorkspaceView apiUp={apiUp} portfolioId={data.draft.portfolioId} />
             )}
             {tab === "experiments" && <ExperimentsView data={data} />}
           </>

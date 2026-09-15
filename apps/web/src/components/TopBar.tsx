@@ -2,12 +2,13 @@ import type { DataStatus } from "../lib/types";
 import { formatAsOf, readinessTone } from "../lib/format";
 import { Badge } from "./ui";
 
-export type Tab = "today" | "research" | "portfolio" | "experiments";
+export type Tab = "today" | "research" | "portfolio" | "workspace" | "experiments";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "today", label: "今日" },
   { id: "research", label: "研究" },
   { id: "portfolio", label: "组合" },
+  { id: "workspace", label: "工作区" },
   { id: "experiments", label: "实验" },
 ];
 

@@ -227,6 +227,15 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .kv dt { color: var(--text-3); }
 .kv dd { margin: 0; }
 
+/* 文本输入：与按钮同高同圆角，避免在操作行里显得突兀 */
+.input {
+  padding: 6px 11px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); color: var(--text); font: inherit; font-size: 13px;
+  min-width: 0;
+}
+.input:focus { outline: 2px solid var(--accent-border); outline-offset: 1px; }
+.input::placeholder { color: var(--text-4); }
+
 /* 操作行：把"这一步能做什么"排成一行，禁用态也要看得见为什么 */
 .row-actions {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px;

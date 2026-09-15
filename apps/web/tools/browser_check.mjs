@@ -296,7 +296,68 @@ async function main() {
     const bad = cdp.logs.filter((l) => l.startsWith("EXCEPTION") || /error/i.test(l));
     check("控制台无异常", bad.length === 0, bad.slice(0, 3).join(" | "));
 
-    console.log("\n[9] 其余三个页签可切换");
+    console.log("\n[9] 工作区页签：新接的后端能力必须真的可见");
+    await cdp.evaluate("location.hash = 'workspace'");
+    await sleep(900);
+    const wsText = await cdp.evaluate("document.body.innerText");
+    check("工作区页渲染", wsText.includes("自选") && wsText.includes("因子排名"),
+          wsText.slice(0, 60).replace(/\n/g, " "));
+    check("自选说明了不产生订单", wsText.includes("不产生订单"));
+    check("因子排名标注为排名而非概率",
+          wsText.includes("横截面排名") && wsText.includes("不是概率"));
+    check("决策日志与实验登记都在", wsText.includes("决策日志") &&
+          wsText.includes("实验登记"));
+    // 空态必须说清是"没有"而不是"失败"
+    check("空态给出可读说明", wsText.includes("自选为空") ||
+          wsText.includes("还没有"));
+
+    console.log("\n[9b] 工作区真交互：加自选必须落库");
+    const typed = await cdp.evaluate(
+      "(() => { const i = document.querySelector('input.input');" +
+      "if (!i) return false;" +
+      "const setter = Object.getOwnPropertyDescriptor(" +
+      "window.HTMLInputElement.prototype, 'value').set;" +
+      "setter.call(i, 'SYN.A.600519');" +
+      "i.dispatchEvent(new Event('input', { bubbles: true }));" +
+      "return true; })()",
+    );
+    check("找到自选输入框并可填入", typed);
+    await cdp.evaluate(
+      "(() => { const b = [...document.querySelectorAll('button')]" +
+      ".find(x => x.textContent.trim() === '加入自选' && !x.disabled);" +
+      "if (!b) return false; b.click(); return true; })()",
+    );
+    // 等**输入框被清空**：组件在加入成功后清空输入框，
+    // 所以这是"服务端接受了"的判据。不能等 innerText 出现该代码——
+    // 输入框里本来就有这段文本，等待会立刻通过（假通过）。
+    await cdp.waitFor(
+      "(() => { const i = document.querySelector('input.input');" +
+      "return !i || i.value === ''; })()",
+      { label: "输入框已清空（加入成功）", timeout: 15000 },
+    );
+    check("加入自选后输入框清空", true);
+    const listed = await cdp.evaluate(
+      "(() => { const rows = [...document.querySelectorAll('table.data tbody tr')];" +
+      "return rows.some(r => r.innerText.includes('SYN.A.600519')); })()",
+    );
+    check("自选表格中出现该证券", listed);
+
+    // 界面显示不算数——必须确认服务端真的存了
+    // 必须用页面注入的 API 基地址：前端与 API 不同端口时，
+    // 相对路径会打到前端服务器上（返回 404），
+    // 而"自选没落库"这个结论就完全错了。
+    const stored = await cdp.evaluate(
+      "fetch((window.__AQUANT_API_BASE__ || '') + '/api/v1/watchlist'," +
+      " { headers: { 'X-Aquant-Subject': 'user:demo' } })" +
+      ".then(async r => ({ status: r.status, body: await r.text() }))",
+    );
+    console.log("    自选端点回答:", JSON.stringify(stored).slice(0, 300));
+    let count = null;
+    try { count = JSON.parse(stored.body).count; } catch { /* 非 JSON */ }
+    check("自选已落库（服务端计数 > 0）", typeof count === "number" && count > 0,
+          "count=" + count + " status=" + stored.status);
+
+    console.log("\n[10] 其余页签可切换");
     for (const [hash, marker] of [["today", "今日"], ["research", "研究"],
                                   ["experiments", "实验"]]) {
       await cdp.evaluate(`location.hash = '${hash}'`);
