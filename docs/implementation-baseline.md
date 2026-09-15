@@ -191,11 +191,16 @@ Q0 期间出现过一次"把测试接线错误当成产品缺陷"的误判（见
 
 ## 6. 需要新增/修订的架构决策
 
-| 编号 | 决策 | 状态 |
-|---|---|---|
-| ADR-011 | 复用 agentctl 作为受治理的 AI 运行与助手能力，**不**让其接管量化事实、计算与账本 | **待你批准** |
-| ADR-012 | `TextModelProvider` 保留为领域窄接口，agentctl 网关为其**生产实现**之一，离线测试替身不变 | 待批准 |
-| ADR-013 | 静态 master 令牌不下发到产品；部署一律 `--token-env`；产品使用独立签发的受限令牌 | 待批准（依据 Q0 §4.4） |
+| 编号 | 决策 | 状态 | 文件 |
+|---|---|---|---|
+| ADR-011 | 复用 agentctl 作为受治理的 AI 运行与助手能力，**不**让其接管量化事实、计算与账本 | **已采纳**（2026-09-15） | `docs/adr/ADR-011-agentctl-boundary.md` |
+| ADR-012 | `TextModelProvider` 保留为领域窄接口，agentctl 网关为其**生产实现**之一，离线测试替身不变 | **已采纳**（2026-09-15） | `docs/adr/ADR-012-text-model-provider.md` |
+| ADR-013 | 静态 master 令牌不下发到产品；部署一律 `--token-env`；产品使用独立签发的受限令牌 | **已采纳**（2026-09-15） | `docs/adr/ADR-013-deployment-token-discipline.md` |
+
+ADR-011 的边界（领域层不得依赖 agentctl）由
+`tests/security/test_agentctl_boundary.py` **强制**，不靠约定。
+该守卫已用注入违规的方式验证过确实会失败——"干净所以通过"与
+"守卫没生效"看起来一样，必须区分。
 
 同时需修订主文档：§14.3 领域模块（加 agentctl 适配层）、§14.4 仓库布局（`src/aquant/adapters/agentctl/`）、§16.3 工具名 → `aquant.*` 能力 ID 映射表、§20 增补 ADR。
 
