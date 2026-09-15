@@ -94,6 +94,31 @@ def test_authorised_material_is_sent_and_recorded(ctx):
     assert row["content_hash"] == body["contentHash"]
 
 
+def test_answer_is_bound_to_a_published_snapshot(ctx):
+    """§5.5：助手回答系统状态前必须先读快照，回答里要能看出依据哪个时点。"""
+
+    client, _con, stub = ctx
+    body = ask(client, [mat()]).json()
+    based = body.get("basedOn")
+    assert based, "回答没有标注所依据的快照与时点"
+    assert based["snapshotId"], based
+    assert based["asOfTime"], based
+    assert based["dataMode"], based
+    # 系统状态注记确实进入了模型上下文（不是只在响应里回显）
+    assert "系统状态" in stub.calls[-1].context, stub.calls[-1].context[:200]
+    assert based["snapshotId"] in stub.calls[-1].context
+
+
+def test_state_note_uses_a_registered_source(ctx):
+    """注记的来源必须已登记，否则会被闸门拦下（而原因看起来像别的问题）。"""
+
+    client, con, stub = ctx
+    body = ask(client, [mat()]).json()
+    registered = {r[0] for r in con.execute("SELECT source_id FROM source_registry")}
+    assert body["basedOn"]["stateSourceId"] in registered, (
+        body["basedOn"]["stateSourceId"] + " 不在已登记来源里")
+
+
 def test_instructions_forbid_probability_outputs(ctx):
     """§5.3 的要求在提示词层面也要落一次。"""
 
@@ -170,6 +195,76 @@ def test_calls_endpoint_exposes_the_audit_trail(ctx):
     assert r.status_code == 200, r.text
     outcomes = {c["outcome"] for c in r.json()["calls"]}
     assert outcomes == {"OK", "REJECTED"}, outcomes
+
+
+# ==================================================== §5.5 写操作只给草稿
+DRAFT = {"portfolio_id": "pf-syn-m", "trading_day": "2026-09-08"}
+
+
+def _open_account(state, *, cash: int = 100_000_000) -> None:
+    """先给模拟账户建一笔期初资金。
+
+    不建账时预览会以 INSUFFICIENT_CASH 拒绝（现金 0）——助手会如实转达
+    这个错误，但那样用例测的就不是草稿而是报错了。
+    """
+
+    from datetime import datetime, timezone
+
+    state.service._ensure_account("pf-syn-m", initial_cash_cents=cash,
+                                  initial_lots=[],
+                                  now=datetime(2026, 9, 8, tzinfo=timezone.utc))
+
+
+def test_draft_request_returns_preview_without_writing(ctx):
+    """涉及写操作时只生成草稿与差异预览，绝不落库（§5.5、A08）。"""
+
+    client, con, _stub = ctx
+    _open_account(client.app.state.aquant)
+
+    def counts():
+        return {t: con.execute(f'SELECT COUNT(*) AS n FROM "{t}"').fetchone()["n"]
+                for t in ("simulation_plan", "order", "fill", "cash_entry",
+                          "position_lot")}
+
+    before = counts()
+    r = client.post("/api/v1/assistant/messages",
+                    json={"purpose": "去掉某行业后组合如何变化",
+                          "materials": [mat()], "draft": DRAFT},
+                    headers=USER)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body.get("draft"), body
+    assert body["draft"]["portfolioId"] == "pf-syn-m"
+    assert "orders" in body["draft"]
+    assert body["draft"]["frozen"] is False, "草稿不得是已冻结状态"
+    assert "显式确认" in body["draftNote"], body["draftNote"]
+
+    after = counts()
+    assert after == before, (
+        "草稿请求改动了账本：" + str({k: (before[k], after[k])
+                                       for k in before if before[k] != after[k]}))
+
+
+def test_two_drafts_are_independent_previews(ctx):
+    """两次草稿各自独立：预览不入库，所以不应该互相覆盖或复用。"""
+
+    client, con, _stub = ctx
+    _open_account(client.app.state.aquant)
+    ids = []
+    for _ in range(2):
+        body = client.post("/api/v1/assistant/messages",
+                           json={"purpose": "草稿", "materials": [mat()],
+                                 "draft": DRAFT}, headers=USER).json()
+        ids.append(body["draft"]["planId"])
+    assert all(ids), ids
+    assert con.execute("SELECT COUNT(*) AS n FROM simulation_plan").fetchone()["n"] == 0, (
+        "草稿落库了——那就不再是「只算不写」")
+
+
+def test_answer_without_draft_has_no_draft_field(ctx):
+    client, _con, _stub = ctx
+    body = ask(client, [mat()]).json()
+    assert "draft" not in body
 
 
 def test_empty_materials_is_rejected(ctx):

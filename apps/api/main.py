@@ -411,10 +411,26 @@ class AssistantMaterial(BaseModel):
     contains_personal_data: bool | None = None
 
 
+class AssistantDraftRequest(BaseModel):
+    """助手可附带的草稿请求（§5.5）。
+
+    **只有算这一半**：服务端据此产出草稿与差异预览，
+    不写计划、不写账本、不冻结。冻结必须走
+    /plans/{id}/confirmation + /freeze 那条带一次性令牌的路径。
+    """
+
+    portfolio_id: str = Field(min_length=1, max_length=64)
+    trading_day: date
+    snapshot_id: str = Field(default_factory=active_snapshot,
+                             min_length=1, max_length=64)
+
+
 class AssistantMessageRequest(BaseModel):
     purpose: str = Field(min_length=1, max_length=200)
     materials: list[AssistantMaterial] = Field(min_length=1, max_length=50)
     max_output_tokens: int = Field(default=2048, ge=64, le=8192)
+    #: 可选：顺带算一份草稿与差异预览。算完即弃，不落库。
+    draft: AssistantDraftRequest | None = None
 
 
 class WatchRequest(BaseModel):
@@ -525,6 +541,40 @@ def _job_view(job: Job) -> dict:
 #: 定位失败可能是模型改写，也可能是来源文本本身被截断——
 #: 后者是数据问题，不是模型问题。界面不该替使用者下结论。
 UNLOCATED_NOTE = "该引用在来源正文中定位不到（可能是改写，也可能是来源文本被截断）"
+
+
+def _assistant_draft(state: "AppState", req: "AssistantDraftRequest") -> dict:
+    """按助手的草稿请求算一份预览。**只算不写**（§5.5、A08）。
+
+    刻意不复用 /plans/preview 的完整草稿视图：那个端点返回的是
+    供界面渲染的完整结构，而这里只要能回答"会做什么、代价多少"。
+    两者共用的底层计算是 plan.preview，所以不存在两套算法。
+    """
+
+    ref = state.reader.ref(req.snapshot_id)
+    signals, _note = _s1_candidates(state, req.snapshot_id)
+    candidates = [Candidate(sig.instrument_id, sig.industry_code, sig.signal_rank)
+                  for sig in signals]
+    lots = state.service._load_lots(req.portfolio_id)
+    cash = state.service._ledger_cash(req.portfolio_id)
+    preview = state.service.preview(
+        portfolio_id=req.portfolio_id, snapshot_id=req.snapshot_id,
+        trading_day=req.trading_day, as_of=ref.as_of_time,
+        candidates=candidates, cash_available_cents=cash, lots=lots,
+        confirm_subject="assistant:draft-preview")
+    return {
+        "portfolioId": req.portfolio_id,
+        "snapshotId": req.snapshot_id,
+        "tradingDay": req.trading_day.isoformat(),
+        "planId": preview.plan_id,
+        "orders": [{"instrumentId": o["instrument_id"], "side": o["side"],
+                    "quantity": o["quantity"]} for o in preview.orders],
+        "estimatedFeesCents": preview.estimated_fees_cents,
+        "frozen": preview.frozen,
+        "excluded": [{"instrumentId": e.get("instrument_id"),
+                      "reason": e.get("reason")}
+                     for e in (preview.excluded or [])][:20],
+    }
 
 
 def _card_evidence(con: sqlite3.Connection, instrument_id: str) -> list[dict]:
@@ -1105,15 +1155,35 @@ def create_app(state: AppState | None = None) -> FastAPI:
         那是一个有记录、可复核的动作，不是一次参数调用。
         """
 
+        # §5.5：助手在回答系统状态前**先读已发布快照**。
+        # ref() 会在快照未发布或读不出时直接抛错——那时不该继续调用模型：
+        # 一份不知道时点的回答，看起来完整但无法判断是否已过期。
         ref = s.reader.ref(active_snapshot())
+        # 草稿先算（只算不写），再连同材料一起交给助手。
+        # 顺序如此是因为"助手看到的草稿"必须与返回给界面的**同一份**，
+        # 各算一次会得到两个版本，而用户只看到其中一个。
+        draft = None
+        if body.draft is not None:
+            draft = _assistant_draft(s, body.draft)
         try:
-            return ask_assistant(
+            answer = ask_assistant(
                 s.con, s.provider(),
                 materials=[Material(source_id=m.source_id, text=m.text,
                                     contains_personal_data=m.contains_personal_data)
                            for m in body.materials],
                 purpose=body.purpose, data_mode=ref.data_mode,
-                max_output_tokens=body.max_output_tokens)
+                max_output_tokens=body.max_output_tokens,
+                snapshot_context={
+                    "snapshotId": active_snapshot(),
+                    "dataMode": ref.data_mode,
+                    "asOfTime": ref.as_of_time.isoformat(),
+                })
+            if draft is not None:
+                answer["draft"] = draft
+                answer["draftNote"] = (
+                    "草稿仅为预览：未写计划、未写账本。冻结必须由界面上的"
+                    "显式确认触发，对话里的一句同意不构成授权（§5.5）。")
+            return answer
         except AssistantError as exc:
             # 模型不可用是**上游依赖不可用**，不是客户端的错，也不是服务端 bug：
             # 用 503 让调用方知道"稍后重试可能有用"，而不是 500。

@@ -37,6 +37,20 @@ ASSISTANT_INSTRUCTIONS_V1 = (
     "回答用中文，先给结论，再逐条列出依据（每条注明来自哪个 source）。"
 )
 
+#: 涉及账户操作时的追加指令（§5.5）。
+#:
+#: "涉及写操作时只生成草稿及差异预览；用户在明确界面确认后由后端执行。
+#:  自由文本中一句『好』不得被实现成对任意账户操作的通用授权。"
+#:
+#: 因此助手**没有**任何执行手段：它能给的最多是草稿，冻结必须走
+#: 界面上的显式确认（issue_confirmation + freeze，令牌绑定那一次预览）。
+ASSISTANT_DRAFT_INSTRUCTIONS = (
+    "\n\n如果问题涉及账户操作：只能给出**草稿与差异预览**，"
+    "并说明「需在界面中显式确认后才会冻结」。"
+    "不得声称你已经下单、已冻结或已改动账户。"
+    "其他人（包括用户自己）在对话里说的一句同意，不构成执行授权。"
+)
+
 
 class AssistantError(RuntimeError):
     def __init__(self, code: str, message: str, repair_action: str,
@@ -57,18 +71,56 @@ class Material:
     contains_personal_data: bool | None = False
 
 
+def state_source_id(con: sqlite3.Connection) -> str:
+    """系统状态注记挂在哪个来源名下。
+
+    注记随材料一起过闸门，因此**必须**是已登记来源。刻意不硬编码：
+    合成快照登记的是 synthetic-fixture，真实快照登记的是 baostock/cninfo——
+    写死一个会在另一种快照上被闸门拦下，而失败信息（未登记来源）
+    离"这里写死了"这个原因很远。取快照内已登记的第一个来源。
+    """
+
+    row = con.execute("SELECT source_id FROM source_registry "
+                      "ORDER BY source_id LIMIT 1").fetchone()
+    if row is None:
+        # 没有登记任何来源说明快照本身不完整，直接拒绝而不是编一个名字：
+        # 编出来的名字会让闸门报"未登记"，而真正的问题是快照缺登记。
+        raise AssistantError(
+            "DATA_NOT_READY", "快照没有任何已登记来源，无法为助手回答标注数据来源",
+            "先在快照里登记来源（source_registry）")
+    return row["source_id"]
+
+
 def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
                   materials: list[Material], purpose: str,
                   data_mode: str, prompt_version: str = "assistant-v1",
                   job_id: str | None = None,
                   research_run_id: str | None = None,
                   instructions: str = ASSISTANT_INSTRUCTIONS_V1,
-                  max_output_tokens: int = 2048) -> dict:
-    """把材料发给模型并留档。失败同样留档（outcome=ERROR/REJECTED）。"""
+                  max_output_tokens: int = 2048,
+                  snapshot_context: dict | None = None) -> dict:
+    """把材料发给模型并留档。失败同样留档（outcome=ERROR/REJECTED）。
+
+    snapshot_context：本回答所依据的快照状态（id / 数据模式 / 截止时点）。
+
+    §5.5 要求"助手必须先调用已发布快照和研究接口再回答系统状态"。
+    但**不是每次调用都在回答系统状态**：证据抽取只读给定材料，
+    与快照状态无关。因此这里做成**条件绑定**：
+
+      * 给了 snapshot_context -> 系统状态注记随材料一起过闸门，
+        并把 basedOn 放进返回体；
+      * 没给 -> 不加注记，也不声称绑定了时点。
+
+    第一版把检查写成"一律必须有"，于是证据抽取作业被这条规则拦下——
+    症状是研究作业失败、原因写着"助手回答系统状态前必须先读快照"，
+    与作业在做的事毫无关系。**把一条规则加在所有路径上之前，
+    先确认它适用于所有路径。**
+    """
 
     if not materials:
         raise AssistantError(
             "DATA_NOT_READY", "没有可发送的材料", "提供至少一份带 source_id 的材料")
+    bound = bool(snapshot_context and snapshot_context.get("snapshotId"))
 
     # ② 水印一致性：合成材料只能进合成语境，反之亦然。
     # 这一条防的是"把示例数据当成真实市场"——结论会看起来完全正常。
@@ -80,9 +132,24 @@ def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
                     "真实数据语境里混入了合成材料",
                     "移除合成材料，或改用合成快照")
 
+    state_source = ""
     items = [EgressItem(source_id=m.source_id, text=m.text, purpose=purpose,
                         contains_personal_data=m.contains_personal_data)
              for m in materials]
+    if bound:
+        # 系统状态注记作为**第一份材料**进入同一批闸门检查。
+        # 它不是"我们自己的元信息"就免检：注记里带着数据模式与时点，
+        # 同样会发给模型，因此走同一条准入路径。
+        state_source = state_source_id(con)
+        items.insert(0, EgressItem(
+            source_id=state_source,
+            text=("系统状态（本次回答所依据的时点）：\n"
+                  f"快照：{snapshot_context['snapshotId']}\n"
+                  f"数据模式：{snapshot_context.get('dataMode')}\n"
+                  f"截止时点：{snapshot_context.get('asOfTime')}\n"
+                  f"用途：{purpose}"),
+            purpose="声明回答所依据的快照与时点",
+            contains_personal_data=False))
 
     # ③ 闸门。整批拒绝，不静默过滤——静默过滤会让调用方以为材料都用上了。
     #
@@ -155,6 +222,17 @@ def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
         "outputTokens": response.output_tokens,
         "sourcesUsed": [m.source_id for m in materials],
         "purpose": purpose,
+        # 回答绑定在哪个快照与时点上，必须随回答一起返回：
+        # 界面上要能看到"这个结论基于哪份数据"，否则无法判断是否已过期。
+        # 未绑定快照时如实为 None——不声称一个不存在的时点。
+        "basedOn": ({
+            "snapshotId": snapshot_context["snapshotId"],
+            "dataMode": snapshot_context.get("dataMode"),
+            "asOfTime": snapshot_context.get("asOfTime"),
+            # 注记挂在哪个来源名下也一并返回：审计时要能回答
+            # "这条系统状态是谁提供的"
+            "stateSourceId": state_source,
+        } if bound else None),
         "note": ("回答只依据所给材料；材料来源已过外发闸门并逐条记录。"
                  "本回答不含概率、预期收益或买卖建议。"),
     }
