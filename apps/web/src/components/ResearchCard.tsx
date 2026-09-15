@@ -38,8 +38,13 @@ export function ResearchCard({
           <dd>{card.exchange} · {card.board}</dd>
           <dt>快照截止</dt>
           <dd>{formatAsOf(card.asOfTime)}</dd>
-          <dt>报告生成</dt>
-          <dd>{formatAsOf(card.generatedAt)}</dd>
+          <dt>卡片留档</dt>
+          <dd>
+            {formatAsOf(card.generatedAt)}
+            {/* 说清楚这是留档时刻而不是"刚生成"：它按
+                (标的, 快照, 交易日) 冻结，重复打开不会变 */}
+            <span className="note">（留档时刻，重复打开不变）</span>
+          </dd>
           <dt>数据完整度</dt>
           <dd>{card.dataCompleteness}</dd>
           <dt>数据级别</dt>

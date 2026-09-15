@@ -180,6 +180,15 @@ export function WorkspaceView({
                     {card.tradability.reasonLabel}</Badge>
                 </div>
 
+                {/* 留档时刻：卡片按 (标的, 快照, 交易日) 冻结，
+                    重复打开不会刷新。写清楚这一点，否则用户会以为
+                    这是"刚刚生成的"，从而把一份旧证据当成当前判断。 */}
+                <p className="note">
+                  留档时刻 {card.generatedAt.slice(0, 19).replace("T", " ")}
+                  {card.cardId ? "　（" + card.cardId + "）" : ""}
+                  　· 同一标的、同一快照、同一交易日重复打开得到同一张卡片
+                </p>
+
                 <Callout tone={card.tradability.simulatable ? "ok" : "warn"}
                          title={card.tradability.simulatable ? "可进入模拟池" : "不可进入模拟池"}>
                   {card.tradability.detail}

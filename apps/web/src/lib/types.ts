@@ -87,7 +87,11 @@ export interface ResearchCard {
   board: string;
   snapshotId: string;
   asOfTime: string;
+  /** 卡片**留档**时刻。同一 (标的, 快照, 交易日) 重复打开不会刷新它——
+   *  它是"当时看到的证据"的时间戳，不是这次请求的时间。 */
   generatedAt: string;
+  /** 卡片在数据库中的稳定标识（服务端留档后返回）。 */
+  cardId?: string;
   dataCompleteness: string;
   timeLabel: string;
   rankSemantics: string;

@@ -32,6 +32,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
 from aquant.application.workspace_queries import events, portfolio_ledger
+from aquant.application.research_cards import persist_card, research_cards
 from aquant.application.workspace_view import build_data_status, build_research_card
 from aquant.domain.data.db import apply_migrations, connect
 from aquant.domain.data.ingest import SnapshotBuilder
@@ -730,7 +731,28 @@ def create_app(state: AppState | None = None) -> FastAPI:
         except KeyError as exc:
             # 未覆盖的证券是"查无此物"，不是服务端故障；不得让 500 掩盖它
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        return card.as_dict()
+
+        body = card.as_dict()
+        # 卡片按 (标的, 快照, 交易日) 冻结留档：它是"当时看到的证据"。
+        # 同一快照同一天重复打开得到同一张，**不刷新生成时刻**；
+        # 现算即弃的话，事后无法还原"我那天看到的是什么"。
+        stored = persist_card(s.con, snapshot_id=active_snapshot(),
+                              trading_day=trading_day, card=body,
+                              data_mode=ref.data_mode)
+        # 返回体必须读留档值，而不是顺手把刚算出来的时刻放回去：
+        # 那样接口看起来"每次都是新卡片"，与留档语义矛盾。
+        body["cardId"] = stored["card_id"]
+        body["generatedAt"] = stored["generated_at"]
+        return body
+
+    @app.get("/api/v1/research/cards")
+    def research_card_history(instrument_id: str | None = None,
+                              snapshot_id: str | None = None, limit: int = 50,
+                              s: AppState = Depends(svc)) -> dict:
+        """已留存的研究卡片。用于回答"我那天看到的是什么"。"""
+
+        return {"cards": research_cards(s.con, instrument_id=instrument_id,
+                                        snapshot_id=snapshot_id, limit=limit)}
 
     @app.get("/api/v1/portfolios/{portfolio_id}/reconcile")
     def reconcile(portfolio_id: str, s: AppState = Depends(svc)) -> dict:

@@ -373,6 +373,37 @@ async function main() {
           cardText.includes("可进入模拟池") || cardText.includes("不可进入模拟池"));
     check("研究卡给出不确定性", cardText.includes("不确定性"));
     check("研究卡给出反证", cardText.includes("反证"));
+    check("研究卡标出这是留档时刻", cardText.includes("留档"));
+
+    // 留档语义必须在浏览器里成立，而不只是在 API 测试里：
+    // 同一天重复打开同一张卡片，返回的生成时刻必须**完全一致**。
+    // 若服务端每次现算，这里就会看到两个不同的时刻——
+    // 界面看上去毫无异常，但"我那天看到的是什么"已经无从还原。
+    // 交易日取界面自己用的那个（留档时刻所在那一行），不要拿"今天"——
+    // 今天很可能不在快照窗口内，接口会返回错误体，于是三个断言一起变成
+    // 与留档无关的失败。第一版就是这样错的。
+    const archived = await cdp.evaluate(`(async () => {
+      const inst = "SYN.A.600519";
+      const text = document.body.innerText;
+      const m = text.match(/(\\d{4}-\\d{2}-\\d{2})/);
+      const day = m ? m[1] : "2026-09-08";
+      // 必须带上注入的 API 基址：相对路径会打到前端预览服务器上，
+      // 拿到的是一份同源响应而不是隔离后端的研究卡。
+      const base = window.__AQUANT_API_BASE__ || "";
+      const url = base + "/api/v1/instruments/" + inst + "/research?trading_day=" + day;
+      const ra = await fetch(url);
+      const rb = await fetch(url);
+      if (!ra.ok || !rb.ok) return { error: ra.status + "/" + rb.status, day };
+      const a = await ra.json();
+      const b = await rb.json();
+      return { day, idA: a.cardId, idB: b.cardId, atA: a.generatedAt, atB: b.generatedAt };
+    })()`);
+    check("同一天重复打开得到同一张卡片",
+          Boolean(archived?.idA) && archived.idA === archived.idB,
+          JSON.stringify(archived));
+    check("重复打开不刷新留档时刻",
+          Boolean(archived?.atA) && archived.atA === archived.atB,
+          "atA=" + archived?.atA + " atB=" + archived?.atB);
 
     console.log("\n[10] 其余页签可切换");
     for (const [hash, marker] of [["today", "今日"], ["research", "研究"],
