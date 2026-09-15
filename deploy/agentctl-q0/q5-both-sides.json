@@ -1,5 +1,5 @@
 {
-  "ran_at": "2026-09-15T16:57:50.718723+00:00",
+  "ran_at": "2026-09-15T17:26:16.368207+00:00",
   "checks": [
     {
       "side": "synthetic",
@@ -11,7 +11,7 @@
       "side": "synthetic",
       "name": "研究作业已入队",
       "ok": true,
-      "detail": "job_f7f2726a2aac4a7db6cd"
+      "detail": "job_784d683dd3fd4d268990"
     },
     {
       "side": "synthetic",
@@ -89,7 +89,7 @@
       "side": "real",
       "name": "研究作业已入队",
       "ok": true,
-      "detail": "job_03ae4e25d8a6453a85c3"
+      "detail": "job_ded038fdcd2d48d29efc"
     },
     {
       "side": "real",
@@ -105,15 +105,9 @@
     },
     {
       "side": "real",
-      "name": "模型抽取与解析结果一致",
-      "ok": true,
-      "detail": "[]"
-    },
-    {
-      "side": "real",
       "name": "至少一条引用可在来源正文中定位",
       "ok": true,
-      "detail": "4/4"
+      "detail": "1/4"
     },
     {
       "side": "real",

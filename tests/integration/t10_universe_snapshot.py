@@ -47,7 +47,16 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--pool", default=str(ROOT / "configs" / "real-pool-csrc.yaml"))
     ap.add_argument("--out", default=str(ROOT / "deploy" / "universe-snapshot"))
+    ap.add_argument("--snapshot-id", default=SNAPSHOT_ID,
+                    help="快照 ID。**快照不可变，重复发布会拒绝**——"
+                         "增量更新必须每天用新 ID（见 tools/daily_run.py）。")
+    ap.add_argument("--window-start", default=None,
+                    help="窗口第一天。指定后只保留该日及以后的行情，"
+                         "用于让每日快照覆盖固定起点。")
+    ap.add_argument("--window", type=int, default=None,
+                    help="窗口交易日数量；与 --window-start 二选一。")
     args = ap.parse_args()
+    snapshot_id = args.snapshot_id
 
     pool_path = Path(args.pool)
     out_dir = Path(args.out)
@@ -61,10 +70,20 @@ def main() -> int:
     cache = json.loads(CACHE.read_text(encoding="utf-8"))
     bars_all = cache["bars"]
     window = cache["window"]
-    days = []
     first = bars_all[next(iter(bars_all))]["rows"]
     days = [b["trading_day"] for b in first]
+
+    # 窗口可以用参数收窄。**日常增量必须收窄**：缓存会一直加新交易日，
+    # 不收窄的话快照窗口会越拉越长，两次运行的日期范围不同、无法比较。
+    if args.window_start:
+        days = [d for d in days if d >= args.window_start]
+    if args.window:
+        days = days[-args.window:]
+    if not days:
+        print("窗口为空：检查 --window-start / --window 与缓存窗口是否重叠")
+        return 2
     print(f"缓存 {len(bars_all)} 只，窗口 {days[0]} .. {days[-1]}（{len(days)} 天）")
+    kept = set(days)
 
     pool = json.loads(pool_path.read_text(encoding="utf-8"))
     picked = pool["instruments"]
@@ -111,6 +130,10 @@ def main() -> int:
         # 永远算不出 True。
         prev = info.get("prev_close_before_window")
         for b in info["rows"]:
+            if b["trading_day"] not in kept:
+                # 窗口外的行只用于推进前收，不进快照
+                prev = b["close_cents"]
+                continue
             quotes.append({
                 "instrument_id": iid,
                 "trading_day": b["trading_day"],
@@ -125,7 +148,13 @@ def main() -> int:
             prev = b["close_cents"]
 
     check("池内标的都有行情", missing == 0, f"缺失 {missing} 只")
-    check("行情条数充足", len(quotes) > 50_000, f"{len(quotes)} 条")
+    # 阈值随窗口缩放，不能写死 61 天窗口的条数：
+    # 日常增量会把窗口收窄，写死的常量会把"窗口更短"误报成"数据不足"。
+    # 断言的是"每只标的的行情基本齐全"，与窗口长短无关。
+    expected_rows = len(instruments) * len(days)
+    check("行情条数充足", len(quotes) >= expected_rows * 0.95,
+          f"{len(quotes)} 条（窗口 {len(days)} 天 × {len(instruments)} 只 "
+          f"= {expected_rows}，允许 5% 因停牌缺失）")
     # 成交额允许极少数缺失：当日无成交（停牌前后、零成交）时
     # BaoStock 返回空值。**缺失即缺失**，不得用价格×成交量补造。
     # 因此这里断言的是覆盖率而不是"全部都有"——
@@ -223,14 +252,14 @@ def main() -> int:
     check("入库公司行为数正确", report.corporate_actions == len(actions),
           str(report.corporate_actions))
 
-    refs = builder.write_datasets(doc, snapshot_id=SNAPSHOT_ID)
+    refs = builder.write_datasets(doc, snapshot_id=snapshot_id)
     store = SnapshotStore(con, api_root)
 
     def parse(ts: str) -> datetime:
         return datetime.fromisoformat(ts)
 
     store.publish(SnapshotDraft(
-        snapshot_id=SNAPSHOT_ID, kind="EOD", data_mode=DataMode.PRODUCTION,
+        snapshot_id=snapshot_id, kind="EOD", data_mode=DataMode.PRODUCTION,
         input_cutoff_at=parse(doc["input_cutoff_at"]),
         as_of_time=parse(doc["as_of_time"]),
         created_at=datetime.now(timezone.utc),
@@ -243,14 +272,14 @@ def main() -> int:
                              as_of_upper_bound=parse(r["as_of_upper_bound"]))
                   for r in refs],
     ))
-    check("快照已发布", True, SNAPSHOT_ID)
+    check("快照已发布", True, snapshot_id)
 
     reader = SnapshotReader(store)
     as_of = parse(doc["as_of_time"])
     probe = instruments[0]["instrument_id"]
-    rows = reader.daily_quotes(SNAPSHOT_ID, as_of=as_of, instrument_id=probe)
+    rows = reader.daily_quotes(snapshot_id, as_of=as_of, instrument_id=probe)
     check("读取器可读", len(rows) > 0, f"{probe} {len(rows)} 条")
-    listed = reader.instruments(SNAPSHOT_ID, as_of=as_of)
+    listed = reader.instruments(snapshot_id, as_of=as_of)
     check("读取器返回全部证券", len(listed) == len(instruments), str(len(listed)))
 
     # --- 派生事实：开盘即涨停必须随快照冻结（§12.3 / S02）
@@ -319,7 +348,7 @@ def main() -> int:
     out = ROOT / "deploy" / "agentctl-q0" / "t10-universe-snapshot.json"
     out.write_bytes(json.dumps({
         "ran_at": datetime.now(timezone.utc).isoformat(),
-        "snapshot_id": SNAPSHOT_ID,
+        "snapshot_id": snapshot_id,
         "pool_id": pool["pool_id"],
         "instruments": len(instruments),
         "boards": boards,

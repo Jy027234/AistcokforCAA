@@ -118,6 +118,9 @@ def main() -> int:
                     help="只处理该研究池配置里的标的（配合 --prev-close-only 用）。"
                          "全市场逐只补前收要数小时，而快照只用到池内标的——"
                          "把范围收窄到真正需要的那些。")
+    ap.add_argument("--start", default=None,
+                    help="窗口第一天（YYYY-MM-DD）。**增量更新必须指定**，"
+                         "否则窗口跟着当天日期滑动，两次运行的日期范围不同。")
     ap.add_argument("--end", default=None,
                     help="窗口最后一天（YYYY-MM-DD）。默认今天。"
                          "**建快照必须钉住它**：否则窗口跟着当天日期滑动，"
@@ -136,12 +139,22 @@ def main() -> int:
         print("[1] 取交易日历与证券清单")
         # 用指数日线确定交易日（与 T6 一致，不用工作日近似）
         end_day = date.fromisoformat(args.end) if args.end else date.today()
-        idx, _ = bs.daily_bars("sh.000001", start=str(end_day - timedelta(days=200)),
+        idx, _ = bs.daily_bars("sh.000001", start=str(end_day - timedelta(days=800)),
                                end=str(end_day))
-        days = [b["trading_day"] for b in idx][-args.window:]
-        if len(days) < args.window:
-            print(f"  日历不足：只有 {len(days)} 天")
-            return 2
+        all_days = [b["trading_day"] for b in idx]
+        if args.start:
+            # 显式钉住窗口起点。日常增量必须用它：不指定时窗口是
+            # "最后 N 个交易日"，**跟着当天日期滑动**——同一个脚本今天和
+            # 明天跑出来覆盖的日期范围不同，快照之间就没法比较。
+            days = [d for d in all_days if args.start <= d <= str(end_day)]
+            if not days:
+                print(f"  指定的起点 {args.start} 之后没有交易日")
+                return 2
+        else:
+            days = all_days[-args.window:]
+            if len(days) < args.window:
+                print(f"  日历不足：只有 {len(days)} 天")
+                return 2
         print(f"  窗口 {days[0]} .. {days[-1]}（{len(days)} 天）")
 
         targets: list[tuple[str, str, str]] = []
