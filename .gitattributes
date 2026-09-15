@@ -9,6 +9,16 @@
 # 就无法用哈希对照两次运行。
 * text=auto eol=lf
 
+# 抓取留证：**按原样保存，不做任何行尾转换**。
+#
+# 这些文件是证据，档案里记着它们的 sha256。一旦被归一化（CRLF -> LF），
+# 字节就变了，而档案里的哈希看起来仍然正确——证据看起来还在，
+# 实际已经不是那一份了。本项目的可复现闸门正是这样抓到它的：
+# git archive 导出后 test_archived_evidence_bytes_match_their_recorded_hash 失败。
+#
+# 用 -text 而不是 binary：这些确实是文本，只是**不允许被改写**。
+deploy/agentctl-q0/fee-sources/** -text
+
 # 二进制产物不要做任何文本转换
 *.PDF binary
 *.pdf binary
