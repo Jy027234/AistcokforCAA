@@ -2,7 +2,7 @@ import { useState } from "react";
 import {
   api, AquantApiError,
   type CorporateActionOutcome, type ExecuteResponse, type FillRow,
-  type ReconcileResponse, type ValuationResponse,
+  type LedgerResponse, type ReconcileResponse, type ValuationResponse,
 } from "../lib/api";
 import { formatCents } from "../lib/format";
 import { Badge, Callout, Card } from "./ui";
@@ -75,6 +75,12 @@ export function LedgerPanel({
   const onReconcile = () =>
     run("对账", () => api.reconcile(portfolioId), setRecon);
 
+  // ------------------------------------------------------- 账本明细
+  const [ledger, setLedger] = useState<LedgerResponse | null>(null);
+
+  const onLedger = () =>
+    run("载入账本", () => api.ledger(portfolioId), setLedger);
+
   const stale = executed !== null && valuation === null;
 
   return (
@@ -104,6 +110,9 @@ export function LedgerPanel({
             </button>
             <button className="btn" onClick={onReconcile} disabled={busy !== null}>
               {busy === "对账" ? "对账中…" : "逐项对账"}
+            </button>
+            <button className="btn" onClick={onLedger} disabled={busy !== null}>
+              {busy === "载入账本" ? "载入中…" : "查看账本明细"}
             </button>
             <label className="checkbox">
               <input type="checkbox" checked={corporateActions}
@@ -289,6 +298,115 @@ export function LedgerPanel({
                 "服务端未给出具体违反项，请查看后端日志。"
               )}
             </Callout>
+          )}
+        </div>
+      )}
+
+      {ledger && (
+        <div style={{ marginTop: 16 }}>
+          <h4>账本明细</h4>
+          <p className="note">
+            与"逐项对账"的分工不同：对账回答"对不对"（不变量），
+            账本回答"是什么"（逐条事实）。
+          </p>
+
+          <div className="grid-3" style={{ marginTop: 10 }}>
+            <div className="stat">
+              <span className="stat-label">现金合计</span>
+              <span className="stat-value mono">{ledger.cash.display}</span>
+            </div>
+            <div className="stat">
+              <span className="stat-label">现金分录</span>
+              <span className="stat-value mono">{ledger.cash.entry_count} 条</span>
+            </div>
+            <div className="stat">
+              <span className="stat-label">持仓批次</span>
+              <span className="stat-value mono">{ledger.lots.length} 个</span>
+            </div>
+          </div>
+
+          <h4 style={{ marginTop: 14 }}>现金分录</h4>
+          {ledger.cash.entries.length === 0 ? (
+            <p className="note">这个账户还没有任何现金分录。</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr><th>日期</th><th>类型</th><th className="num">金额</th>
+                    <th>备注</th></tr>
+                </thead>
+                <tbody>
+                  {ledger.cash.entries.map((e) => (
+                    <tr key={e.entry_id}>
+                      <td className="mono">{e.trading_day}</td>
+                      <td className="mono">{e.entry_type}</td>
+                      <td className="num mono">{e.amount.display}</td>
+                      <td className="note">{e.note ?? "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <h4 style={{ marginTop: 14 }}>持仓批次（T+1 依据）</h4>
+          {ledger.lots.length === 0 ? (
+            <p className="note">没有持仓批次。</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr><th>批次</th><th>标的</th><th>买入日</th>
+                    <th>最早可卖</th><th className="num">原始</th>
+                    <th className="num">剩余</th><th className="num">成本</th></tr>
+                </thead>
+                <tbody>
+                  {ledger.lots.map((l) => (
+                    <tr key={l.lot_id}>
+                      <td className="mono">{l.lot_id}</td>
+                      <td className="mono">{l.instrument_id}</td>
+                      <td className="mono">{l.acquired_trading_day}</td>
+                      <td className="mono">{l.earliest_sellable_day}</td>
+                      <td className="num mono">{l.quantity_original.toLocaleString("en-US")}</td>
+                      <td className="num mono">{l.quantity_remaining.toLocaleString("en-US")}</td>
+                      <td className="num mono">{l.cost_basis.display}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {ledger.receivables.length > 0 && (
+            <>
+              <h4 style={{ marginTop: 14 }}>应收（分红）</h4>
+              <div className="table-wrap">
+                <table className="data">
+                  <thead>
+                    <tr><th>标的</th><th className="num">金额</th><th>口径</th>
+                      <th>确认日</th><th>预计到账</th><th>状态</th></tr>
+                  </thead>
+                  <tbody>
+                    {ledger.receivables.map((r) => (
+                      <tr key={r.receivable_id}>
+                        <td className="mono">{r.instrument_id}</td>
+                        <td className="num mono">{r.amount.display}</td>
+                        <td><Badge tone={r.tax_treatment === "PRE_TAX" ? "warn" : "ok"}>
+                          {r.tax_treatment === "PRE_TAX" ? "税前口径" : r.tax_treatment}
+                        </Badge></td>
+                        <td className="mono">{r.recognized_on}</td>
+                        <td className="mono">{r.expected_settlement_on}</td>
+                        <td className="mono">{r.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="note" style={{ marginTop: 6 }}>
+                红利税尚未实现（§12.6），因此一律标注税前口径，
+                不得当作税后收益。
+              </p>
+            </>
           )}
         </div>
       )}
