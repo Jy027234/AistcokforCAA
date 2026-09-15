@@ -32,30 +32,35 @@ def item(source: str, text: str = "材料正文", *, personal: bool | None = Fal
                       contains_personal_data=personal)
 
 
-# ==================================================== 默认拒绝
-def test_all_market_data_sources_are_denied_by_default():
-    """全部真实数据源默认不得外发。"""
+# ==================================== 已授权来源放行；未登记来源仍拒绝
+def test_authorised_sources_pass_the_gate():
+    """2026-09-15 使用者授权之后，已登记来源可通过闸门。
+
+    注意这条**不是**在断言"默认全拒"——授权已经改变了默认。
+    默认拒绝的姿态仍然存在，只是作用对象变成了**未登记**来源
+    （见 test_unregistered_source_raises_instead_of_defaulting_open）。
+    """
+
+    for source_id in ("baostock", "cninfo", "tencent-ifzq"):
+        decision = evaluate([item(source_id)])
+        assert decision.allowed, (source_id, decision.blockers)
+
+
+def test_blocked_source_error_is_actionable():
+    """被拒时必须给出可操作的修复动作，而不是一句"不允许"。"""
 
     reg = default_rights()
-    for entry in reg.all():
-        if entry.source_id == "synthetic-fixture":
-            continue
-        assert not entry.can_enter_model_context(), (
-            f"{entry.source_id} 竟然允许模型处理——默认必须是拒绝"
-        )
-
-
-def test_real_market_source_is_blocked_with_actionable_error():
-    decision = evaluate([item("baostock")])
+    # 造一个"未确认模型处理"的状态：把已授权来源改回 UNKNOWN
+    closed = reg.with_right("baostock", "model_processing", Rights.UNKNOWN)
+    decision = evaluate([item("baostock")], registry=closed)
     assert not decision.allowed
     blocker = decision.blockers[0]
     assert blocker["right"] == "model_processing"
     assert "baostock" in blocker["detail"]
 
     with pytest.raises(EgressDenied) as exc:
-        build_model_context([item("baostock")])
-    assert "修复" in exc.value.as_error()["repair_action"] or \
-        "确认来源条款" in exc.value.as_error()["repair_action"]
+        build_model_context([item("baostock")], registry=closed)
+    assert "确认来源条款" in exc.value.as_error()["repair_action"]
 
 
 def test_synthetic_fixture_is_allowed():
@@ -75,9 +80,11 @@ def test_a_single_blocked_item_rejects_the_whole_batch():
     从而给出一个基于残缺输入却看起来完整的结论。
     """
 
+    reg = default_rights()
+    closed = reg.with_right("tencent-ifzq", "model_processing", Rights.UNKNOWN)
     with pytest.raises(EgressDenied):
-        build_model_context([item("synthetic-fixture"),
-                             item("tencent-ifzq")])
+        build_model_context([item("synthetic-fixture"), item("tencent-ifzq")],
+                            registry=closed)
 
 
 # ============================================ 未登记来源必须报错
@@ -107,28 +114,31 @@ def test_personal_data_explicitly_present_is_blocked_even_for_allowed_source():
 
 
 # ==================================== 放行需要显式改登记表（可复核的动作）
-def test_granting_requires_an_explicit_registry_change():
-    """放行只能通过改登记表实现，且改后其它来源仍然被拒。"""
+def test_changing_a_right_is_local_and_non_destructive():
+    """改一项权利只影响该项，且不改动原登记表对象。"""
 
     reg = default_rights()
-    granted = reg.with_right("baostock", "model_processing", Rights.ALLOWED)
+    closed = reg.with_right("baostock", "model_processing", Rights.UNKNOWN)
 
-    assert evaluate([item("baostock")], registry=granted).allowed
+    assert not evaluate([item("baostock")], registry=closed).allowed
     # 其它来源不受影响
-    assert not evaluate([item("tencent-ifzq")], registry=granted).allowed
+    assert evaluate([item("tencent-ifzq")], registry=closed).allowed
     # 原登记表不变（with_right 返回新对象，不改原对象）
-    assert not reg.get("baostock").can_enter_model_context()
+    assert reg.get("baostock").can_enter_model_context()
 
 
 def test_prohibited_and_unknown_both_deny_but_are_distinguishable():
     """PROHIBITED 与 UNKNOWN 都拒绝，但必须能分辨——前者不能再争取。"""
 
     reg = default_rights()
-    unknown = reg.get("tencent-ifzq").rights["model_processing"]
-    assert unknown is Rights.UNKNOWN
+    # tencent-ifzq 现在是 ALLOWED；改回 UNKNOWN 以验证两种拒绝可分辨
+    closed = reg.with_right("tencent-ifzq", "model_processing", Rights.UNKNOWN)
+    assert not closed.get("tencent-ifzq").can_enter_model_context()
 
     prohibited = reg.with_right("tencent-ifzq", "model_processing",
                                 Rights.PROHIBITED)
     entry = prohibited.get("tencent-ifzq")
     assert not entry.can_enter_model_context()
+    # 两者都拒绝，但值可分辨——UNKNOWN 还能争取，PROHIBITED 不应再试
+    assert closed.get("tencent-ifzq").rights["model_processing"] is Rights.UNKNOWN
     assert entry.rights["model_processing"] is Rights.PROHIBITED

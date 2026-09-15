@@ -44,6 +44,11 @@ class Basis(str, Enum):
     #: 把使用者的一句话记成 TERMS_REVIEWED，等于替使用者做了一次
     #: 并没有做过的法律审阅，而后来的人无法分辨两者。
     USER_AUTHORIZED = "USER_AUTHORIZED"
+    #: **由使用者意图推论得出**。与 USER_AUTHORIZED 的区别是：
+    #: 使用者没有就这一项直接表态，是我方按其已表达的意图做的推论。
+    #: 分开记录的理由：推论可能是错的，而"谁说的"决定了复核时该问谁。
+    #: 复核清单里必须能一眼看出哪些是推论。
+    INFERRED_FROM_USER_INTENT = "INFERRED_FROM_USER_INTENT"
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,42 +114,59 @@ class RightsRegistry:
 
 
 #: 公开披露信息源：数据本身是法定公开披露内容。
-#: 研究使用、本地保存、片段展示放开；**再分发与商用不放开**——
-#: 交易所对行情数据另有商业授权安排，原始信息公开不等于可以转售。
-_DISCLOSURE_ALLOWED = ("research_use", "local_storage", "excerpt_display")
+#:
+#: 2026-09-15 加入 model_processing。依据是**推论**而非使用者的直接指令：
+#: 使用者明确授权了消费级网站的模型处理，而公开披露源的风险层级更低
+#: （法定公开披露 vs 企业服务条款），且它们正是行情、公告、分红的主来源——
+#: 不让它们外发，等于真实数据根本无法进入模型，
+#: 而"允许送进模型"这句话就落不了地。
+#: 登记表与 docstring 均如实标注该依据为推论，便于日后区分核查。
+#:
+#: **再分发与商用仍不放开**：交易所对行情数据另有商业授权安排，
+#: 原始信息公开不等于可以转售。
+_DISCLOSURE_ALLOWED = ("research_use", "local_storage", "excerpt_display",
+                       "model_processing")
 
 #: 消费级行情网站：受企业服务条款约束，不是公开披露制度。
 #:
-#: 2026-09-15 使用者确认放行研究使用与本地保存（basis=USER_AUTHORIZED）。
-#: 片段展示仍不放开：展示片段涉及转载，属于另一类风险，
-#: 使用者的"确认放行"不针对它，不应由我替他扩展。
-#: **model_processing 一律不放开**，见下。
-_TERMS_ALLOWED = ("research_use", "local_storage")
+#: 2026-09-15 使用者**明确授权全部四项**：研究使用、本地保存、
+#: 片段展示、模型处理（basis=USER_AUTHORIZED）。
+#:
+#: 关于 model_processing 必须写清的事：
+#: 这一项一旦执行就**无法收回**——数据已经离开本机、进入第三方。
+#: 使用者是在了解这一点之后明确授权的，因此登记表记录该授权；
+#: 但依据类型是 USER_AUTHORIZED 而不是 TERMS_REVIEWED，
+#: 因为来源条款本身并未经过法律审阅。
+#: 详见 docs/data-rights-register.md 与
+#: tests/security/test_rights_registry_guard.py 的守卫说明。
+_TERMS_ALLOWED = ("research_use", "local_storage", "excerpt_display",
+                  "model_processing")
 
 
 def default_rights() -> RightsRegistry:
     return RightsRegistry([
         _entry("baostock", allowed=_DISCLOSURE_ALLOWED,
                basis=Basis.PUBLIC_DISCLOSURE,
-               note="上游为交易所披露数据；BSD 是代码许可，不等于数据许可"),
+               note="上游为交易所披露数据；模型外发依据为推论（见 _DISCLOSURE_ALLOWED）"),
         _entry("cninfo", allowed=_DISCLOSURE_ALLOWED,
-               basis=Basis.PUBLIC_DISCLOSURE, note="证监会指定披露平台"),
+               basis=Basis.PUBLIC_DISCLOSURE,
+               note="证监会指定披露平台；模型外发依据为推论"),
         _entry("sse-site", allowed=_DISCLOSURE_ALLOWED,
-               basis=Basis.PUBLIC_DISCLOSURE, note="交易所官网"),
+               basis=Basis.PUBLIC_DISCLOSURE, note="交易所官网；模型外发依据为推论"),
         _entry("szse-site", allowed=_DISCLOSURE_ALLOWED,
-               basis=Basis.PUBLIC_DISCLOSURE, note="交易所官网"),
+               basis=Basis.PUBLIC_DISCLOSURE, note="交易所官网；模型外发依据为推论"),
         _entry("tencent-ifzq", allowed=_TERMS_ALLOWED,
                basis=Basis.USER_AUTHORIZED,
-               note="2026-09-15 使用者确认放行研究与本地保存；条款本身未做法律审阅"),
+               note="2026-09-15 使用者授权四项（含模型处理）；条款未做法律审阅"),
         _entry("tencent-qt", allowed=_TERMS_ALLOWED,
                basis=Basis.USER_AUTHORIZED,
-               note="2026-09-15 使用者确认放行研究与本地保存；条款本身未做法律审阅"),
+               note="2026-09-15 使用者授权四项（含模型处理）；条款未做法律审阅"),
         _entry("sina-hq", allowed=_TERMS_ALLOWED,
                basis=Basis.USER_AUTHORIZED,
-               note="2026-09-15 使用者确认放行研究与本地保存；条款本身未做法律审阅"),
+               note="2026-09-15 使用者授权四项（含模型处理）；条款未做法律审阅"),
         _entry("eastmoney-direct", allowed=_TERMS_ALLOWED,
                basis=Basis.USER_AUTHORIZED,
-               note="2026-09-15 使用者确认放行研究与本地保存；条款本身未做法律审阅"),
+               note="2026-09-15 使用者授权四项（含模型处理）；条款未做法律审阅"),
         _entry("synthetic-fixture", allowed=_FIELDS,
                basis=Basis.WRITTEN_LICENSE,
                note="本资料包自带的合成数据，可用于任何用途包括模型处理"),
