@@ -22,6 +22,9 @@ from enum import Enum
 
 REGISTER_VERSION = "2026-09-15"
 
+#: 使用者授权日期。与 REGISTER_VERSION 分开记录：
+#: 登记表整体更新与某一项被授权是两件事，混在一起日后无法追溯。
+
 
 class Rights(str, Enum):
     ALLOWED = "ALLOWED"
@@ -36,6 +39,11 @@ class Basis(str, Enum):
     TERMS_NOT_REVIEWED = "TERMS_NOT_REVIEWED"  # 条款未审阅
     TERMS_REVIEWED = "TERMS_REVIEWED"          # 条款已审阅并据此判定
     WRITTEN_LICENSE = "WRITTEN_LICENSE"        # 有书面授权
+    #: **使用者本人授权**。记录的是"谁在什么时候做了这个决定"，
+    #: **不是**法律结论。它之所以要单独一类：
+    #: 把使用者的一句话记成 TERMS_REVIEWED，等于替使用者做了一次
+    #: 并没有做过的法律审阅，而后来的人无法分辨两者。
+    USER_AUTHORIZED = "USER_AUTHORIZED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,8 +114,11 @@ class RightsRegistry:
 _DISCLOSURE_ALLOWED = ("research_use", "local_storage", "excerpt_display")
 
 #: 消费级行情网站：受企业服务条款约束，不是公开披露制度。
-#: 连片段展示都不标允许——展示片段涉及转载。
-#: **这一组最需要使用者本人核对其条款。**
+#:
+#: 2026-09-15 使用者确认放行研究使用与本地保存（basis=USER_AUTHORIZED）。
+#: 片段展示仍不放开：展示片段涉及转载，属于另一类风险，
+#: 使用者的"确认放行"不针对它，不应由我替他扩展。
+#: **model_processing 一律不放开**，见下。
 _TERMS_ALLOWED = ("research_use", "local_storage")
 
 
@@ -123,17 +134,17 @@ def default_rights() -> RightsRegistry:
         _entry("szse-site", allowed=_DISCLOSURE_ALLOWED,
                basis=Basis.PUBLIC_DISCLOSURE, note="交易所官网"),
         _entry("tencent-ifzq", allowed=_TERMS_ALLOWED,
-               basis=Basis.TERMS_NOT_REVIEWED,
-               note="消费级行情网站的服务条款未经审阅"),
+               basis=Basis.USER_AUTHORIZED,
+               note="2026-09-15 使用者确认放行研究与本地保存；条款本身未做法律审阅"),
         _entry("tencent-qt", allowed=_TERMS_ALLOWED,
-               basis=Basis.TERMS_NOT_REVIEWED,
-               note="消费级行情网站的服务条款未经审阅"),
+               basis=Basis.USER_AUTHORIZED,
+               note="2026-09-15 使用者确认放行研究与本地保存；条款本身未做法律审阅"),
         _entry("sina-hq", allowed=_TERMS_ALLOWED,
-               basis=Basis.TERMS_NOT_REVIEWED,
-               note="消费级行情网站的服务条款未经审阅"),
+               basis=Basis.USER_AUTHORIZED,
+               note="2026-09-15 使用者确认放行研究与本地保存；条款本身未做法律审阅"),
         _entry("eastmoney-direct", allowed=_TERMS_ALLOWED,
-               basis=Basis.TERMS_NOT_REVIEWED,
-               note="消费级行情网站的服务条款未经审阅"),
+               basis=Basis.USER_AUTHORIZED,
+               note="2026-09-15 使用者确认放行研究与本地保存；条款本身未做法律审阅"),
         _entry("synthetic-fixture", allowed=_FIELDS,
                basis=Basis.WRITTEN_LICENSE,
                note="本资料包自带的合成数据，可用于任何用途包括模型处理"),
