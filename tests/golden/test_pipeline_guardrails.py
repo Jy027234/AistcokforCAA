@@ -100,21 +100,54 @@ def test_last_successful_day_ignores_skips_and_failures(tmp_path):
 
 
 # --------------------------------------------------- 每日脚本的判定逻辑
-def test_snapshot_id_follows_the_data_not_the_requested_day():
-    """快照 ID 必须由**实际拿到的末日**决定（见 tools/daily_run.py）。
+def _daily_run_module(cache_path):
+    """载入 daily_run 并把它的缓存路径指到指定文件。
 
-    这条在这里以文档形式固定：目标日休市时采集不报错（只是没有新行），
-    若 ID 仍用目标日，就会出现"ID 说 A、内容是 B"。
-    该判定的实现是 daily_run._cache_last_day()，由 daily_run 的集成行为覆盖。
+    **不能**用它默认的 deploy/ 路径做断言：那是产物目录，
+    干净导出里没有——第一版就是这样，被可复现闸门抓到
+    （导出目录里测试红了，而本机全绿）。
     """
 
     import importlib.util
 
     spec = importlib.util.spec_from_file_location(
-        "daily_run", ROOT / "tools" / "daily_run.py")
+        "daily_run_probe", ROOT / "tools" / "daily_run.py")
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
-    assert callable(module._cache_last_day)
-    # 缓存存在时它必须给出一个真实日期，而不是 None
-    assert module._cache_last_day() is not None
+    module.CACHE = cache_path
+    return module
+
+
+def test_cache_last_day_reads_the_actual_data_window(tmp_path):
+    """快照 ID 必须由**实际拿到的末日**决定（见 tools/daily_run.py）。
+
+    目标日休市或数据尚未更新时，采集不会报错（只是没有新行）。
+    若 ID 仍用目标日，就会出现"ID 说 A、内容是 B"——事后极难察觉。
+    """
+
+    import json
+
+    cache = tmp_path / "bars.json"
+    cache.write_text(json.dumps({"bars": {
+        "SH.600000": {"rows": [{"trading_day": "2026-09-11", "close_cents": 100},
+                               {"trading_day": "2026-09-14", "close_cents": 101}]},
+        "SZ.000001": {"rows": [{"trading_day": "2026-09-14", "close_cents": 200}]},
+    }}, ensure_ascii=False), encoding="utf-8")
+    assert _daily_run_module(cache)._cache_last_day() == "2026-09-14"
+
+
+def test_cache_last_day_is_none_for_an_empty_cache(tmp_path):
+    import json
+
+    cache = tmp_path / "empty.json"
+    cache.write_text(json.dumps({"bars": {}}), encoding="utf-8")
+    assert _daily_run_module(cache)._cache_last_day() is None
+
+
+def test_cache_last_day_survives_a_corrupt_cache(tmp_path):
+    """缓存损坏时必须返回 None 让调用方失败，而不是抛异常糊掉整个流程。"""
+
+    cache = tmp_path / "broken.json"
+    cache.write_text("{not json", encoding="utf-8")
+    assert _daily_run_module(cache)._cache_last_day() is None
