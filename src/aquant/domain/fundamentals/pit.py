@@ -139,6 +139,18 @@ class FinancialsStore:
         for s in rows:
             by_period[s.period_key] = s
 
+        # 数据质量闸门：TTM 公式依赖"年内累计"这一口径。
+        # 实测约 6.5% 的标的在同一年内出现累计值下降（前三季递增、
+        # Q4 反而下降），可能是年报重述或供应商口径不一致——
+        # **原因不明就不算**，而不是算一个错的出来。
+        # 判定用绝对值：亏损公司的累计值会越来越负。
+        this_year = [s for s in rows if s.stat_date.year == year
+                     and s.net_profit_micros is not None]
+        this_year.sort(key=lambda s: s.stat_date)
+        for earlier, later in zip(this_year, this_year[1:]):
+            if abs(later.net_profit_micros) < abs(earlier.net_profit_micros):
+                return None
+
         if quarter == 4:
             ttm = latest.net_profit_micros
             basis = f"{year}Q4 即全年"
