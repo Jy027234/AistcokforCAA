@@ -54,13 +54,27 @@ simulation:
     t_plus: 1
     integer_lots_only: true
     odd_lot_sell_supported: false
-  # §12.6 费用（合成测试费率，禁止用于正式研究）
+  # §12.6 费用
+  #
+  # 费率分两类，不能混为一谈：
+  #   * 有权威来源的（印花税、过户费）—— 取值与出处见
+  #     src/aquant/domain/simulation/verified_fees.py，留证见
+  #     tools/fetch_fee_sources.py 与 deploy/agentctl-q0/fee-sources.json；
+  #   * **券商佣金** —— 由券商与客户约定，**没有权威值**。它必须显式给出，
+  #     否则真实数据上会被拒绝（AQUANT_COMMISSION_RATE / _MIN_CENTS）。
+  #
+  # 下面这一段是**合成测试费率**，只允许用于 SYNTHETIC 快照。
+  # 它曾经在真实数据上被静默使用（成交与盈亏都算得出来，只是没有依据），
+  # 现在由 FeeTable.assert_usable_for_data_mode() 在
+  # preview / freeze / execute 三个入口拦下。
   fees:
     fee_version: fee-syn-v1
     synthetic_test_rate: true
     prohibited_for_production_research: true
+    # —— 以下两项仅为示例值。真实数据请改为你的券商费率 ——
     commission_rate: 0.00025
     commission_min_cents: 500
+    # —— 以下两项有权威来源，见 verified_fees.py ——
     stamp_duty_rate_sell: 0.0005
     stamp_duty_effective_from: "2023-08-28"   # S17 印花税减半
     transfer_fee_rate: 0.00001

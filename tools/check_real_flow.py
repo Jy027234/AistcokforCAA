@@ -190,6 +190,16 @@ def main() -> int:
     env["PYTHONPATH"] = str(ROOT / "src")
     env["AQUANT_DATA_DIR"] = str(work / "data")
     env["AQUANT_SNAPSHOT_ID"] = SNAPSHOT_ID
+    # 真实数据必须用**经验证**的费率表（§12.6）：合成费率在这条路径上
+    # 会被 PlanService 直接拒绝。未配置券商佣金时用示例费率，并把这一点
+    # 打印出来——否则报告里的金额会看起来像有依据的。
+    if not env.get("AQUANT_COMMISSION_RATE"):
+        env["AQUANT_COMMISSION_RATE"] = "0.00025"
+        env["AQUANT_COMMISSION_MIN_CENTS"] = "500"
+        print("[费率] 未配置 AQUANT_COMMISSION_RATE，使用**示例**费率 "
+              "（佣金万分之 2.5 / 最低 5 元）。这是一个假设，不是你的券商费率。")
+    else:
+        print(f"[费率] 使用配置的券商佣金：{env['AQUANT_COMMISSION_RATE']}")
 
     # 底仓必须在 API 启动之前写入：避免两个连接并发写同一个库
     _seed_position(work / "data", "pf-real-div", "SH.600519", 1000, "2026-06-25")

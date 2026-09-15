@@ -66,6 +66,10 @@ from aquant.operations.workbench import (
     WorkbenchError, add_watchlist_item, decisions, record_decision,
     remove_watchlist_item, watchlist,
 )
+from aquant.domain.simulation.fees import FeeError
+from aquant.domain.simulation.verified_fees import (  # noqa: E402
+    fee_table_from_env, provenance as fee_provenance_source,
+)
 from aquant.domain.simulation.simulator import Bar, SimError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -132,7 +136,8 @@ class AppState:
         self.store = SnapshotStore(con, root)
         self.reader = SnapshotReader(self.store)
         self.snapshot_id = active_snapshot()
-        self.fees = synthetic_fee_table()
+        self.fees = resolve_fee_table(self.snapshot_id)
+        self.fee_provenance = fee_provenance()
         # 组合参数与研究配置保持一致（单票 10% / 行业 30%）。持仓上限取 4：
         # 研究池有 24 只（其中 18 只沪深主板可模拟），因此上限确实是紧的——
         # 池子只够填满上限时，"上限"就测不出任何东西。
@@ -182,6 +187,48 @@ class AppState:
             # 快照读不出来时保持为空字典：宁可在下单前报"无适用规则"，
             # 也不要拿一份猜出来的板块去算涨跌停。
             self.listings = {}
+
+
+def resolve_fee_table(snapshot_id: str):
+    """按快照的数据模式选费率表（§12.6）。
+
+    规则：
+      * 配置了券商佣金（AQUANT_COMMISSION_RATE / _MIN_CENTS）-> 用**经验证**的费率表；
+      * 没配置：
+          - SYNTHETIC 快照 -> 用合成费率表（本来就是为了跑通链路）；
+          - **PRODUCTION 快照 -> 拒绝启动**。
+
+    为什么真实数据上宁可拒绝启动：原先这张表整张都是合成的，
+    而真实快照上的成交与盈亏一直在用它计算——**数字算得出来，
+    只是没有依据**。启动时明确报错，比跑出一堆看似正常的数字要好。
+
+    刻意不提供"跳过检查"的参数：要放行就给佣金，那是一个有记录的动作。
+    """
+
+    configured = bool(os.environ.get("AQUANT_COMMISSION_RATE", "").strip())
+
+    if not configured:
+        # 合成快照用合成费率：它本来就是用来跑通链路的，
+        # 而且界面上会带水印（§15.4）。默认快照 ID 就是合成快照。
+        if snapshot_id != SNAPSHOT_ID:
+            raise FeeError(
+                "FEE_VERSION_UNVERIFIED",
+                f"真实快照 {snapshot_id} 需要一张经验证的费率表，但未配置券商佣金",
+                "设置 AQUANT_COMMISSION_RATE（例如 0.00025 表示万分之 2.5）与 "
+                "AQUANT_COMMISSION_MIN_CENTS（例如 500 表示 5 元）；"
+                "合成费率不得用于真实数据")
+        return synthetic_fee_table()
+
+    # 与验收脚本**同一条**取表路径（fee_table_from_env），
+    # 因此"验收里跑的费率"与"真实用户跑的费率"不会分叉。
+    table, _note = fee_table_from_env()
+    return table
+
+
+def fee_provenance() -> list[dict]:
+    """费率出处的只读视图，供界面回答"这个数字哪来的"。"""
+
+    return fee_provenance_source()
 
 
 def _data_dir_from_env() -> Path | None:
@@ -850,6 +897,21 @@ def create_app(state: AppState | None = None) -> FastAPI:
         """
 
         return JSONResponse(status_code=409, content={"error": exc.as_error()})
+
+    @app.exception_handler(FeeError)
+    async def fee_error_handler(_: Request, exc: FeeError) -> JSONResponse:
+        """费率问题（§12.6）。
+
+        这条处理器是补上的：FeeError 以前从未走到过 API 边界——
+        合成费率的守卫只被一个测试调用过，生产路径根本不会抛它。
+        把闸门接进 preview/freeze/execute 之后，它立刻会走到这里，
+        没有处理器就会变成 500，而调用方看到的是"服务端故障"，
+        不是"你的费率表没有依据"。
+        """
+
+        return JSONResponse(status_code=422, content={"error": {
+            "code": exc.code, "message": exc.message, "object_id": "fee_table",
+            "retryable": False, "repair_action": exc.repair_action}})
 
     @app.exception_handler(SimError)
     async def sim_error_handler(_: Request, exc: SimError) -> JSONResponse:

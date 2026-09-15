@@ -1,0 +1,45 @@
+{
+  "generated_at": "2026-09-15T17:00:22.370217+00:00",
+  "note": "费率来源档案。kind=CONTRACTUAL 的项**没有权威值**，必须由使用者确认；不要把合成费率当成事实。",
+  "sources": [
+    {
+      "key": "stamp_duty_2023",
+      "item": "证券交易印花税",
+      "kind": "STATUTORY",
+      "rate": "0.0005（卖出方，2023-08-28 起减半征收）",
+      "authority": "财政部、税务总局公告 2023 年第 39 号",
+      "note": "印花税自 2008 年起为单边征收（仅卖方），2023-08-28 起税率减半。本链接为商务部政策法规库转载页（发布机关站点本机不可达）。",
+      "url": "https://policy.mofcom.gov.cn/claw/clawContent.shtml?id=97971",
+      "fetched": true,
+      "contentHash": "sha256:ed4ddc1c74671949374c850d92970e863c29c8f1afcd1546164497d8c71e5256",
+      "bytes": 10277,
+      "fetchedAt": "2026-09-15T17:00:22.222535+00:00",
+      "archivedAt": "deploy\\agentctl-q0\\fee-sources\\ed4ddc1c74671949.html"
+    },
+    {
+      "key": "transfer_fee_2022",
+      "item": "过户费",
+      "kind": "INDUSTRY_STANDARD",
+      "rate": "0.00001（双向，成交金额的万分之 0.01）",
+      "authority": "中国证券登记结算有限责任公司：关于降低股票交易过户费收费标准的通知",
+      "note": "2022-04-29 起总体下调 50%，原文表述为「统一下调为按照成交金额0.01‰ 双向收取」。本链接为金融时报—中国金融新闻网报道。",
+      "url": "https://www.financialnews.com.cn/zq/zj/202204/t20220428_245340.html",
+      "fetched": true,
+      "contentHash": "sha256:299bd006d4155888d3ce10225815604ceedac1378007db065295b2f7ca4a3932",
+      "bytes": 19774,
+      "fetchedAt": "2026-09-15T17:00:22.369633+00:00",
+      "archivedAt": "deploy\\agentctl-q0\\fee-sources\\299bd006d4155888.html"
+    },
+    {
+      "key": "commission",
+      "item": "券商佣金",
+      "kind": "CONTRACTUAL",
+      "rate": "**无权威值**：由券商与客户约定，上限为成交金额的千分之三，最低通常 5 元",
+      "authority": "（无）—— 这一项必须由使用者按自己的费率确认",
+      "note": "合成费率表用万分之 2.5、最低 5 元，那是一个**假设**，不是事实。在它被替换成使用者确认的值之前，盈亏数字不能当真。",
+      "url": null,
+      "fetched": false,
+      "reason": "该费率由券商与客户约定，无公开权威标准"
+    }
+  ]
+}

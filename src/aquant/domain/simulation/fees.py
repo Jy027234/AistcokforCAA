@@ -70,7 +70,13 @@ class FeeSchedule:
         return self.effective_to is None or day < self.effective_to
 
     def assert_usable_for_formal_research(self) -> None:
-        """§12.6 合成费率不得用于真实数据的正式研究。"""
+        """§12.6 合成费率不得用于真实数据的正式研究。
+
+        注意这是**单条费率**的自检（schedule_for 返回一天的那条）。
+        真正挡住"在真实数据上用合成费率"的是 FeeTable.assert_usable_for_data_mode()——
+        这个方法原先只在测试里被调用过，生产路径上没有任何地方拦，
+        于是规则写在代码里、配了测试、却从未生效。
+        """
 
         if self.synthetic_test_rate:
             raise FeeError(
@@ -102,13 +108,63 @@ class FeeCharge:
 
 
 class FeeTable:
-    """按交易日解析生效版本的费率表。"""
+    """按交易日解析生效版本的费率表。
 
-    def __init__(self, schedules: list[FeeSchedule]) -> None:
+    commission_source：佣金那一项是怎么来的。**必须显式给出**——
+    佣金是券商约定、没有权威值，所以"它从哪来"本身就是结论的一部分：
+
+      * USER_CONFIGURED —— 使用者按自己的费率填的；
+      * UNCONFIGURED_DEFAULT —— 未配置，用了示例值（**这是一个假设**）。
+
+    有了这个标注，界面与报告才可能说清"盈亏基于谁的费率"。
+    没有它的后果我们在合成费率上已经见过一次：数字算得出来，
+    但"这个数字依据什么"没有任何地方能回答。
+    """
+
+    def __init__(self, schedules: list[FeeSchedule], *,
+                 commission_source: str = "UNCONFIGURED_DEFAULT") -> None:
         if not schedules:
             raise FeeError("FEE_VERSION_UNVERIFIED", "fee table is empty",
                            "provide at least one fee schedule")
+        if commission_source not in ("USER_CONFIGURED", "UNCONFIGURED_DEFAULT"):
+            raise FeeError("FEE_VERSION_UNVERIFIED",
+                           f"unknown commission source {commission_source!r}",
+                           "use USER_CONFIGURED or UNCONFIGURED_DEFAULT")
+        self.commission_source = commission_source
         self._schedules = sorted(schedules, key=lambda s: s.effective_from)
+
+    @property
+    def is_synthetic(self) -> bool:
+        """整张表里是否**有任何**一档是合成测试费率。
+
+        刻意用"任何"而不是"当天那一档"：一张表混着合成档与经验证档，
+        是最容易被忽略的一种状态——查到的那天恰好是经验证档时，
+        看起来一切正常。要放行就必须整张表都干净。
+        """
+
+        return any(s.synthetic_test_rate for s in self._schedules)
+
+    def assert_usable_for_data_mode(self, data_mode: str, *, trading_day: date) -> None:
+        """真实数据（PRODUCTION）上不得使用合成费率（§12.6）。
+
+        这条闸门必须由**调用路径**触发，不能只作为工具方法存在：
+        原先 assert_usable_for_formal_research() 只被一个测试调用过，
+        于是合成费率在真实快照上被静默使用——成交、费用、盈亏全都算得出来，
+        只是数字没有依据。这与"开盘涨停守卫从未生效"是同一类缺陷：
+        **规则写在代码里，但没有任何执行路径会走到它。**
+        """
+
+        if (data_mode or "").upper() != "PRODUCTION":
+            return
+        if not self.is_synthetic:
+            return
+        version = self.schedule_for(trading_day).fee_version
+        raise FeeError(
+            "FEE_VERSION_UNVERIFIED",
+            (f"快照是真实数据（PRODUCTION），但费率表含**合成测试费率**"
+             f"（{trading_day.isoformat()} 生效版本 {version!r}）"),
+            "为真实数据配置一张经验证的费率表（来源见 tools/fetch_fee_sources.py）；"
+            "合成费率只允许用于 SYNTHETIC 快照")
 
     def schedule_for(self, day: date, *, fee_version: str | None = None) -> FeeSchedule:
         candidates = [s for s in self._schedules if s.covers(day)]

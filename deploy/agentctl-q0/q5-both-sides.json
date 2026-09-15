@@ -1,5 +1,5 @@
 {
-  "ran_at": "2026-09-15T15:32:23.163438+00:00",
+  "ran_at": "2026-09-15T16:57:50.718723+00:00",
   "checks": [
     {
       "side": "synthetic",
@@ -11,7 +11,7 @@
       "side": "synthetic",
       "name": "研究作业已入队",
       "ok": true,
-      "detail": "job_b812ede9c5d0412fbedb"
+      "detail": "job_f7f2726a2aac4a7db6cd"
     },
     {
       "side": "synthetic",
@@ -89,7 +89,7 @@
       "side": "real",
       "name": "研究作业已入队",
       "ok": true,
-      "detail": "job_b7d2b75b0ede47f0bab1"
+      "detail": "job_03ae4e25d8a6453a85c3"
     },
     {
       "side": "real",

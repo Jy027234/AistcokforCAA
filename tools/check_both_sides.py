@@ -96,6 +96,7 @@ def run_side(side: str, con, reader, store_root: Path, *,
     from aquant.domain.portfolio.plan import PlanService
     from aquant.domain.simulation.board_rules import BOARD_RULES
     from aquant.domain.simulation.fees import synthetic_fee_table
+    from aquant.domain.simulation.verified_fees import fee_table_from_env
     from aquant.operations.research_jobs import (
         JOB_EVIDENCE_RESEARCH, run_research_job, submit_research_job,
     )
@@ -150,7 +151,16 @@ def run_side(side: str, con, reader, store_root: Path, *,
     # ---------------------------------------- 预览 -> 冻结 -> 执行 -> 对账
     listings = {i["instrument_id"]: (i["exchange"], i["board"])
                 for i in reader.instruments(snapshot_id, as_of=ref.as_of_time)}
-    service = PlanService(con, reader, synthetic_fee_table(), BOARD_RULES, listings)
+    # 真实数据上必须用经验证的费率表（§12.6）；合成数据继续用合成费率。
+    # 两者的差别是"数字有没有依据"，因此要在报告里说出来。
+    ref_mode = reader.ref(snapshot_id).data_mode
+    if ref_mode == "PRODUCTION":
+        fees, fee_note = fee_table_from_env()
+        note(side, "费率：" + fee_note)
+    else:
+        fees, fee_note = synthetic_fee_table(), "合成测试费率（SYNTHETIC 快照）"
+        note(side, "费率：" + fee_note)
+    service = PlanService(con, reader, fees, BOARD_RULES, listings)
     candidates = [Candidate(i["instrument_id"], i.get("industry_code") or "UNKNOWN", 0.5)
                   for i in reader.instruments(snapshot_id, as_of=ref.as_of_time)[:8]]
     portfolio = f"pf-q5-{side}-M"

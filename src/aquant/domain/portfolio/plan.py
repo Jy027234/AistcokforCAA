@@ -182,6 +182,23 @@ class PlanService:
         self.params = params or ConstructionParams()
 
     # ------------------------------------------------------------ helpers
+    def _assert_fee_table_allowed(self, snapshot_id: str, trading_day: date) -> None:
+        """真实数据上不得使用合成费率（§12.6）。
+
+        放在 preview / freeze / execute / value 的入口，而不是只做成一个
+        工具方法：工具方法不会自己被执行。原先
+        assert_usable_for_formal_research() 只被一个测试调用过，
+        于是真实快照上的成交与盈亏一直在用合成费率计算——
+        **数字算得出来，只是没有依据**。
+
+        preview 就拦是为了让使用者在看到草稿时就发现问题，
+        而不是走到冻结那一步才被拒。
+        """
+
+        ref = self.reader.ref(snapshot_id)
+        self.fee_table.assert_usable_for_data_mode(ref.data_mode,
+                                                   trading_day=trading_day)
+
     def _bars(self, snapshot_id: str, trading_day: date, as_of: datetime,
               instrument_ids: list[str]) -> dict[str, Bar]:
         bars: dict[str, Bar] = {}
@@ -302,6 +319,7 @@ class PlanService:
     ) -> PlanPreview:
         """只算不冻。不写 simulation_plan，不写账本（A08）。"""
 
+        self._assert_fee_table_allowed(snapshot_id, trading_day)
         if not confirm_subject or not confirm_subject.strip():
             raise PlanError("DATA_NOT_READY", "confirm_subject is required for a plan",
                             portfolio_id, "identify the human confirming the plan")
@@ -601,6 +619,9 @@ class PlanService:
         冻结后计划主体不可变（由数据库触发器保证）。
         """
 
+        # 冻结与执行各自再查一次：preview 到 freeze 之间调用方可能换了费率表，
+        # 而"预览时合法、冻结点不合法"是必须被拒的状态。
+        self._assert_fee_table_allowed(preview.snapshot_id, preview.trading_day)
         now = now or datetime.now(timezone.utc)
         if not confirmer_is_human(confirm_subject):
             raise PlanError("DATA_NOT_READY",
@@ -792,6 +813,11 @@ class PlanService:
         if row is None:
             raise PlanError("DATA_NOT_READY", f"unknown plan {plan_id!r}", plan_id,
                             "use an existing plan id")
+        # 执行前再查一次费率表：这里的每一笔费用都会真的写进账本，
+        # 用合成费率记出来的盈亏没有依据。
+        self._assert_fee_table_allowed(
+            row["snapshot_id"],
+            date.fromisoformat(json.loads(row["diff_preview_json"])["trading_day"]))
         if row["status"] != "FROZEN":
             raise PlanError("DATA_NOT_READY",
                             f"plan {plan_id} is {row['status']}, not FROZEN", plan_id,
