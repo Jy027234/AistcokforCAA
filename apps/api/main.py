@@ -39,7 +39,15 @@ from aquant.domain.data.reader import SnapshotReader
 from aquant.domain.data.snapshot import SnapshotError, SnapshotStore
 from aquant.domain.portfolio.construction import Candidate, ConstructionParams
 from aquant.domain.portfolio.plan import PlanError, PlanService, confirmer_is_human
+from aquant.domain.research.experiments import (
+    ExperimentError, ExperimentSpec, experiment, experiments,
+    note_test_set_access, record_outcome, register_experiment,
+)
 from aquant.domain.research.f10 import compute_f10_for_snapshot
+from aquant.domain.research.strategies import (  # noqa: E402
+    KNOWN_FEATURE_SPECS, StrategyVersionError, ensure_strategy_version,
+    seed_known_versions, strategy_versions,
+)
 from aquant.domain.research.runs import factor_values
 from aquant.domain.simulation.corporate_actions import CashDividend
 from aquant.domain.simulation.fees import synthetic_fee_table
@@ -260,6 +268,12 @@ def build_state(data_dir: Path | None = None) -> AppState:
     root.mkdir(exist_ok=True)
     store = SnapshotStore(con, root)
 
+    # 策略版本必须在实验登记之前存在（外键）。这不是形式要求：
+    # 登记一个从未冻结过的策略版本，实验就无法复现。
+    seeded = seed_known_versions(con)
+    if seeded["created"]:
+        print(f"[api] 登记策略版本：{', '.join(seeded['created'])}")
+
     wanted = active_snapshot()
     try:
         # require_published 同时校验状态：只认已发布快照，
@@ -292,6 +306,80 @@ class PreviewRequest(BaseModel):
 class FreezeRequest(BaseModel):
     plan_id: str = Field(min_length=1, max_length=64)
     confirmation_token: str = Field(min_length=8, max_length=512)
+
+
+class StrategyVersionRequest(BaseModel):
+    strategy_version: str = Field(min_length=1, max_length=64)
+    family: str = Field(pattern="^(S1|S2|E1|CUSTOM)$")
+    spec: dict
+    parent_version: str | None = Field(default=None, max_length=64)
+    notes: str | None = Field(default=None, max_length=1000)
+
+
+class ExperimentRequest(BaseModel):
+    """实验登记输入（§13.2）。
+
+    **不含结果字段**：登记发生在看结果之前，接口形状本身就在阻止"跑完再补"。
+    """
+
+    hypothesis: str = Field(min_length=1, max_length=2000)
+    data_range_start: date
+    data_range_end: date
+    universe: list[str] = Field(min_length=1)
+    feature_version: str = Field(min_length=1, max_length=64)
+    strategy_version: str = Field(min_length=1, max_length=64)
+    primary_metric: str = Field(min_length=1, max_length=200)
+    stopping_condition: str = Field(min_length=1, max_length=500)
+    train_start: date | None = None
+    train_end: date | None = None
+    valid_start: date | None = None
+    valid_end: date | None = None
+    test_start: date | None = None
+    test_end: date | None = None
+    preprocessing: dict = Field(default_factory=dict)
+    label_window: str | None = Field(default=None, max_length=64)
+    fee_version: str | None = Field(default=None, max_length=64)
+    slippage_bps: int | None = Field(default=None, ge=0, le=10_000)
+    comparison: dict = Field(default_factory=dict)
+
+    def to_spec(self) -> "ExperimentSpec":
+        def window(start: date | None, end: date | None) -> tuple[date, date] | None:
+            if start is None and end is None:
+                return None
+            if start is None or end is None:
+                raise WorkbenchError(
+                    "DATA_NOT_READY",
+                    "split window needs both start and end",
+                    "window", "provide both dates or neither")
+            return (start, end)
+
+        return ExperimentSpec(
+            hypothesis=self.hypothesis,
+            data_range_start=self.data_range_start,
+            data_range_end=self.data_range_end,
+            universe=self.universe,
+            feature_version=self.feature_version,
+            strategy_version=self.strategy_version,
+            primary_metric=self.primary_metric,
+            stopping_condition=self.stopping_condition,
+            train=window(self.train_start, self.train_end),
+            valid=window(self.valid_start, self.valid_end),
+            test=window(self.test_start, self.test_end),
+            preprocessing=self.preprocessing,
+            label_window=self.label_window,
+            fee_version=self.fee_version,
+            slippage_bps=self.slippage_bps,
+            comparison=self.comparison)
+
+
+class OutcomeRequest(BaseModel):
+    status: str = Field(
+        pattern="^(REGISTERED|RUNNING|COMPLETED|FAILED|ABANDONED)$")
+    outcome_notes: str = Field(default="", max_length=4000)
+
+
+class TestSetAccessRequest(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class ResearchRunRequest(BaseModel):
@@ -590,6 +678,15 @@ def create_app(state: AppState | None = None) -> FastAPI:
     async def snapshot_error_handler(_: Request, exc: SnapshotError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"error": exc.as_error()})
 
+    @app.exception_handler(StrategyVersionError)
+    async def strategy_error_handler(_: Request,
+                                     exc: StrategyVersionError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"error": exc.as_error()})
+
+    @app.exception_handler(ExperimentError)
+    async def experiment_error_handler(_: Request, exc: ExperimentError) -> JSONResponse:
+        return JSONResponse(status_code=409, content={"error": exc.as_error()})
+
     @app.exception_handler(WorkbenchError)
     async def workbench_error_handler(_: Request, exc: WorkbenchError) -> JSONResponse:
         """自选与决策的领域错误走同一信封。
@@ -755,6 +852,67 @@ def create_app(state: AppState | None = None) -> FastAPI:
                      s: AppState = Depends(svc)) -> dict:
         return remove_watchlist_item(s.con, subject_id=subject,
                                      instrument_id=instrument_id)
+
+    # -------------------------------------------------------- 策略版本
+    @app.get("/api/v1/strategy-versions")
+    def list_strategy_versions(s: AppState = Depends(svc)) -> dict:
+        return {"strategyVersions": strategy_versions(s.con),
+                "featureVersions": [
+                    {"featureVersion": k, **v}
+                    for k, v in KNOWN_FEATURE_SPECS.items()
+                ],
+                "note": ("策略版本不可改：变更须注册新版本名，"
+                         "否则已登记的实验会指向从未跑过的参数")}
+
+    @app.post("/api/v1/strategy-versions")
+    def create_strategy_version(body: StrategyVersionRequest,
+                                subject: str = Depends(current_subject),
+                                s: AppState = Depends(svc)) -> dict:
+        return ensure_strategy_version(
+            s.con, strategy_version=body.strategy_version, family=body.family,
+            spec=body.spec, parent_version=body.parent_version,
+            notes=body.notes)
+
+    # ------------------------------------------------------------ 实验
+    @app.get("/api/v1/experiments")
+    def list_experiments(limit: int = 100, s: AppState = Depends(svc)) -> dict:
+        rows = experiments(s.con, limit=max(1, min(limit, 500)))
+        return {"count": len(rows), "experiments": rows,
+                "note": ("失败与负收益实验同样保留；"
+                         "test_set_access_count > 1 表示测试集已被用于选择方案")}
+
+    @app.post("/api/v1/experiments")
+    def create_experiment(body: ExperimentRequest,
+                          subject: str = Depends(current_subject),
+                          s: AppState = Depends(svc)) -> dict:
+        """登记实验。**先登记、后看结果**（§13.2）。
+
+        这个端点不接收任何结果字段——登记发生在看结果之前。
+        改变任一输入会产生新实验，旧记录原样保留。
+        """
+
+        return register_experiment(s.con, body.to_spec())
+
+    @app.get("/api/v1/experiments/{experiment_id}")
+    def get_experiment(experiment_id: str, s: AppState = Depends(svc)) -> dict:
+        return experiment(s.con, experiment_id)
+
+    @app.post("/api/v1/experiments/{experiment_id}/outcome")
+    def close_experiment(experiment_id: str, body: OutcomeRequest,
+                         subject: str = Depends(current_subject),
+                         s: AppState = Depends(svc)) -> dict:
+        """记录结论。失败与负收益同样保存（§13.2）。"""
+
+        return record_outcome(s.con, experiment_id, status=body.status,
+                              outcome_notes=body.outcome_notes)
+
+    @app.post("/api/v1/experiments/{experiment_id}/test-set-access")
+    def touch_test_set(experiment_id: str, body: TestSetAccessRequest,
+                       subject: str = Depends(current_subject),
+                       s: AppState = Depends(svc)) -> dict:
+        """记录一次测试集访问并计数（§13.2）。"""
+
+        return note_test_set_access(s.con, experiment_id, reason=body.reason)
 
     # ------------------------------------------------------ 因子与研究运行
     @app.post("/api/v1/research/runs")

@@ -270,6 +270,134 @@ def test_api_exposes_no_order_or_ledger_write_paths(client):
     for forbidden in ("order", "trade", "ledger/write", "shell", "sql", "fetch"):
         assert forbidden not in blob, f"API 暴露了 {forbidden} 路径: {sorted(paths)}"
 
+# ============================================================ 实验登记
+def _experiment_body(**over) -> dict:
+    body = {
+        "hypothesis": "20 日动量在主板上有正超额",
+        "data_range_start": "2026-06-22",
+        "data_range_end": "2026-09-14",
+        "universe": ["SYN.A.600519", "SYN.A.000001"],
+        "feature_version": "f10-v1",
+        "strategy_version": "s1-v1",
+        "primary_metric": "rank_ic",
+        "stopping_condition": "样本不足 60 个交易日即终止",
+        "train_start": "2026-06-22",
+        "train_end": "2026-07-31",
+        "valid_start": "2026-08-03",
+        "valid_end": "2026-08-31",
+        "test_start": "2026-09-01",
+        "test_end": "2026-09-14",
+    }
+    body.update(over)
+    return body
+
+
+def test_experiment_registration_requires_the_spec_fields(client):
+    """§13.2 的输入项缺一不可——缺项意味着条件没定清就开跑。"""
+
+    r = client.post("/api/v1/experiments",
+                    json={"hypothesis": "只有假设"}, headers=USER)
+    assert r.status_code == 422, r.text
+
+
+def test_experiment_registration_is_idempotent_for_the_same_spec(client):
+    first = client.post("/api/v1/experiments", json=_experiment_body(),
+                        headers=USER).json()
+    second = client.post("/api/v1/experiments", json=_experiment_body(),
+                         headers=USER).json()
+    assert first["created"] is True
+    assert second["created"] is False
+    assert first["experiment_id"] == second["experiment_id"]
+
+
+def test_changing_one_input_creates_a_new_experiment(client):
+    """§13.2：改一条权重、过滤条件或事件窗口就产生新实验。"""
+
+    base = client.post("/api/v1/experiments", json=_experiment_body(),
+                       headers=USER).json()
+
+    # 新策略版本必须先注册：外键保证实验只能引用真正冻结过的版本，
+    # 否则"这份实验跑的是哪套参数"事后无法回答。
+    registered = client.post("/api/v1/strategy-versions", json={
+        "strategy_version": "s1-v2", "family": "S1",
+        "spec": {"factors": ["F01"], "note": "少一个因子的对照"},
+    }, headers=USER)
+    assert registered.status_code == 200, registered.text
+
+    changed = client.post("/api/v1/experiments",
+                          json=_experiment_body(strategy_version="s1-v2"),
+                          headers=USER).json()
+
+    assert changed["experiment_id"] != base["experiment_id"]
+    assert changed["fingerprint"] != base["fingerprint"]
+    assert changed["created"] is True
+
+    # 旧记录原样保留——这正是"没有 UPDATE 路径"的意义
+    old = client.get(f"/api/v1/experiments/{base['experiment_id']}").json()
+    assert old["strategy_version"] == "s1-v1"
+
+
+def test_experiment_windows_must_be_ordered_and_disjoint(client):
+    """§13.3 禁止随机打乱日期；窗口必须有序且不重叠。"""
+
+    r = client.post("/api/v1/experiments",
+                    json=_experiment_body(valid_start="2026-06-01",
+                                          valid_end="2026-08-31"),
+                    headers=USER)
+    assert r.status_code == 409, r.text
+    assert r.json()["error"]["code"] == "DATA_NOT_READY"
+
+
+def test_failed_experiments_are_kept_with_a_reason(client):
+    """§13.2：失败和负收益实验同样保存，且必须写清为什么。"""
+
+    exp = client.post("/api/v1/experiments", json=_experiment_body(),
+                      headers=USER).json()
+
+    # 没写结论就关闭：拒绝
+    bad = client.post(f"/api/v1/experiments/{exp['experiment_id']}/outcome",
+                      json={"status": "FAILED", "outcome_notes": ""},
+                      headers=USER)
+    assert bad.status_code == 409
+
+    ok = client.post(f"/api/v1/experiments/{exp['experiment_id']}/outcome",
+                     json={"status": "FAILED",
+                           "outcome_notes": "样本不足，因子覆盖率仅 12%"}, headers=USER)
+    assert ok.status_code == 200
+    assert ok.json()["status"] == "FAILED"
+
+    listed = client.get("/api/v1/experiments").json()
+    row = next(e for e in listed["experiments"]
+               if e["experiment_id"] == exp["experiment_id"])
+    assert row["status"] == "FAILED"
+    assert "样本不足" in row["outcome_notes"]
+
+
+def test_test_set_access_is_counted_not_asserted(client):
+    """§13.2：测试集被多次用于选择方案后，不再是未触碰测试集。"""
+
+    exp = client.post("/api/v1/experiments", json=_experiment_body(),
+                      headers=USER).json()
+    for i in range(3):
+        r = client.post(
+            f"/api/v1/experiments/{exp['experiment_id']}/test-set-access",
+            json={"reason": "第 " + str(i + 1) + " 次选参数"}, headers=USER)
+        assert r.status_code == 200
+        assert r.json()["testSetAccessCount"] == i + 1
+
+    assert "未触碰" in r.json()["warning"]
+
+    row = client.get(f"/api/v1/experiments/{exp['experiment_id']}").json()
+    assert row["test_set_access_count"] == 3
+    assert "测试集访问 3" in row["outcome_notes"]
+
+
+def test_unknown_experiment_is_rejected(client):
+    assert client.get("/api/v1/experiments/exp-nope").status_code == 409
+    assert client.post("/api/v1/experiments/exp-nope/test-set-access",
+                       json={"reason": "x"}, headers=USER).status_code == 409
+
+
 # ======================================================== 因子与研究运行
 def test_research_run_records_exclusions_with_readable_reasons(client):
     """合成快照没有财务数据，每个标的都必须带**可读原因**。
