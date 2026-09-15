@@ -233,3 +233,24 @@ class SnapshotReader:
     def trading_calendar(self, snapshot_id: str, *, as_of: datetime) -> list[str]:
         self._assert_as_of_within_snapshot(snapshot_id, as_of)
         return list(self._load_dataset(snapshot_id, "trading_calendar"))
+
+    def financials(self, snapshot_id: str, *, as_of: datetime) -> dict:
+        """财务数据（季频，含 pubDate）。**没有就返回空**，不报错。
+
+        为什么返回空而不是抛错：很多快照本来就不含财务数据
+        （行情快照、合成快照）。让调用方去区分"快照没有这类数据"与
+        "读取失败"，只会逼出一堆 try/except；而"没有财务数据"本身
+        是一个可读的缺失原因，由调用方写进 exclusion_reason。
+        """
+
+        self._assert_as_of_within_snapshot(snapshot_id, as_of)
+        try:
+            return dict(self._load_dataset(snapshot_id, "financials"))
+        except SnapshotError as exc:
+            # 只吞"这份快照本来就没带这个数据集"这一种。
+            # **不能**笼统 except 掉所有 SnapshotError：
+            # 数据集存在但哈希校验失败是另一回事，掩盖它会让
+            # "快照被改过"看起来像"没有财务数据"。
+            if "has no dataset" not in str(exc):
+                raise
+            return {}

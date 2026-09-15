@@ -39,6 +39,8 @@ from aquant.domain.data.reader import SnapshotReader
 from aquant.domain.data.snapshot import SnapshotError, SnapshotStore
 from aquant.domain.portfolio.construction import Candidate, ConstructionParams
 from aquant.domain.portfolio.plan import PlanError, PlanService, confirmer_is_human
+from aquant.domain.research.f10 import compute_f10_for_snapshot
+from aquant.domain.research.runs import factor_values
 from aquant.domain.simulation.corporate_actions import CashDividend
 from aquant.domain.simulation.fees import synthetic_fee_table
 from aquant.operations.jobs import Job, JobError, JobStore
@@ -290,6 +292,11 @@ class PreviewRequest(BaseModel):
 class FreezeRequest(BaseModel):
     plan_id: str = Field(min_length=1, max_length=64)
     confirmation_token: str = Field(min_length=8, max_length=512)
+
+
+class ResearchRunRequest(BaseModel):
+    #: 限制参与计算的标的数（调试用）；0 = 不限。
+    limit: int = Field(default=0, ge=0, le=10_000)
 
 
 class WatchRequest(BaseModel):
@@ -748,6 +755,33 @@ def create_app(state: AppState | None = None) -> FastAPI:
                      s: AppState = Depends(svc)) -> dict:
         return remove_watchlist_item(s.con, subject_id=subject,
                                      instrument_id=instrument_id)
+
+    # ------------------------------------------------------ 因子与研究运行
+    @app.post("/api/v1/research/runs")
+    def run_factors(body: ResearchRunRequest,
+                    subject: str = Depends(current_subject),
+                    s: AppState = Depends(svc)) -> dict:
+        """在当前快照上计算 F10 并落库（§10.2）。
+
+        横截面排名**在每个因子内部**计算，且只对有值的标的算——
+        把"算不出"的也放进排名等于给缺失值一个名次，
+        那是最隐蔽的一种 0 填充。
+
+        财报可用性由 PIT 闸门保证：只使用决策时点前已公布的财报。
+        """
+
+        ref = s.reader.ref(active_snapshot())
+        return compute_f10_for_snapshot(
+            con=s.con, reader=s.reader, snapshot_id=active_snapshot(),
+            as_of=ref.as_of_time, limit=body.limit)
+
+    @app.get("/api/v1/research/runs/{research_run_id}/factors")
+    def get_factor_values(research_run_id: str, factor_id: str | None = None,
+                          s: AppState = Depends(svc)) -> dict:
+        rows = factor_values(s.con, research_run_id=research_run_id,
+                             factor_id=factor_id)
+        return {"researchRunId": research_run_id, "count": len(rows),
+                "factors": rows}
 
     @app.get("/api/v1/decisions")
     def list_decisions(portfolio_id: str | None = None, limit: int = 100,

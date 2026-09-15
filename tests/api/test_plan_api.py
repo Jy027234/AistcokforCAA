@@ -270,6 +270,56 @@ def test_api_exposes_no_order_or_ledger_write_paths(client):
     for forbidden in ("order", "trade", "ledger/write", "shell", "sql", "fetch"):
         assert forbidden not in blob, f"API 暴露了 {forbidden} 路径: {sorted(paths)}"
 
+# ======================================================== 因子与研究运行
+def test_research_run_records_exclusions_with_readable_reasons(client):
+    """合成快照没有财务数据，每个标的都必须带**可读原因**。
+
+    这正是 §10.2 要防的：缺失值不得用 0 填充，也不得静默缺席——
+    事后必须能回答"这只为什么没进排名"。
+    """
+
+    r = client.post("/api/v1/research/runs", json={"limit": 5}, headers=USER)
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    assert body["researchRunId"].startswith("rr-")
+    assert body["factorId"] == "F10"
+    assert body["snapshotId"] == SNAPSHOT_ID
+    assert body["stored"] == body["valued"] + body["excluded"]
+    assert body["excluded"] > 0, "合成快照没有财务数据，应有排除项"
+    assert body["exclusionBreakdown"], "排除必须分类计数"
+    for reason, count in body["exclusionBreakdown"].items():
+        assert reason and count > 0
+
+
+def test_research_run_factor_rows_carry_reason_or_value(client):
+    run = client.post("/api/v1/research/runs", json={"limit": 5},
+                      headers=USER).json()
+    rows = client.get(
+        f"/api/v1/research/runs/{run['researchRunId']}/factors").json()
+    assert rows["count"] == run["stored"]
+    for row in rows["factors"]:
+        has_value = row["raw_value"] is not None
+        has_reason = bool(row["exclusion_reason"])
+        assert has_value != has_reason, row
+        # 只有有值的才可能有排名
+        if not has_value:
+            assert row["cross_sectional_rank"] is None, (
+                "缺失值不得有排名——那等于给缺失值一个名次")
+
+
+def test_research_run_is_bound_to_snapshot_and_time(client):
+    """研究运行必须绑定快照与时点，否则排名无法解释属于哪一份数据。"""
+
+    run = client.post("/api/v1/research/runs", json={"limit": 3},
+                      headers=USER).json()
+    assert run["asOfTime"]
+    again = client.post("/api/v1/research/runs", json={"limit": 3},
+                        headers=USER).json()
+    # 同一快照 + 同一时点 + 同一特征版本 -> 同一个 run id（幂等）
+    assert again["researchRunId"] == run["researchRunId"]
+
+
 # ============================================================ 自选
 def test_watchlist_add_list_remove(client):
     r = client.post("/api/v1/watchlist/items",
