@@ -270,6 +270,93 @@ def test_api_exposes_no_order_or_ledger_write_paths(client):
     for forbidden in ("order", "trade", "ledger/write", "shell", "sql", "fetch"):
         assert forbidden not in blob, f"API 暴露了 {forbidden} 路径: {sorted(paths)}"
 
+# ======================================================== 只读查询端点
+def test_ledger_exposes_entries_lots_fills_and_fees(client):
+    """账本端点返回逐条事实，与 reconcile 的"对不对"分工不同。"""
+
+    _run_plan(client)   # 先产生一些账本事实
+    r = client.get("/api/v1/portfolios/pf-syn-m/ledger")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["portfolio_id"] == "pf-syn-m"
+    assert body["account_type"] == "SIMULATED"
+
+    # 金额一律整数分 + 展示串
+    assert isinstance(body["cash"]["cents"], int)
+    assert body["cash"]["display"].endswith("元")
+    assert body["cash"]["entry_count"] == len(body["cash"]["entries"])
+    assert body["cash"]["entries"], "执行后应至少有一条现金分录"
+
+    # 每条分录的金额形状一致
+    for entry in body["cash"]["entries"]:
+        assert isinstance(entry["amount"]["cents"], int)
+
+    # 现金合计必须等于分录之和——账本自洽
+    total = sum(e["amount"]["cents"] for e in body["cash"]["entries"])
+    assert total == body["cash"]["cents"]
+
+    assert body["fills"], "执行后应有成交记录"
+    for fill in body["fills"]:
+        assert fill["price"]["cents"] > 0
+        assert fill["side"] in ("BUY", "SELL")
+
+    assert body["lots"], "买入后应有持仓批次"
+
+
+def test_ledger_is_read_only(client):
+    """账本端点是只读的：调两次结果必须一致。"""
+
+    _run_plan(client)
+    first = client.get("/api/v1/portfolios/pf-syn-m/ledger").json()
+    second = client.get("/api/v1/portfolios/pf-syn-m/ledger").json()
+    assert first == second
+
+
+def test_unknown_portfolio_ledger_is_404(client):
+    r = client.get("/api/v1/portfolios/pf-does-not-exist/ledger")
+    assert r.status_code == 404
+
+
+def test_events_are_filtered_by_decision_time(client):
+    """事件必须按 available_at 门禁过滤，而不是"库里有就返回"。"""
+
+    r = client.get("/api/v1/events")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["snapshotId"]
+    assert body["asOfTime"]
+    # 每个返回的事件都必须在决策时点之前可用
+    for event in body["events"]:
+        assert event["available_at"] <= body["asOfTime"], event["event_id"]
+
+
+def test_events_carry_citation_locatability(client):
+    """引用是否可定位必须显式给出（§15.3）。"""
+
+    body = client.get("/api/v1/events").json()
+    for event in body["events"]:
+        assert "has_located_citation" in event
+        assert isinstance(event["citations"], list)
+
+
+def test_readiness_reports_dimensions_separately(client):
+    r = client.get("/api/v1/readiness")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "data" in body and "jobs" in body
+    assert body["data"]["snapshotId"]
+    assert isinstance(body["jobs"], dict)
+
+
+def test_job_endpoints_are_read_only_shapes(client):
+    listing = client.get("/api/v1/jobs")
+    assert listing.status_code == 200
+    assert "counts" in listing.json()
+
+    missing = client.get("/api/v1/jobs/job-does-not-exist")
+    assert missing.status_code == 404
+
+
 # ============================================================== 分红落库
 # 登记日与除权日都取执行日：执行日的买入发生在登记日收盘之前，因此
 # 当日买入的批次享有本次分红，这是合法且常见的情形（除权除息日当天买入）。

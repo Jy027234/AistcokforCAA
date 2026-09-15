@@ -31,6 +31,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
+from aquant.application.workspace_queries import events, portfolio_ledger
 from aquant.application.workspace_view import build_data_status, build_research_card
 from aquant.domain.data.db import apply_migrations, connect
 from aquant.domain.data.ingest import SnapshotBuilder
@@ -40,6 +41,7 @@ from aquant.domain.portfolio.construction import Candidate, ConstructionParams
 from aquant.domain.portfolio.plan import PlanError, PlanService, confirmer_is_human
 from aquant.domain.simulation.corporate_actions import CashDividend
 from aquant.domain.simulation.fees import synthetic_fee_table
+from aquant.operations.jobs import Job, JobError, JobStore
 from aquant.domain.simulation.simulator import Bar, BoardRule, SimError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -331,6 +333,31 @@ class ValueRequest(BaseModel):
 # ======================================================================
 # 应用
 # ======================================================================
+def _job_view(job: Job) -> dict:
+    """把领域 Job 转成对外形状。
+
+    字段名**显式访问**而不是 getattr(..., None)：
+    我第一版用 getattr 加默认值，结果字段名写错（attempts 实际叫
+    attempt_count、error 实际是 error_code/error_detail）
+    却全部静默返回 None——接口看起来正常，值全是空的。
+    AttributeError 比一个安静的空值好得多。
+    """
+
+    return {
+        "jobId": job.job_id,
+        "jobType": job.job_type,
+        "status": job.status.value,
+        "tradingDay": job.trading_day,
+        "attemptCount": job.attempt_count,
+        "leaseOwner": job.lease_owner,
+        "leaseExpiresAt": (job.lease_expires_at.isoformat()
+                           if job.lease_expires_at else None),
+        "errorCode": job.error_code,
+        "errorDetail": job.error_detail,
+        "idempotencyKey": job.idempotency_key,
+    }
+
+
 def _display_name(state: "AppState", snapshot_id: str, instrument_id: str) -> str | None:
     """证券简称。取不到就返回 None，不编一个像名字的字符串。"""
 
@@ -585,6 +612,77 @@ def create_app(state: AppState | None = None) -> FastAPI:
     @app.get("/api/v1/portfolios/{portfolio_id}/reconcile")
     def reconcile(portfolio_id: str, s: AppState = Depends(svc)) -> dict:
         return s.service.reconcile(portfolio_id=portfolio_id)
+
+    @app.get("/api/v1/portfolios/{portfolio_id}/ledger")
+    def ledger(portfolio_id: str, s: AppState = Depends(svc)) -> dict:
+        """账本明细：现金分录、批次、成交、费用、应收。
+
+        与 /reconcile 的分工：reconcile 回答"对不对"（逐项不变量），
+        ledger 回答"是什么"（逐条事实）。合在一起会让"对账不通过"时
+        没有逐个分录可看。
+        """
+
+        try:
+            return portfolio_ledger(s.con, portfolio_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.get("/api/v1/events")
+    def list_events(request: Request, instrument_id: str | None = None,
+                    category: str | None = None, limit: int = 100,
+                    s: AppState = Depends(svc)) -> dict:
+        """事件列表，**按决策时点门禁过滤**。
+
+        as_of 默认取当前快照的时点，因此不会返回"数据库里有但当时不可知"
+        的事件——PIT 在读取侧的落点。
+        """
+
+        ref = s.reader.ref(active_snapshot())
+        as_of = ref.as_of_time
+        rows = events(s.con, as_of=as_of, instrument_id=instrument_id,
+                      category=category, limit=max(1, min(limit, 500)))
+        return {
+            "snapshotId": active_snapshot(),
+            "asOfTime": as_of.isoformat(),
+            "count": len(rows),
+            "note": ("已按 available_at <= as_of 过滤；"
+                     "带 located 引用的才算证据"),
+            "events": rows,
+        }
+
+    @app.get("/api/v1/readiness")
+    def readiness(s: AppState = Depends(svc)) -> dict:
+        """就绪状态：数据、账本、任务三个维度分开报。"""
+
+        status = build_data_status(s.reader, active_snapshot()).as_dict()
+        jobs = JobStore(s.con).counts_by_status()
+        return {
+            "ready": status.get("readiness") == "READY",
+            "data": {
+                "snapshotId": status.get("snapshotId"),
+                "dataMode": status.get("dataMode"),
+                "readiness": status.get("readiness"),
+                "readinessLabel": status.get("readinessLabel"),
+                "qualityStatus": status.get("qualityStatus"),
+                "blockingIssues": status.get("blockingIssues") or [],
+            },
+            "jobs": jobs,
+            "note": ("就绪是**分维度**的：数据就绪不代表任务积压已清空，"
+                     "反之亦然"),
+        }
+
+    @app.get("/api/v1/jobs/{job_id}")
+    def job_detail(job_id: str, s: AppState = Depends(svc)) -> dict:
+        try:
+            job = JobStore(s.con).get(job_id)
+        except JobError as exc:
+            raise HTTPException(status_code=404, detail=exc.message) from exc
+        return _job_view(job)
+
+    @app.get("/api/v1/jobs")
+    def job_list(s: AppState = Depends(svc)) -> dict:
+        store = JobStore(s.con)
+        return {"counts": store.counts_by_status()}
 
     # ---------------------------------------------------------------- 写
     @app.post("/api/v1/plans/preview")
