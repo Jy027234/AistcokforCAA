@@ -33,6 +33,9 @@ from pydantic import BaseModel, Field, model_validator
 
 from aquant.application.workspace_queries import events, portfolio_ledger
 from aquant.application.research_cards import persist_card, research_cards
+from aquant.operations.research_jobs import (  # noqa: E402
+    run_research_job, submit_research_job,
+)
 from aquant.application.workspace_view import build_data_status, build_research_card
 from aquant.domain.data.db import apply_migrations, connect
 from aquant.domain.data.ingest import SnapshotBuilder
@@ -363,6 +366,23 @@ class ResearchRunRequest(BaseModel):
     limit: int = Field(default=0, ge=0, le=10_000)
 
 
+class ResearchJobRequest(BaseModel):
+    """研究作业提交（§8.4）。
+
+    **不含作业 id 与幂等键**：幂等键由服务端按
+    「作业类型 + 交易日 + 配置版本 + 输入快照」确定性算出，
+    调用方若能自己指定，就能用两个不同的键跑同一件事。
+    """
+
+    job_type: str = Field(pattern="^(FACTOR_COMPUTE|EVIDENCE_RESEARCH)$")
+    trading_day: date
+    snapshot_id: str = Field(default_factory=active_snapshot,
+                             min_length=1, max_length=64)
+    config_version: str = Field(default="default", min_length=1, max_length=64)
+    payload: dict = Field(default_factory=dict,
+                          description="作业参数，例如「limit: 50」")
+
+
 class WatchRequest(BaseModel):
     instrument_id: str = Field(min_length=1, max_length=64)
     #: 为什么关注。留一句话比只留一个代码有用得多——三个月后
@@ -459,6 +479,11 @@ def _job_view(job: Job) -> dict:
         "errorCode": job.error_code,
         "errorDetail": job.error_detail,
         "idempotencyKey": job.idempotency_key,
+        # 作业"做了什么"必须能从接口回答：结果与参数原先只写不读，
+        # 于是 /jobs 只能显示状态，看不出这条作业产出的是什么。
+        "snapshotId": job.input_snapshot_id,
+        "configVersion": job.config_version,
+        "result": json.loads(job.result_json) if job.result_json else None,
     }
 
 
@@ -961,6 +986,46 @@ def create_app(state: AppState | None = None) -> FastAPI:
             reason_category=body.reason_category, reason_note=body.reason_note,
             external_information_used=body.external_information_used,
             rule_check=body.rule_check)
+
+    # ---------------------------------------------------------------- 作业
+    @app.post("/api/v1/research/jobs")
+    def submit_research_job_route(body: ResearchJobRequest,
+                                  subject: str = Depends(current_subject),
+                                  s: AppState = Depends(svc)) -> dict:
+        """提交一条研究作业。**重复提交返回同一条**（§8.4）。
+
+        接口只入队、不执行：执行由 worker 领取（§14.2 独立 worker +
+        数据库任务租约，不引入消息中间件）。
+        """
+
+        try:
+            return submit_research_job(
+                s.con, job_type=body.job_type,
+                trading_day=body.trading_day.isoformat(),
+                snapshot_id=body.snapshot_id,
+                config_version=body.config_version,
+                payload=body.payload or None)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    @app.post("/api/v1/research/jobs/{job_id}/run")
+    def run_research_job_route(job_id: str, subject: str = Depends(current_subject),
+                               s: AppState = Depends(svc)) -> dict:
+        """就地执行一条待执行作业。
+
+        **这是开发与验收用的便利入口，不是生产调度路径**：生产由一个
+        独立的 worker 进程反复调用 operations.research_jobs.run_pending()。
+        两条路径共用同一个执行器，因此这里跑通的行为与 worker 里一致。
+        """
+
+        jobs = JobStore(s.con)
+        try:
+            job = jobs.get(job_id)
+        except JobError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        done = run_research_job(s.con, s.reader, job_id=job_id,
+                                worker_id=f"api:{subject}")
+        return done
 
     # ---------------------------------------------------------------- 写
     @app.post("/api/v1/plans/preview")

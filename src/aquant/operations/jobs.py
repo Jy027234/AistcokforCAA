@@ -87,6 +87,14 @@ class Job:
     lease_expires_at: datetime | None
     error_code: str | None
     error_detail: str | None
+    #: 下面几个字段原先只写不读（INSERT 里有、Job 里没有），
+    #: 于是执行器拿不到作业参数与输入快照，只能报 AttributeError。
+    #: 读取侧必须与写入侧一一对应——少映射一个字段，症状会出现在
+    #: 很远的地方（"作业跑不了"），而不是在这里。
+    config_version: str | None = None
+    input_snapshot_id: str | None = None
+    payload_json: str | None = None
+    result_json: str | None = None
 
 
 class JobStore:
@@ -224,6 +232,9 @@ class JobStore:
             lease_owner=row["lease_owner"],
             lease_expires_at=_parse(row["lease_expires_at"]) if row["lease_expires_at"] else None,
             error_code=row["error_code"], error_detail=row["error_detail"],
+            config_version=row["config_version"],
+            input_snapshot_id=row["input_snapshot_id"],
+            payload_json=row["payload_json"], result_json=row["result_json"],
         )
 
     def by_key(self, key: str) -> Job | None:
