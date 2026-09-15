@@ -106,6 +106,32 @@ def test_provenance_refers_to_a_recorded_source_when_archive_exists():
                for s in archive["sources"]), "佣金项必须明确记为无来源"
 
 
+def test_archived_evidence_bytes_match_their_recorded_hash():
+    """留证文件必须与档案里记录的哈希一致。
+
+    这批文件是**证据**：行尾归一化、编辑器自动格式化、任何一次
+    "顺手整理一下"都会让哈希对不上，而档案里的哈希看起来仍然正确——
+    那是最糟的状态：证据看起来还在，实际已经不是那一份了。
+    """
+
+    import hashlib
+
+    archive = load_fee_sources()
+    checked = 0
+    for s in archive.get("sources") or []:
+        if not s.get("fetched") or not s.get("contentHash") or not s.get("archivedAt"):
+            continue
+        path = ROOT / s["archivedAt"]
+        assert path.exists(), f"档案里记着 {s['archivedAt']}，文件却不存在"
+        actual = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        assert actual == s["contentHash"], (
+            f"{s['key']} 的留证字节已变：记录 {s['contentHash'][:23]}，"
+            f"实际 {actual[:23]}")
+        checked += 1
+    if checked == 0:
+        pytest.skip("来源档案尚未抓取（跑 tools/fetch_fee_sources.py）")
+
+
 # ============================================================ 闸门
 def test_synthetic_table_is_blocked_on_production_data():
     with pytest.raises(FeeError) as exc:

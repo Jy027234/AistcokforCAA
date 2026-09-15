@@ -1257,6 +1257,29 @@ def create_app(state: AppState | None = None) -> FastAPI:
                 detail["blockers"] = exc.blockers
             raise HTTPException(status_code=status, detail=detail) from exc
 
+    @app.get("/api/v1/fees")
+    def fee_status(s: AppState = Depends(svc)) -> dict:
+        """当前费率表的口径与出处（§12.6）。
+
+        界面与报告要能回答"这个盈亏是按谁的费率算的"。缺了它，
+        使用者只看到金额，看不到金额背后的假设。
+        """
+
+        sched = s.fees.schedule_for(date.today())
+        return {
+            "feeVersion": sched.fee_version,
+            "syntheticTestRate": s.fees.is_synthetic,
+            "commissionSource": s.fees.commission_source,
+            "commissionRate": str(sched.commission_rate),
+            "commissionMinCents": sched.commission_min_cents,
+            "stampDutyRateSell": str(sched.stamp_duty_rate_sell),
+            "transferFeeRate": str(sched.transfer_fee_rate),
+            "provenance": s.fee_provenance,
+            "note": ("syntheticTestRate=true 表示这张表**不得**用于真实数据；"
+                     "commissionSource=UNCONFIGURED_DEFAULT 表示佣金是示例值，"
+                     "是一个假设而不是你的券商费率。"),
+        }
+
     @app.get("/api/v1/instruments/{instrument_id}/evidence")
     def instrument_evidence(instrument_id: str, located_only: bool = False,
                             s: AppState = Depends(svc)) -> dict:
