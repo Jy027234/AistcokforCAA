@@ -1,5 +1,5 @@
 {
-  "ran_at": "2026-09-15T15:01:21.912345+00:00",
+  "ran_at": "2026-09-15T15:12:58.350800+00:00",
   "checks": [
     {
       "name": "未登记来源被拒",
@@ -25,46 +25,6 @@
       "name": "未声明个人信息被拒",
       "ok": true,
       "detail": "[{'source_id': 'cninfo', 'right': 'personal_data', 'value': 'UNDECLARED_OR_PRESENT', 'detail': '材料未显式声明不含个人信息；个人信息默认不进入模型上下文（§826）'}]"
-    },
-    {
-      "name": "密钥文件存在",
-      "ok": true,
-      "detail": "E:\\IT\\文档\\deepseek.txt"
-    },
-    {
-      "name": "配置的模型在账户可用列表内",
-      "ok": true,
-      "detail": "配置 deepseek-flash；可用 ['deepseek-flash', 'deepseek-v4-pro']"
-    },
-    {
-      "name": "模型返回了文本",
-      "ok": true,
-      "detail": "结论：根据 cninfo 材料，这是一份 2025 年年度权益分派实施公告，核心安排为：每 10 股派发现金红利 28.02423 元（含税），股权登记日为 2"
-    },
-    {
-      "name": "返回的模型与请求的模型一致（无静默回落）",
-      "ok": true,
-      "detail": "请求 deepseek-flash；实际 deepseek-flash"
-    },
-    {
-      "name": "来源已记录",
-      "ok": true,
-      "detail": "['cninfo']"
-    },
-    {
-      "name": "响应带内容哈希",
-      "ok": true,
-      "detail": ""
-    },
-    {
-      "name": "调用已留档且 outcome=OK",
-      "ok": true,
-      "detail": "{\"provider\": \"deepseek\", \"model\": \"deepseek-flash\", \"outcome\": \"OK\", \"input_tokens\": 171, \"output_tokens\": 1582}"
-    },
-    {
-      "name": "输出未包含被禁止的内容（§5.3）",
-      "ok": true,
-      "detail": "[]"
     }
   ],
   "conclusion": "PASS"

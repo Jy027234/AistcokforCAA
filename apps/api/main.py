@@ -38,6 +38,7 @@ from aquant.application.assistant import (  # noqa: E402
 )
 from aquant.application.research_cards import persist_card, research_cards
 from aquant.domain.ai.model import TextModelProvider  # noqa: E402
+from aquant.domain.evidence.store import evidence_for  # noqa: E402
 from aquant.operations.research_jobs import (  # noqa: E402
     run_research_job, submit_research_job,
 )
@@ -1050,6 +1051,23 @@ def create_app(state: AppState | None = None) -> FastAPI:
             if exc.blockers:
                 detail["blockers"] = exc.blockers
             raise HTTPException(status_code=status, detail=detail) from exc
+
+    @app.get("/api/v1/instruments/{instrument_id}/evidence")
+    def instrument_evidence(instrument_id: str, located_only: bool = False,
+                            s: AppState = Depends(svc)) -> dict:
+        """某只标的已落库的证据与引用（§9、§15.3）。
+
+        `located_only=true` 只返回能在原文里定位到的引用。
+        默认**返回全部**：不可定位的引用是"模型引用了原文里没有的话"
+        这一事实，默认藏起来会让它永远不会被看到。
+        """
+
+        rows = evidence_for(s.con, instrument_id=instrument_id,
+                            located_only=located_only)
+        return {"instrumentId": instrument_id, "count": len(rows),
+                "evidence": rows,
+                "note": ("located=false 表示该引用在来源正文里**定位不到**；"
+                         "locator_kind 区分逐字命中与只差空白两档。")}
 
     @app.get("/api/v1/assistant/calls")
     def list_model_calls(limit: int = 100, s: AppState = Depends(svc)) -> dict:
