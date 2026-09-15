@@ -89,3 +89,4 @@ apps/web/dist/
 apps/web/node_modules/
 apps/web/*.tsbuildinfo
 deploy/agentctl-q0/t13-api.log
+deploy/agentctl-q0/prevclose-backfill.log

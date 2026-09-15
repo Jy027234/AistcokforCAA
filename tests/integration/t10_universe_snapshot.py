@@ -18,7 +18,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -104,7 +105,11 @@ def main() -> int:
                 "classification_version": pool.get("classification_version"),
             }],
         })
-        prev = None
+        # 窗口首行的前收取自采集时额外抓的那一小段（collect_universe 的
+        # prev_close_before_window）。**没有就是没有**：先前这里用当日开盘价
+        # 当占位，等于把"未知"说成"前收=开盘"，于是首行的"开盘是否即涨停"
+        # 永远算不出 True。
+        prev = info.get("prev_close_before_window")
         for b in info["rows"]:
             quotes.append({
                 "instrument_id": iid,
@@ -115,7 +120,7 @@ def main() -> int:
                 "close_cents": b["close_cents"],
                 "volume_shares": b["volume_shares"],
                 "amount_cents": b.get("amount_cents"),
-                "prev_close_cents": prev if prev else b["open_cents"],
+                "prev_close_cents": prev,
             })
             prev = b["close_cents"]
 
@@ -129,6 +134,14 @@ def main() -> int:
     coverage = with_amount / max(len(quotes), 1)
     check("成交额覆盖率 >= 99%", coverage >= 0.99,
           f"{with_amount}/{len(quotes)}（缺失 {len(quotes) - with_amount} 条，真实无成交）")
+    # 窗口首行的前收来自采集时额外抓的那一小段；缺失即缺失，不得用开盘价冒充
+    seeded = sum(1 for i in instruments
+                 if bars_all[i["instrument_id"]].get("prev_close_before_window"))
+    check("窗口首行前收已从行情补齐", seeded >= len(instruments) * 0.99,
+          f"{seeded}/{len(instruments)} 只有真实前收")
+    no_prev = sum(1 for q in quotes if not q.get("prev_close_cents"))
+    check("前收缺失只可能出现在窗口首行", no_prev <= len(instruments),
+          f"{no_prev} 行无前收（{len(instruments)} 只，首行至多这么多）")
     check("行业齐全", all(i.get("industry_code") for i in instruments),
           f"{sum(1 for i in instruments if i.get('industry_code'))}/{len(instruments)}")
 
@@ -217,6 +230,57 @@ def main() -> int:
     check("读取器可读", len(rows) > 0, f"{probe} {len(rows)} 条")
     listed = reader.instruments(SNAPSHOT_ID, as_of=as_of)
     check("读取器返回全部证券", len(listed) == len(instruments), str(len(listed)))
+
+    # --- 派生事实：开盘即涨停必须随快照冻结（§12.3 / S02）
+    #
+    # 这个字段原先只存在于示例 YAML 的手写行里，生产链路从不计算，
+    # 读取器取默认 False，于是"开盘涨停不得假定买入成交"在真实数据上
+    # 从未生效。这里用**独立算法**重算一遍并与快照里的标记对照，
+    # 而不是只断言"字段存在"。
+    limit_pct = {("SSE", "MAIN"): "10", ("SZSE", "MAIN"): "10",
+                 ("SSE", "STAR"): "20", ("SZSE", "GEM"): "20"}
+    board_of = {i["instrument_id"]: (i["exchange"], i["board"]) for i in instruments}
+    expected: set[tuple[str, str]] = set()
+    for q in quotes:
+        pct = limit_pct.get(board_of[q["instrument_id"]])
+        prev = q.get("prev_close_cents")
+        if pct is None or not prev:
+            continue
+        # 涨停价 = 前收 + round(前收 × 涨跌幅)，四舍五入到分（与模拟器同口径）
+        cap = prev + int((Decimal(prev) * Decimal(pct) / Decimal(100))
+                         .quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        # 开盘价达到涨停价才算——涨停收盘但开盘更低时，开盘是可成交的
+        if q["open_cents"] >= cap:
+            expected.add((q["instrument_id"], q["trading_day"]))
+    actual = {(q["instrument_id"], q["trading_day"])
+              for q in quotes if q.get("board_limit_up")}
+    check("快照冻结了开盘涨停标记", bool(expected),
+          f"{len(expected)} 行开盘即涨停")
+    check("涨停标记与独立重算一致", actual == expected,
+          f"标记 {len(actual)} 行，重算 {len(expected)} 行，"
+          f"差 {sorted(actual ^ expected)[:3]}")
+    # 反向：被标记的行，开盘价必须**恰好等于**涨停价。
+    #
+    # 这里原先写的是"收盘价不低于开盘价"——那是错的判据：开盘一字涨停后
+    # 回落（close < open）是常见走势，不是数据错误。而且它并不检验
+    # "标记得对不对"，只检验"走势像不像一字板"。改成按规则精确核对：
+    # 标记为真的行，open 必须等于按板块规则算出的涨停上限。
+    mismatched: list[tuple[str, str, int, int]] = []
+    for q in quotes:
+        if not q.get("board_limit_up"):
+            continue
+        pct = limit_pct.get(board_of[q["instrument_id"]])
+        prev = q.get("prev_close_cents")
+        if pct is None or not prev:
+            mismatched.append((q["instrument_id"], q["trading_day"],
+                               q["open_cents"], -1))
+            continue
+        cap = prev + int((Decimal(prev) * Decimal(pct) / Decimal(100))
+                         .quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+        if q["open_cents"] != cap:
+            mismatched.append((q["instrument_id"], q["trading_day"],
+                               q["open_cents"], cap))
+    check("被标记的行开盘价恰好等于涨停价", not mismatched, str(mismatched[:3]))
 
     con.close()
 

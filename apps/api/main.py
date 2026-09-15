@@ -56,7 +56,7 @@ from aquant.operations.workbench import (
     WorkbenchError, add_watchlist_item, decisions, record_decision,
     remove_watchlist_item, watchlist,
 )
-from aquant.domain.simulation.simulator import Bar, BoardRule, SimError
+from aquant.domain.simulation.simulator import Bar, SimError
 
 ROOT = Path(__file__).resolve().parents[2]
 SNAPSHOT_ID = "snap-syn-001"
@@ -89,34 +89,9 @@ def _listings_for(state: "AppState", snapshot_id: str) -> dict[str, tuple[str, s
             out[iid] = (exchange, board)
     return out
 
-BOARD_RULES = [
-    # 规则按生效日版本化（§7.1）。**必须保留历史版本**：
-    # 主规格记录 2026-04-24 上交所交易规则修订、自 2026-07-06 起实施，
-    # 因此那个日期之前需要另一条覆盖区间。只写"现行版本"会导致
-    # 2026-07-06 之前的交易日无规则可匹配，预览被 RULE_VERSION_MISSING 拒绝——
-    # 拒绝本身是对的（规则不能猜），缺的是历史版本。
-    BoardRule(exchange="SSE", board="MAIN", price_limit_pct=Decimal("10"),
-              lot_size=100, effective_from=date(2020, 1, 1),
-              effective_to=date(2026, 7, 6)),
-    BoardRule(exchange="SZSE", board="MAIN", price_limit_pct=Decimal("10"),
-              lot_size=100, effective_from=date(2020, 1, 1),
-              effective_to=date(2026, 7, 6)),
-    BoardRule(exchange="SSE", board="MAIN", price_limit_pct=Decimal("10"),
-              lot_size=100, effective_from=date(2026, 7, 6)),
-    BoardRule(exchange="SZSE", board="MAIN", price_limit_pct=Decimal("10"),
-              lot_size=100, effective_from=date(2026, 7, 6)),
-    # 创业板与科创板是 20% 涨跌幅。它们**可展示但默认不进入可执行模拟池**
-    # （主文档 §4.1），但规则本身必须齐备：研究卡片要按
-    # 交易所+板块+生效日匹配规则来回答"这个标的为什么不能模拟"。
-    # 缺规则会显示成"无适用规则"，那是把"尚未接入"说成了"规则不存在"。
-    #
-    # 生效日按两板注册制改革时点：科创板 2019-07-22 开市即 20%，
-    # 创业板 2020-08-24 起 20%。
-    BoardRule(exchange="SSE", board="STAR", price_limit_pct=Decimal("20"),
-              lot_size=200, effective_from=date(2019, 7, 22)),
-    BoardRule(exchange="SZSE", board="GEM", price_limit_pct=Decimal("20"),
-              lot_size=100, effective_from=date(2020, 8, 24)),
-]
+# 规则表已移到域层：摄取层也要用它来判定 daily_quotes[].board_limit_up，
+# 两份规则必然漂移（见 aquant.domain.simulation.board_rules 的说明）。
+from aquant.domain.simulation.board_rules import BOARD_RULES  # noqa: E402
 
 #: 合成快照下的演示候选。真实快照一律走 S1（见 _s1_candidates）。
 DEMO_CANDIDATES = [

@@ -25,6 +25,9 @@ from typing import Any
 
 import yaml
 
+from aquant.domain.simulation.board_rules import BOARD_RULES
+from aquant.domain.simulation.simulator import DailySimulator
+
 from .db import write_tx
 
 #: 供应商原始单位 -> 归一化。§6.3 要求显式转换并同时保留原始单位。
@@ -62,6 +65,58 @@ class IngestReport:
     corporate_actions: int
     events: int
     skipped: tuple[str, ...] = ()
+
+
+def mark_board_limit_up(doc: dict, *, rules=None) -> int:
+    """给清单里的行情行标注"当日**开盘**是否即涨停"，返回标注为真的行数。
+
+    为什么必须在**写出快照时**算，而不是读取或模拟时算
+    --------------------------------------------------
+    `board_limit_up` 是一个派生事实：由 前收 + 交易所+板块+生效日的涨跌幅
+    唯一决定。它必须与行情一起被冻结进快照——否则同一条行情在不同的
+    规则版本下会得出不同结论，快照就不再是"可重放"的了。
+
+    事故背景：这个字段原先只存在于示例 YAML 的手写行里，生产链路从不计算它，
+    读取器只能取默认值 False。于是模拟器里"开盘涨停不得假定买入成交"的守卫
+    （§12.3 / S02）在真实数据上从未生效——合成夹具反而测得出该行为，
+    测试全绿而真实路径失效。
+
+    判定口径：**开盘价达到涨停上限**才算。涨停收盘但开盘更低的情况，
+    开盘是可以成交的，不能标记为涨停。四舍五入到分，与
+    `DailySimulator.price_limits` 用同一套算法，避免两处各自取整。
+    """
+
+    rules = BOARD_RULES if rules is None else rules
+    boards = {
+        str(i.get("instrument_id")): (i.get("exchange", "OTHER"), i.get("board", "OTHER"))
+        for i in (doc.get("instruments") or [])
+    }
+    marked = 0
+    for q in doc.get("daily_quotes") or []:
+        exchange, board = boards.get(str(q.get("instrument_id")), ("OTHER", "OTHER"))
+        prev_close = q.get("prev_close_cents")
+        day = q.get("trading_day")
+        # 当日之前没有收盘价（窗口首行）就没有"涨停"可言，如实为 False
+        if not prev_close or not day:
+            q["board_limit_up"] = False
+            continue
+        try:
+            trading_day = date.fromisoformat(str(day))
+        except ValueError:
+            q["board_limit_up"] = False
+            continue
+        matches = [r for r in rules
+                   if r.exchange == exchange and r.board == board and r.covers(trading_day)]
+        if len(matches) != 1:
+            # 唯一匹配是硬要求：0 条是规则缺失，>1 条是规则冲突。
+            # 两者都不能靠"猜一个"糊过去——但行情必须原样写出，
+            # 所以这里只是不标记，由 §7.1 的规则校验另行报告。
+            q["board_limit_up"] = False
+            continue
+        _, high_limit = DailySimulator.price_limits(prev_close, matches[0].price_limit_pct)
+        q["board_limit_up"] = bool(q.get("open_cents")) and q["open_cents"] >= high_limit
+        marked += 1 if q["board_limit_up"] else 0
+    return marked
 
 
 def _iso(dt: datetime | date) -> str:
@@ -336,6 +391,8 @@ class SnapshotBuilder:
                               snapshot_id, "set input_cutoff_at so datasets cannot exceed it")
 
         quotes = list(doc.get("daily_quotes") or [])
+        # 派生事实随行情一起冻结进快照（见 mark_board_limit_up 的说明）
+        mark_board_limit_up(doc)
         emit("daily_quotes", quotes, cutoff)
         emit("instruments", list(doc.get("instruments") or []), cutoff)
         emit("trading_calendar", list(doc.get("trading_days") or []), cutoff)

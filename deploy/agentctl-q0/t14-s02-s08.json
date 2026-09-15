@@ -1,0 +1,45 @@
+{
+  "checks": [
+    {
+      "name": "快照里存在开盘即涨停的行",
+      "ok": true,
+      "detail": "133 行（为 0 说明派生事实仍未被计算，S02 守卫不会生效）"
+    },
+    {
+      "name": "S02 开盘涨停买入不成交",
+      "ok": true,
+      "detail": "成交 0 笔"
+    },
+    {
+      "name": "S02 拒绝原因为 LIMIT_PRICE_BLOCKED",
+      "ok": true,
+      "detail": "['LIMIT_PRICE_BLOCKED']"
+    },
+    {
+      "name": "S02 未凭空产生现金分录",
+      "ok": true,
+      "detail": "0"
+    },
+    {
+      "name": "S02 订单状态为 NO_FILL",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "该标的在窗口内有非涨停日可作对照",
+      "ok": true,
+      "detail": "59 天"
+    },
+    {
+      "name": "S02 反向对照：非涨停日同一标的可成交",
+      "ok": true,
+      "detail": "对照日 2026-09-14，成交 1 笔，拒绝 []"
+    },
+    {
+      "name": "S08 无可用价格时有明确结论（持仓带价或报问题）",
+      "ok": true,
+      "detail": "positions=1 issues=1"
+    }
+  ],
+  "conclusion": "PASS"
+}

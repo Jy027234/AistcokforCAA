@@ -229,7 +229,13 @@ daily_quotes:
     amount_cents: 4610000000
     prev_close_cents: 1182
 
-  # S02：2026-09-09 开盘即涨停（open == high == low == close == prev_close * 1.10）
+  # S02：2026-09-09 开盘即涨停（一字板）
+  #
+  # 涨跌幅是**按板块**定的：SYN.A.300001 在创业板，20% 而非 10%。
+  # 前收 2090 分 -> 涨停价 2090 + round(2090 × 20%) = 2508 分。
+  # 这里原先写的是 2299（正好 +10%），与"创业板 20%"自相矛盾——
+  # 是摄取层开始按规则**计算** board_limit_up 之后才暴露出来的：
+  # 手写标记说涨停，按规则算却不是。手工数据与规则打架时，错的是数据。
   - instrument_id: SYN.A.300001
     trading_day: "2026-09-07"
     open_cents: 2000
@@ -250,12 +256,12 @@ daily_quotes:
     prev_close_cents: 2040
   - instrument_id: SYN.A.300001
     trading_day: "2026-09-09"
-    open_cents: 2299
-    high_cents: 2299
-    low_cents: 2299
-    close_cents: 2299
+    open_cents: 2508
+    high_cents: 2508
+    low_cents: 2508
+    close_cents: 2508
     volume_shares: 500000
-    amount_cents: 114950000
+    amount_cents: 125400000
     prev_close_cents: 2090
     board_limit_up: true
 
