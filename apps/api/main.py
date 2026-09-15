@@ -42,6 +42,10 @@ from aquant.domain.portfolio.plan import PlanError, PlanService, confirmer_is_hu
 from aquant.domain.simulation.corporate_actions import CashDividend
 from aquant.domain.simulation.fees import synthetic_fee_table
 from aquant.operations.jobs import Job, JobError, JobStore
+from aquant.operations.workbench import (
+    WorkbenchError, add_watchlist_item, decisions, record_decision,
+    remove_watchlist_item, watchlist,
+)
 from aquant.domain.simulation.simulator import Bar, BoardRule, SimError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -286,6 +290,35 @@ class PreviewRequest(BaseModel):
 class FreezeRequest(BaseModel):
     plan_id: str = Field(min_length=1, max_length=64)
     confirmation_token: str = Field(min_length=8, max_length=512)
+
+
+class WatchRequest(BaseModel):
+    instrument_id: str = Field(min_length=1, max_length=64)
+    #: 为什么关注。留一句话比只留一个代码有用得多——三个月后
+    #: 没人知道当初为什么关注它。
+    note: str | None = Field(default=None, max_length=500)
+
+
+class DecisionRequest(BaseModel):
+    """决策记录。**模型方案与人工方案分开提交**（§11.3）。
+
+    刻意不接收事先算好的 diff：差异由服务端对两份方案现算，
+    否则调用方可以提交一个"看起来没改"的 diff 来美化记录。
+    """
+
+    portfolio_id: str = Field(min_length=1, max_length=64)
+    snapshot_id: str = Field(default_factory=active_snapshot)
+    decision_type: str = Field(
+        pattern="^(ACCEPT_MODEL|MODIFY_MODEL|NO_CHANGE|TIMEOUT|REJECT|CANCEL)$")
+    plan_id: str | None = Field(default=None, max_length=128)
+    model_proposed: dict | None = None
+    human_final: dict | None = None
+    reason_category: str | None = Field(default=None, max_length=64)
+    reason_note: str | None = Field(default=None, max_length=1000)
+    #: 用了模型上下文之外的信息会改变可复现性，事后无法从数据反推，
+    #: 只能靠记录。因此必须显式声明，默认 False。
+    external_information_used: bool = False
+    rule_check: dict | None = None
 
 
 class DividendInput(BaseModel):
@@ -550,6 +583,17 @@ def create_app(state: AppState | None = None) -> FastAPI:
     async def snapshot_error_handler(_: Request, exc: SnapshotError) -> JSONResponse:
         return JSONResponse(status_code=409, content={"error": exc.as_error()})
 
+    @app.exception_handler(WorkbenchError)
+    async def workbench_error_handler(_: Request, exc: WorkbenchError) -> JSONResponse:
+        """自选与决策的领域错误走同一信封。
+
+        不在路由里手工 conflict(...)：那会多嵌一层
+        {"detail": {"error": ...}}，与其它领域错误的形状不同，
+        调用方得为同一个错误码写两套解析逻辑。
+        """
+
+        return JSONResponse(status_code=409, content={"error": exc.as_error()})
+
     @app.exception_handler(SimError)
     async def sim_error_handler(_: Request, exc: SimError) -> JSONResponse:
         """§12.1：不支持的情形必须显式报错，不能近似处理后报告成功。
@@ -683,6 +727,51 @@ def create_app(state: AppState | None = None) -> FastAPI:
     def job_list(s: AppState = Depends(svc)) -> dict:
         store = JobStore(s.con)
         return {"counts": store.counts_by_status()}
+
+    # ------------------------------------------------------- 自选与决策
+    @app.get("/api/v1/watchlist")
+    def list_watchlist(subject: str = Depends(current_subject),
+                       s: AppState = Depends(svc)) -> dict:
+        items = watchlist(s.con, subject_id=subject)
+        return {"subjectId": subject, "count": len(items), "items": items,
+                "note": "自选不产生订单，也不影响模拟持仓"}
+
+    @app.post("/api/v1/watchlist/items")
+    def add_watch(body: WatchRequest, subject: str = Depends(current_subject),
+                  s: AppState = Depends(svc)) -> dict:
+        return add_watchlist_item(s.con, subject_id=subject,
+                                  instrument_id=body.instrument_id,
+                                  note=body.note)
+
+    @app.delete("/api/v1/watchlist/items/{instrument_id}")
+    def remove_watch(instrument_id: str, subject: str = Depends(current_subject),
+                     s: AppState = Depends(svc)) -> dict:
+        return remove_watchlist_item(s.con, subject_id=subject,
+                                     instrument_id=instrument_id)
+
+    @app.get("/api/v1/decisions")
+    def list_decisions(portfolio_id: str | None = None, limit: int = 100,
+                       s: AppState = Depends(svc)) -> dict:
+        rows = decisions(s.con, portfolio_id=portfolio_id,
+                         limit=max(1, min(limit, 500)))
+        return {"count": len(rows), "decisions": rows,
+                "note": ("模型原方案与人工方案分开保存，差异由服务端算；"
+                         "external_information_used 会影响可复现性")}
+
+    @app.post("/api/v1/decisions")
+    def create_decision(body: DecisionRequest,
+                        subject: str = Depends(current_subject),
+                        s: AppState = Depends(svc)) -> dict:
+        """记录一次决策。**模型方案与人工方案分开提交**（§11.3）。"""
+
+        return record_decision(
+            s.con, portfolio_id=body.portfolio_id,
+            snapshot_id=body.snapshot_id, decision_type=body.decision_type,
+            plan_id=body.plan_id, model_proposed=body.model_proposed,
+            human_final=body.human_final,
+            reason_category=body.reason_category, reason_note=body.reason_note,
+            external_information_used=body.external_information_used,
+            rule_check=body.rule_check)
 
     # ---------------------------------------------------------------- 写
     @app.post("/api/v1/plans/preview")

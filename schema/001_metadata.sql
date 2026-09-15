@@ -558,6 +558,20 @@ BEGIN
     SELECT RAISE(ABORT, 'frozen plan is immutable; create a new plan version');
 END;
 
+-- §16.2 自选管理。**自选不产生订单**：它是研究关注清单，
+-- 与模拟持仓在数据上完全分离，不参与组合构建，也不影响账本。
+CREATE TABLE IF NOT EXISTS watchlist_item (
+    subject_id      TEXT NOT NULL,
+    instrument_id   TEXT NOT NULL REFERENCES instrument(instrument_id),
+    added_at        TEXT NOT NULL,
+    -- 为什么加入：留一句话比只留一个代码有用得多，
+    -- 否则三个月后没人知道当初为什么关注它
+    note            TEXT,
+    PRIMARY KEY (subject_id, instrument_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_watchlist_subject ON watchlist_item (subject_id, added_at);
+
 CREATE TABLE IF NOT EXISTS decision_log (
     decision_id     TEXT PRIMARY KEY,
     portfolio_id    TEXT NOT NULL,

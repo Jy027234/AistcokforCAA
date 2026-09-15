@@ -270,6 +270,119 @@ def test_api_exposes_no_order_or_ledger_write_paths(client):
     for forbidden in ("order", "trade", "ledger/write", "shell", "sql", "fetch"):
         assert forbidden not in blob, f"API 暴露了 {forbidden} 路径: {sorted(paths)}"
 
+# ============================================================ 自选
+def test_watchlist_add_list_remove(client):
+    r = client.post("/api/v1/watchlist/items",
+                    json={"instrument_id": "SYN.A.600519", "note": "观察分红"},
+                    headers=USER)
+    assert r.status_code == 200, r.text
+    assert r.json()["watching"] is True
+
+    listed = client.get("/api/v1/watchlist", headers=USER).json()
+    assert listed["count"] == 1
+    assert listed["items"][0]["instrument_id"] == "SYN.A.600519"
+    assert listed["items"][0]["note"] == "观察分红"
+
+    removed = client.delete("/api/v1/watchlist/items/SYN.A.600519", headers=USER)
+    assert removed.status_code == 200
+    assert client.get("/api/v1/watchlist", headers=USER).json()["count"] == 0
+
+
+def test_watchlist_does_not_produce_orders_or_touch_the_ledger(client):
+    """§16.2：自选不产生订单。这条必须用账本断言，不能只看返回值。"""
+
+    # 账本端点只认已存在的账户，先跑一轮建立账户与账本事实
+    _run_plan(client)
+    before = client.get("/api/v1/portfolios/pf-syn-m/ledger").json()
+    client.post("/api/v1/watchlist/items",
+                json={"instrument_id": "SYN.A.600519"}, headers=USER)
+    client.delete("/api/v1/watchlist/items/SYN.A.600519", headers=USER)
+    after = client.get("/api/v1/portfolios/pf-syn-m/ledger").json()
+
+    assert before["cash"]["cents"] == after["cash"]["cents"]
+    assert len(before["fills"]) == len(after["fills"])
+    assert len(before["cash"]["entries"]) == len(after["cash"]["entries"])
+
+
+def test_watchlist_add_is_idempotent(client):
+    for _ in range(3):
+        client.post("/api/v1/watchlist/items",
+                    json={"instrument_id": "SYN.A.600519"}, headers=USER)
+    assert client.get("/api/v1/watchlist", headers=USER).json()["count"] == 1
+
+
+def test_watchlist_rejects_unknown_instrument(client):
+    r = client.post("/api/v1/watchlist/items",
+                    json={"instrument_id": "SYN.A.999999"}, headers=USER)
+    assert r.status_code == 409, r.text
+    # 领域错误的信封形状必须与 PlanError 一致（不额外嵌一层 detail）
+    assert r.json()["error"]["code"] == "DATA_NOT_READY"
+
+
+def test_watchlist_is_per_subject(client):
+    client.post("/api/v1/watchlist/items",
+                json={"instrument_id": "SYN.A.600519"}, headers=USER)
+    bob = client.get("/api/v1/watchlist", headers={"X-Aquant-Subject": "user:bob"})
+    assert bob.json()["count"] == 0, "自选不得跨主体泄漏"
+
+
+# ============================================================ 决策日志
+def test_decision_diff_is_computed_by_the_server(client):
+    """差异由服务端算，不接受调用方提交（否则可以美化记录）。"""
+
+    r = client.post("/api/v1/decisions", json={
+        "portfolio_id": "pf-syn-m",
+        "decision_type": "MODIFY_MODEL",
+        "model_proposed": {"orders": [{"instrument_id": "A", "quantity": 100}]},
+        "human_final": {"orders": [{"instrument_id": "A", "quantity": 80}]},
+        "reason_note": "客户集中度考虑，减量",
+    }, headers=USER)
+    assert r.status_code == 200, r.text
+    diff = r.json()["diff"]
+    assert diff["comparable"] is True
+    assert diff["identical"] is False
+    assert "orders" in diff["changed_keys"]
+    assert diff["model_hash"].startswith("sha256:")
+    assert diff["human_hash"].startswith("sha256:")
+
+
+def test_decision_identical_plans_are_recorded_as_identical(client):
+    same = {"orders": [{"instrument_id": "A", "quantity": 100}]}
+    r = client.post("/api/v1/decisions", json={
+        "portfolio_id": "pf-syn-m", "decision_type": "ACCEPT_MODEL",
+        "model_proposed": same, "human_final": same,
+    }, headers=USER)
+    diff = r.json()["diff"]
+    assert diff["identical"] is True
+    assert diff["changed_keys"] == []
+
+
+def test_decision_requires_a_real_snapshot(client):
+    r = client.post("/api/v1/decisions", json={
+        "portfolio_id": "pf-syn-m", "snapshot_id": "snap-does-not-exist",
+        "decision_type": "ACCEPT_MODEL",
+    }, headers=USER)
+    assert r.status_code == 409
+    assert r.json()["error"]["code"] == "DATA_NOT_READY"
+
+
+def test_decision_type_is_validated(client):
+    r = client.post("/api/v1/decisions", json={
+        "portfolio_id": "pf-syn-m", "decision_type": "SOMETHING_ELSE",
+    }, headers=USER)
+    assert r.status_code == 422, r.text
+
+
+def test_decisions_are_listed_with_external_info_flag(client):
+    client.post("/api/v1/decisions", json={
+        "portfolio_id": "pf-syn-m", "decision_type": "REJECT",
+        "external_information_used": True, "reason_note": "看了电话会议纪要",
+    }, headers=USER)
+    body = client.get("/api/v1/decisions", params={"portfolio_id": "pf-syn-m"}).json()
+    assert body["count"] >= 1
+    assert body["decisions"][0]["external_information_used"] is True
+
+
 # ======================================================== 只读查询端点
 def test_ledger_exposes_entries_lots_fills_and_fees(client):
     """账本端点返回逐条事实，与 reconcile 的"对不对"分工不同。"""
