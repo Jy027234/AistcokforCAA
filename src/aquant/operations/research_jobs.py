@@ -60,7 +60,8 @@ def _payload(job: Job) -> dict:
 
 
 def run_research_job(con: sqlite3.Connection, reader: SnapshotReader, *,
-                     job_id: str, worker_id: str) -> dict:
+                     job_id: str, worker_id: str,
+                     provider: object | None = None) -> dict:
     """执行**指定**的一条作业。
 
     与 run_once 的区别只在"挑哪一条"：run_once 自己领一条待执行的，
@@ -88,7 +89,7 @@ def run_research_job(con: sqlite3.Connection, reader: SnapshotReader, *,
         raise JobError("DATA_NOT_READY",
                        f"job {job_id} could not be claimed", job_id,
                        "another worker may hold the lease")
-    return _execute(con, reader, store, claimed)
+    return _execute(con, reader, store, claimed, provider=provider)
 
 
 def _already_done(job: Job) -> dict:
@@ -100,10 +101,14 @@ def _already_done(job: Job) -> dict:
 
 def run_once(con: sqlite3.Connection, reader: SnapshotReader, *,
              worker_id: str | None = None,
-             job_types: list[str] | None = None) -> dict | None:
+             job_types: list[str] | None = None,
+             provider: object | None = None) -> dict | None:
     """领取并执行一条作业。没有待执行作业时返回 None。
 
     返回 {"jobId","jobType","status","result","reused"}。
+
+    provider：文本模型提供方。**默认不构造**——由需要模型的作业自己
+    按 ADR-012 去拿生产实现。测试注入确定性替身，因此离线可跑。
     """
 
     store = JobStore(con)
@@ -115,11 +120,11 @@ def run_once(con: sqlite3.Connection, reader: SnapshotReader, *,
         # claim 只会给出 PENDING 或租约过期的 RUNNING，正常到不了这里；
         # 留着是为了万一状态机改动时行为仍然正确，而不是把已完成的活再跑一遍
         return _already_done(job)
-    return _execute(con, reader, store, job)
+    return _execute(con, reader, store, job, provider=provider)
 
 
 def _execute(con: sqlite3.Connection, reader: SnapshotReader,
-             store: JobStore, job: Job) -> dict:
+             store: JobStore, job: Job, *, provider: object | None = None) -> dict:
     """跑一条**已被本 worker 领取**的作业，并落结果或失败。
 
     幂等（§8.4）：已成功的作业不再重算。这不是优化，是正确性——
@@ -131,7 +136,7 @@ def _execute(con: sqlite3.Connection, reader: SnapshotReader,
         return _already_done(job)
 
     try:
-        result = _dispatch(con, reader, job)
+        result = _dispatch(con, reader, job, provider=provider)
     except ResearchJobError as exc:
         store.finish(job.job_id, JobStatus.FAILED,
                      error_code=exc.code, error_detail=f"{exc.message}｜修复：{exc.repair_action}")
@@ -174,7 +179,8 @@ def run_pending(con: sqlite3.Connection, reader: SnapshotReader, *,
     return out
 
 
-def _dispatch(con: sqlite3.Connection, reader: SnapshotReader, job: Job) -> dict:
+def _dispatch(con: sqlite3.Connection, reader: SnapshotReader, job: Job, *,
+              provider: object | None = None) -> dict:
     if job.job_type == JOB_FACTOR_COMPUTE:
         return _compute_factors(con, reader, job)
     if job.job_type == JOB_EVIDENCE_RESEARCH:
@@ -187,7 +193,7 @@ def _dispatch(con: sqlite3.Connection, reader: SnapshotReader, job: Job) -> dict
                 "DATA_NOT_READY",
                 f"evidence research is not available: {exc}",
                 "provide the model provider adapter (see ADR-012)") from exc
-        return research_evidence(con, reader, job)
+        return research_evidence(con, reader, job, provider=provider)
     raise ResearchJobError(
         "DATA_NOT_READY",
         f"unknown job type {job.job_type!r}",

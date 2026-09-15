@@ -207,7 +207,7 @@ def evidence_for(con: sqlite3.Connection, *, instrument_id: str,
     rows = con.execute(
         "SELECT e.event_id,e.event_category,e.fact_summary,e.available_at,"
         "e.verification_status,e.model_version,e.prompt_version,"
-        "c.citation_id,c.quote,c.locator_start,c.locator_end,c.located,"
+        "c.citation_id,c.quote,c.locator_kind,c.locator_start,c.locator_end,c.located,"
         "d.document_id,d.url,d.content_hash "
         "FROM event e "
         "JOIN event_subject s ON s.event_id=e.event_id AND s.subject_id=? "
@@ -226,6 +226,7 @@ def evidence_for(con: sqlite3.Connection, *, instrument_id: str,
             "modelVersion": r["model_version"], "promptVersion": r["prompt_version"],
             "citationId": r["citation_id"], "quote": r["quote"],
             "located": bool(r["located"]) if r["citation_id"] else None,
+            "locatorKind": r["locator_kind"] if r["located"] else None,
             "locatorStart": r["locator_start"], "locatorEnd": r["locator_end"],
             "documentId": r["document_id"], "url": r["url"],
             "documentHash": r["content_hash"],

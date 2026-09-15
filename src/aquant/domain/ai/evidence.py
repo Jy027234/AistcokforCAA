@@ -56,10 +56,15 @@ _DATE_FIELD = {"record_date": "record_date", "ex_date": "ex_date", "pay_date": "
 
 
 def research_evidence(con: sqlite3.Connection, reader: SnapshotReader,
-                      job: Job) -> dict:
-    """执行一次证据研究作业。"""
+                      job: Job, *, provider: object | None = None) -> dict:
+    """执行一次证据研究作业。
 
-    from aquant.adapters.models.deepseek import DeepSeekProvider
+    provider 可由调用方注入：生产是 DeepSeekProvider，
+    验收用确定性替身，因此"作业 -> 证据 -> 卡片"这条链路离线可测。
+    **只在没注入时才去构造生产实现**——反过来（先构造再覆盖）
+    会让离线路径悄悄尝试联网。
+    """
+
     from aquant.application.assistant import Material, ask_assistant
     from aquant.operations.research_jobs import ResearchJobError
 
@@ -79,7 +84,20 @@ def research_evidence(con: sqlite3.Connection, reader: SnapshotReader,
             "DATA_NOT_READY", f"no corporate action found for {instrument_id}",
             "run the universe snapshot first; check corporate_actions")
 
-    provider = DeepSeekProvider()
+    if provider is None:
+        from aquant.adapters.models.deepseek import DeepSeekProvider
+
+        provider = DeepSeekProvider()
+    # 来源由调用方给出，**不硬编码**。原先写死 "cninfo"，
+    # 于是跑合成快照（只登记了 synthetic-fixture）时被外键拦下。
+    # 来源是数据属性，不是代码属性：写死它意味着每加一个来源都要改代码。
+    source_id = payload.get("source_id")
+    if not source_id:
+        raise ResearchJobError(
+            "DATA_NOT_READY",
+            "evidence job needs payload.source_id",
+            "submit with payload {instrument_id:..., source_id: 'cninfo'}；"
+            "来源必须是快照 source_registry 里已登记的那个")
     results: list[dict] = []
     for action in actions:
         source_text = _source_text(action)
@@ -88,7 +106,7 @@ def research_evidence(con: sqlite3.Connection, reader: SnapshotReader,
         out = ask_assistant(
             con, provider,
             materials=[Material(
-                source_id="cninfo",
+                source_id=source_id,
                 text="公告标题：" + (action.get("source_title") or "")
                      + "\n公告正文摘录：" + source_text,
                 contains_personal_data=False)],
@@ -99,7 +117,7 @@ def research_evidence(con: sqlite3.Connection, reader: SnapshotReader,
         parsed = _parse_output(out["text"])
         comparison = _compare(parsed, action, source_text)
         bundle = record_evidence(
-            con, instrument_id=instrument_id, source_id="cninfo",
+            con, instrument_id=instrument_id, source_id=source_id,
             source_url=action.get("source_url"),
             source_title=action.get("source_title") or "",
             source_text=source_text,

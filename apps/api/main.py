@@ -521,6 +521,73 @@ def _job_view(job: Job) -> dict:
     }
 
 
+#: 引用不在原文中的标记。刻意写明"原文中定位不到"而不是"引用无效"：
+#: 定位失败可能是模型改写，也可能是来源文本本身被截断——
+#: 后者是数据问题，不是模型问题。界面不该替使用者下结论。
+UNLOCATED_NOTE = "该引用在来源正文中定位不到（可能是改写，也可能是来源文本被截断）"
+
+
+def _card_evidence(con: sqlite3.Connection, instrument_id: str) -> list[dict]:
+    """把落库证据转成研究卡的 evidence 形状。
+
+    一条引用一条记录，同一条公告的多个字段各自成条——
+    界面上逐条可核对才有意义，合并成"某公告"会让引用失去作用。
+    """
+
+    out: list[dict] = []
+    for row in evidence_for(con, instrument_id=instrument_id):
+        if not row.get("citationId"):
+            continue        # 只有事件没有引用：卡片的证据栏不显示它
+        out.append({
+            "statement": row["factSummary"],
+            "citationId": row["citationId"],
+            "documentId": row["documentId"],
+            "quote": row["quote"],
+            "note": (None if row["located"] else UNLOCATED_NOTE),
+            "located": bool(row["located"]),
+            "locatorKind": None if not row["located"] else row.get("locatorKind"),
+            "availableAt": row["availableAt"],
+        })
+    return out
+
+
+def _card_counter_evidence(con: sqlite3.Connection, instrument_id: str) -> list[dict]:
+    """从证据本身派生反证。
+
+    两条规则，都是"我们不掌握的事实要自己说出来"：
+
+      * 有引用在原文里定位不到 -> 那条证据不可核验，必须显式列出；
+      * 同一份公告的模型抽取与解析结果**不一致** -> 这是最需要被看到的反证，
+        两边都留着，由人判断以谁为准。
+
+    这里不主动替使用者下"因此结论不成立"的判断——
+    卡片的职责是把反证摆出来，不是替人下结论。
+    """
+
+    located_flags: dict[str, list[bool]] = {}
+    for row in evidence_for(con, instrument_id=instrument_id):
+        if row.get("citationId"):
+            located_flags.setdefault(row["eventId"], []).append(bool(row["located"]))
+
+    out: list[dict] = []
+    for event_id, flags in located_flags.items():
+        if flags and not all(flags):
+            out.append({
+                "statement": "部分引用无法在来源正文中定位",
+                "note": (f"事件 {event_id} 中有 {sum(1 for f in flags if not f)}/"
+                         f"{len(flags)} 条引用定位不到；该证据不可完全核验"),
+                "noneFound": False,
+            })
+    unverified = con.execute(
+        "SELECT e.event_id,e.fact_summary FROM event e "
+        "JOIN event_subject s ON s.event_id=e.event_id AND s.subject_id=? "
+        "WHERE e.verification_status='DISPUTED'", (instrument_id,)).fetchall()
+    for row in unverified:
+        out.append({"statement": "存在被标记为争议的证据",
+                    "note": row["fact_summary"], "noneFound": False})
+    return out
+
+
 def _display_name(state: "AppState", snapshot_id: str, instrument_id: str) -> str | None:
     """证券简称。取不到就返回 None，不编一个像名字的字符串。"""
 
@@ -786,6 +853,11 @@ def create_app(state: AppState | None = None) -> FastAPI:
                 instrument_id=instrument_id, trading_day=trading_day,
                 board_rules=BOARD_RULES, listings=LISTINGS,
                 bar=bars.get(instrument_id),
+                # 证据来自作业的产出（§9）。**不在这里过滤 located**：
+                # 卡片要如实显示"这条引用在原文里定位不到"，
+                # 过滤掉等于让这类问题永远不出现在任何界面上。
+                evidence=_card_evidence(s.con, instrument_id),
+                counter_evidence=_card_counter_evidence(s.con, instrument_id),
             )
         except KeyError as exc:
             # 未覆盖的证券是"查无此物"，不是服务端故障；不得让 500 掩盖它
