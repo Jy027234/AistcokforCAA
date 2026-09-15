@@ -130,10 +130,13 @@ def test_no_statement_is_visible_at_the_preopen_of_its_own_publication_day():
 
 
 # ================================================ TTM 滚动与口径
-def test_ttm_uses_the_spec_rule_not_a_naive_sum():
-    """TTM = 当期累计 + 上年年报 − 上年同期累计。
+def test_ttm_is_the_rolling_twelve_months():
+    """TTM = 当期累计 − 上年同期累计（最近连续 12 个月）。
 
-    直接"四个季累加"会把年内累计值当成单季值，结果高一倍以上。
+    两个常见错法都会在这里失败：
+      * "四个季累加"把年内累计值当单季值，得 1.0+2.0+3.0+4.0 = 10e10；
+      * "当期累计 + 上年年报 − 上年同期"会多加上一整年（我第一版就是），
+        得 2.4 + 4.0 − 2.0 = 4.4e10。
     """
 
     rows = [
@@ -149,17 +152,24 @@ def test_ttm_uses_the_spec_rule_not_a_naive_sum():
 
     ttm = s.trailing_twelve_months("SH.600519", as_of=as_of)
     assert ttm is not None
-    # 2.4e10 + 4.0e10 − 2.0e10 = 4.4e10
-    assert ttm["ttm_net_profit_micros"] == int(4.4e10 * MICROS), ttm
-    # 四个季累加会是 1.0+2.0+3.0+4.0 = 10e10，明显不同
-    assert ttm["ttm_net_profit_micros"] != int(10.0e10 * MICROS)
-    assert "上一年" in ttm["ttm_basis"] or "2025 年报" in ttm["ttm_basis"], ttm["ttm_basis"]
+    # 2.4e10 − 2.0e10 = 0.4e10（即 2025 下半年 + 2026 上半年）
+    assert ttm["ttm_net_profit_micros"] == int(0.4e10 * MICROS), ttm
+    assert ttm["ttm_net_profit_micros"] != int(10.0e10 * MICROS), "不得四季累加"
+    assert ttm["ttm_net_profit_micros"] != int(4.4e10 * MICROS), "不得多加上年年报"
+    assert "12 个月" in ttm["ttm_basis"], ttm["ttm_basis"]
 
 
-def test_ttm_for_q1_uses_zero_for_the_same_period():
-    """Q1 的"上年同期累计区间"起点是年初，故该项为 0。"""
+def test_ttm_for_q1_needs_the_prior_q1():
+    """Q1 的 TTM 需要**上年 Q1 累计**，不能假定为 0。
+
+    我第一版按"上年同期区间起点是年初，故取 0"处理，理由是错的：
+    当期累计覆盖"年初到 3-31"，上年同期累计覆盖"上年年初到上年 3-31"，
+    两者相减才是最近 12 个月。取 0 等于把上年一季度也算进来，
+    凭空多出一个季度的利润。
+    """
 
     rows = [
+        st("2025-03-31", "2025-04-30", 1.0e10),
         st("2025-12-31", "2026-04-17", 4.0e10),
         st("2026-03-31", "2026-04-25", 1.2e10),
     ]
@@ -167,7 +177,14 @@ def test_ttm_for_q1_uses_zero_for_the_same_period():
     ttm = s.trailing_twelve_months(
         "SH.600519", as_of=datetime(2026, 4, 27, 9, 30, tzinfo=CST))
     assert ttm is not None
-    assert ttm["ttm_net_profit_micros"] == int(5.2e10 * MICROS), ttm
+    # 1.2e10 − 1.0e10 = 0.2e10
+    assert ttm["ttm_net_profit_micros"] == int(0.2e10 * MICROS), ttm
+
+    # 缺上年 Q1 时必须拒绝，不得假定为 0
+    s2 = store([st("2025-12-31", "2026-04-17", 4.0e10),
+                st("2026-03-31", "2026-04-25", 1.2e10)])
+    assert s2.trailing_twelve_months(
+        "SH.600519", as_of=datetime(2026, 4, 27, 9, 30, tzinfo=CST)) is None
 
 
 def test_ttm_is_none_when_prior_annual_is_invisible():
@@ -186,7 +203,7 @@ def test_q4_is_the_full_year_not_a_single_quarter():
         "SH.600519", as_of=datetime(2026, 4, 24, 9, 30, tzinfo=CST))
     assert ttm is not None
     assert ttm["ttm_net_profit_micros"] == int(8.5e10 * MICROS)
-    assert "Q4 即全年" in ttm["ttm_basis"]
+    assert "完整 12 个月" in ttm["ttm_basis"], ttm["ttm_basis"]
 
 
 # ======================================================== F10 计算

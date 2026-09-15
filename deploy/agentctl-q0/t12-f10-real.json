@@ -1,0 +1,51 @@
+{
+  "as_of": "2026-09-14T15:00:00+08:00",
+  "statements": 2849,
+  "consistency_violations": 198,
+  "computed": 436,
+  "no_ttm": 4783,
+  "no_price": 0,
+  "value_range": [
+    -0.082223,
+    0.117845
+  ],
+  "negatives": 112,
+  "checks": [
+    {
+      "name": "转换无跳过记录",
+      "ok": true,
+      "detail": "跳过 0 条"
+    },
+    {
+      "name": "一致性违规比例可控（<10%）",
+      "ok": true,
+      "detail": "198/2849"
+    },
+    {
+      "name": "有标的算出 F10",
+      "ok": true,
+      "detail": "436 只"
+    },
+    {
+      "name": "池内有财务记录的标的覆盖率 >= 80%",
+      "ok": true,
+      "detail": "436/475（91.8%）"
+    },
+    {
+      "name": "值域合理（收益率在 -2 ~ 2 之间）",
+      "ok": true,
+      "detail": "[-0.0822, 0.1178]"
+    },
+    {
+      "name": "中位数量级合理（0.0001 ~ 0.5）",
+      "ok": true,
+      "detail": "0.0031"
+    },
+    {
+      "name": "存在负值（亏损股未被截断为 0）",
+      "ok": true,
+      "detail": "112 只；若为 0 说明亏损被伪造成低估值"
+    }
+  ],
+  "conclusion": "PASS"
+}

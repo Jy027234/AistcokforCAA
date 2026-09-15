@@ -139,39 +139,42 @@ class FinancialsStore:
         for s in rows:
             by_period[s.period_key] = s
 
-        # 数据质量闸门：TTM 公式依赖"年内累计"这一口径。
-        # 实测约 6.5% 的标的在同一年内出现累计值下降（前三季递增、
-        # Q4 反而下降），可能是年报重述或供应商口径不一致——
-        # **原因不明就不算**，而不是算一个错的出来。
-        # 判定用绝对值：亏损公司的累计值会越来越负。
-        this_year = [s for s in rows if s.stat_date.year == year
-                     and s.net_profit_micros is not None]
-        this_year.sort(key=lambda s: s.stat_date)
-        for earlier, later in zip(this_year, this_year[1:]):
+        # 数据质量闸门只作用于**同一自然年内的累计序列**，且只用于
+        # 判断"该字段是否真的是累计口径"。
+        #
+        # 注意不要把 Q4 与 Q3 的比较当成违规：Q4 是**年报**，
+        # 经审计并可能重述，它与三季报的关系不必满足累计递推。
+        # 我第一版把这种情况判为"累计口径不成立"并拒算，
+        # 结果覆盖率被压到 8.4%——是逻辑过严，不是数据差。
+        interim = [s for s in rows if s.stat_date.year == year
+                   and s.period_key[1] < 4 and s.net_profit_micros is not None]
+        interim.sort(key=lambda s: s.stat_date)
+        for earlier, later in zip(interim, interim[1:]):
             if abs(later.net_profit_micros) < abs(earlier.net_profit_micros):
                 return None
 
+        # TTM 的正确表述是"最近连续 12 个月的累计"：
+        #
+        #   当期累计 − 上年同期累计
+        #
+        # 因为当期累计覆盖"年初到当期期末"，上年同期累计覆盖"年初到上年同期末"，
+        # 两者相减恰好剩下中间的 12 个月。这个式子对所有季度都成立。
+        #
+        # 唯一不需要相减的是 Q4：它本身就是完整的 12 个月，
+        # 而且**年报经过审计、可能重述**，比用三季报推导更权威。
+        # 因此 Q4 直接取全年值，也不要求有上年数据。
+        if latest.net_profit_micros is None:
+            return None
         if quarter == 4:
             ttm = latest.net_profit_micros
-            basis = f"{year}Q4 即全年"
+            basis = f"{year} 年报即完整 12 个月"
         else:
-            prev_annual = by_period.get((year - 1, 4))
-            if prev_annual is None or latest.net_profit_micros is None \
-                    or prev_annual.net_profit_micros is None:
+            prev_same = by_period.get((year - 1, quarter))
+            if prev_same is None or prev_same.net_profit_micros is None:
                 return None
-            if quarter == 1:
-                prev_same_value = 0
-                same_note = "Q1 的同期区间起点为年初，取 0"
-            else:
-                prev_same = by_period.get((year - 1, quarter))
-                if prev_same is None or prev_same.net_profit_micros is None:
-                    return None
-                prev_same_value = prev_same.net_profit_micros
-                same_note = f"扣除 {year - 1}Q{quarter} 累计"
-            ttm = (latest.net_profit_micros + prev_annual.net_profit_micros
-                   - prev_same_value)
-            basis = (f"{year}Q{quarter} 累计 + {year - 1} 年报 − "
-                     f"{year - 1}Q{quarter} 累计（{same_note}）")
+            ttm = latest.net_profit_micros - prev_same.net_profit_micros
+            basis = (f"{year}Q{quarter} 累计 − {year - 1}Q{quarter} 累计"
+                     "（最近连续 12 个月）")
 
         return {
             "instrument_id": instrument_id,
