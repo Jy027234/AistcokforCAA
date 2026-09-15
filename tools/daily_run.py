@@ -39,6 +39,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from aquant.operations.alerting import (  # noqa: E402
+    LEVEL_ERROR, AlertLog, raise_alert,
+)
 from aquant.operations.pipeline import (  # noqa: E402
     PipelineBusy, PipelineLock, RunLog, RunRecord,
 )
@@ -47,6 +50,7 @@ PYTHON = sys.executable
 CACHE = ROOT / "deploy" / "agentctl-q0" / "universe-bars.json"
 LOCK = ROOT / "deploy" / "agentctl-q0" / "daily-run.lock"
 RUNS = ROOT / "deploy" / "agentctl-q0" / "daily-runs.jsonl"
+ALERTS = ROOT / "deploy" / "agentctl-q0" / "alerts.jsonl"
 POOL = ROOT / "configs" / "real-pool-csrc.yaml"
 
 #: 快照窗口的第一天。**固定不动**：窗口跟着当天滑动的话，
@@ -114,12 +118,27 @@ def main() -> int:
                          "引用固定 ID 的工具同时失效。")
     args = ap.parse_args()
 
+    alerts = AlertLog(ALERTS)
+
+    def alert(message: str, **detail) -> None:
+        """失败时告警。**先落盘再外发**（见 operations/alerting.py）。"""
+
+        result = raise_alert(alerts, level=LEVEL_ERROR, source="daily_run",
+                             message=message, detail=detail)
+        log("已告警：" + message
+            + ("（已外发）" if result["delivered"] else
+               "（仅落盘：" + str(result["deliveryError"]) + "）"))
+
     if not CACHE.exists():
-        print("缺少采集缓存：" + str(CACHE))
+        message = "缺少采集缓存，流水线无法运行"
+        print(message + "：" + str(CACHE))
         print("先跑一次 python tools/collect_universe.py")
+        alert(message, cache=str(CACHE))
         return 2
     if not POOL.exists():
-        print("缺少研究池：" + str(POOL))
+        message = "缺少研究池，流水线无法运行"
+        print(message + "：" + str(POOL))
+        alert(message, pool=str(POOL))
         return 2
 
     target = (date.fromisoformat(args.trading_day) if args.trading_day
@@ -172,12 +191,15 @@ def main() -> int:
             record.steps.append(step)
             if not step["ok"]:
                 record.reason = "采集失败"
+                alert("采集失败", tradingDay=day, step="采集行情",
+                      exitCode=step["exitCode"], tail=step["tail"])
                 return _finish(run_log, record, started, 1)
 
             # 采集之后**核对实际拿到了哪一天**，再决定 ID。
             actual_last = _cache_last_day()
             if actual_last is None:
                 record.reason = "缓存的行情窗口为空"
+                alert("采集缓存里没有任何行情", tradingDay=day)
                 return _finish(run_log, record, started, 1)
             if actual_last != day:
                 record.outcome = "SKIPPED"
@@ -214,6 +236,8 @@ def main() -> int:
                 # 就是休市与数据缺口的判据：它们失败说明这一天没有
                 # 可发布的内容，而不是脚本坏了。
                 record.reason = "快照构建未通过校验（可能是休市或数据未更新）"
+                alert("快照构建未通过校验", tradingDay=day,
+                      exitCode=step["exitCode"], tail=step["tail"])
                 return _finish(run_log, record, started, 1)
 
             # 3. 算因子（在新快照上）。失败不影响"快照已发布"这一事实，
@@ -221,6 +245,13 @@ def main() -> int:
             step = run_step(["-m", "tests.integration.t12_f10_real"],
                             label="计算 F10 因子")
             record.steps.append(step)
+            if not step["ok"]:
+                # 快照已发布是事实，因子没算出来是另一个状态：
+                # 结果仍是 PUBLISHED，但这条必须告警——研究卡没有数值，
+                # 而"快照发布成功"会让人以为一切都好。
+                alert("快照已发布，但 F10 因子计算失败（研究卡将无数值）",
+                      tradingDay=day, snapshotId=snapshot_id,
+                      exitCode=step["exitCode"], tail=step["tail"])
 
             record.outcome = "PUBLISHED"
             return _finish(run_log, record, started, 0)

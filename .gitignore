@@ -100,3 +100,4 @@ deploy/agentctl-q0/daily-run*.log
 # 不进版本库（二进制会随时间变得与代码不一致，且无法 diff）
 deploy/screens/
 deploy/screens-docker/
+deploy/agentctl-q0/alerts*.jsonl
