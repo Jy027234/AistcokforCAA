@@ -32,7 +32,12 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
 from aquant.application.workspace_queries import events, portfolio_ledger
+from aquant.adapters.models.deepseek import DeepSeekProvider  # noqa: E402
+from aquant.application.assistant import (  # noqa: E402
+    AssistantError, Material, ask_assistant, model_calls,
+)
 from aquant.application.research_cards import persist_card, research_cards
+from aquant.domain.ai.model import TextModelProvider  # noqa: E402
 from aquant.operations.research_jobs import (  # noqa: E402
     run_research_job, submit_research_job,
 )
@@ -149,6 +154,15 @@ class AppState:
         #: plan_id -> 最近一次预览。确认令牌与冻结都必须针对**同一个预览**，
         #: 因此服务端要保留它；进程重启后预览失效，必须重新预览（这是正确行为）。
         self.previews: dict[str, Any] = {}
+        #: 文本模型提供方（ADR-012）。**惰性构造**：没有密钥时也能启动服务，
+        #: 只是调用助手接口会明确报"模型不可用"，而不是启动就崩。
+        #: 这样离线测试与行情相关的功能完全不依赖模型配置。
+        self.model_provider: TextModelProvider | None = None
+
+    def provider(self) -> TextModelProvider:
+        if self.model_provider is None:
+            self.model_provider = DeepSeekProvider()
+        return self.model_provider
 
     def refresh_listings(self) -> None:
         """按当前快照刷新 证券 -> (交易所, 板块)。
@@ -381,6 +395,25 @@ class ResearchJobRequest(BaseModel):
     config_version: str = Field(default="default", min_length=1, max_length=64)
     payload: dict = Field(default_factory=dict,
                           description="作业参数，例如「limit: 50」")
+
+
+class AssistantMaterial(BaseModel):
+    """一份交给模型的材料。**必须**声明来源——闸门是按来源判定的。"""
+
+    source_id: str = Field(min_length=1, max_length=64)
+    text: str = Field(min_length=1, max_length=200_000)
+    #: 默认必须是 None（=未声明），**不能**是 False。
+    #:
+    #: §826 的不对称默认是"未声明等同于含个人信息"。这里的默认值
+    #: 一旦写成 False，就等于服务端替调用方声明了"不含个人信息"，
+    #: 闸门那道不对称默认会被这一行悄悄绕开——而且绕得完全没有痕迹。
+    contains_personal_data: bool | None = None
+
+
+class AssistantMessageRequest(BaseModel):
+    purpose: str = Field(min_length=1, max_length=200)
+    materials: list[AssistantMaterial] = Field(min_length=1, max_length=50)
+    max_output_tokens: int = Field(default=2048, ge=64, le=8192)
 
 
 class WatchRequest(BaseModel):
@@ -986,6 +1019,46 @@ def create_app(state: AppState | None = None) -> FastAPI:
             reason_category=body.reason_category, reason_note=body.reason_note,
             external_information_used=body.external_information_used,
             rule_check=body.rule_check)
+
+    # ---------------------------------------------------------------- 助手
+    @app.post("/api/v1/assistant/messages")
+    def assistant_message(body: AssistantMessageRequest,
+                          subject: str = Depends(current_subject),
+                          s: AppState = Depends(svc)) -> dict:
+        """把材料交给模型作答。**材料必须先过外发闸门**（§17.2）。
+
+        接口刻意不接受"模型名"或"是否跳过检查"这类参数：
+        能选的只有材料与用途。放行与否由权利登记表决定——
+        那是一个有记录、可复核的动作，不是一次参数调用。
+        """
+
+        ref = s.reader.ref(active_snapshot())
+        try:
+            return ask_assistant(
+                s.con, s.provider(),
+                materials=[Material(source_id=m.source_id, text=m.text,
+                                    contains_personal_data=m.contains_personal_data)
+                           for m in body.materials],
+                purpose=body.purpose, data_mode=ref.data_mode,
+                max_output_tokens=body.max_output_tokens)
+        except AssistantError as exc:
+            # 模型不可用是**上游依赖不可用**，不是客户端的错，也不是服务端 bug：
+            # 用 503 让调用方知道"稍后重试可能有用"，而不是 500。
+            status = 503 if exc.code == "DATA_NOT_READY" else 403
+            detail = {"code": exc.code, "message": exc.message,
+                      "repair_action": exc.repair_action}
+            if exc.blockers:
+                detail["blockers"] = exc.blockers
+            raise HTTPException(status_code=status, detail=detail) from exc
+
+    @app.get("/api/v1/assistant/calls")
+    def list_model_calls(limit: int = 100, s: AppState = Depends(svc)) -> dict:
+        """模型调用留档。**失败的也在里面**——否则预算与责任都无从核对。"""
+
+        rows = model_calls(s.con, limit=max(1, min(limit, 500)))
+        return {"count": len(rows), "calls": rows,
+                "note": ("被拒（REJECTED）与出错（ERROR）同样留档；"
+                         "contract_version 列存的是本次判定细节")}
 
     # ---------------------------------------------------------------- 作业
     @app.post("/api/v1/research/jobs")
