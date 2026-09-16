@@ -1395,6 +1395,12 @@ def create_app(state: AppState | None = None) -> FastAPI:
         out["estimatedFeesCents"] = pv.estimated_fees_cents
         out["frozenLabel"] = ("未冻结 · 预览不产生成交" if not pv.frozen
                               else "已冻结")
+        # 执行后可用现金：**服务端算**，不让前端拿预览里的数字自行推算。
+        # 这不是洁癖——前端算第二遍就会出现"界面上的数字与账本不一样"
+        # 这种最难查的问题，而且它违反项目自己的原则：
+        # 只读夹具里恰好有这个字段，真实响应里却没有，于是界面会显示
+        # 一个来自夹具的数字来填空。
+        out["cashAfterCents"] = pv.cash_after_cents
         return out
 
     @app.post("/api/v1/plans/{plan_id}/confirmation")

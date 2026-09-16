@@ -113,6 +113,8 @@ export interface PreviewResponse {
   }[];
   estimatedFeesCents: number;
   estimated_fees_cents: number;
+  /** 按预览订单执行后的可用现金（分）。**服务端算**，界面只做显示换算。 */
+  cashAfterCents: number;
   rule_checks: { order: string; check: string; passed: boolean; detail?: string }[];
   excluded: { instrument_id?: string; instrumentId?: string; reason: string; detail?: string }[];
   cash_weight_pct: string;

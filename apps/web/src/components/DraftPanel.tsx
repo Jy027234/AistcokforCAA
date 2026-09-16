@@ -1,5 +1,6 @@
 import type { Draft } from "../lib/types";
 import type { PreviewResponse } from "../lib/api";
+import { formatCents } from "../lib/format";
 import { Badge, Callout, Card } from "../components/ui";
 
 /** 模拟草稿与差异预览（§5.4 底部、§5.5）。
@@ -21,28 +22,90 @@ export function DraftPanel({
   const failed = draft.ruleChecks.filter((c) => !c.passed);
   const offline = apiUp === false;
 
+  /**
+   * 显示哪一份草稿：**有服务端预览就显示它**。
+   *
+   * 原先不管有没有服务端预览，表格与数字都来自只读夹具，
+   * 服务端结果只在下方一个小方块里出现。后果很严重：
+   * 冻结按钮冻结的是**服务端**那份计划，而使用者看着的是夹具那张表——
+   * 看到的是 A，冻结的是 B。
+   *
+   * 这条也违反项目自己的原则："界面不会在离线时显示任何未经服务端计算的
+   * 账本数字"。修复方式不是加一句说明，而是让**表格本身就来自服务端**。
+   */
+  const usingLive = livePreview !== null;
+
+  const rows = usingLive
+    ? livePreview.orders.map((o) => {
+        const gross = o.quantity * o.price_cents;
+        return {
+          instrumentId: o.instrument_id, side: o.side, quantity: o.quantity,
+          // 账本与预览一律用**整数分**传输，前端只做显示换算（formatCents）。
+          // 不在这里做任何金额再计算——算第二遍就会出现"界面上的数字
+          // 和账本不一样"这种最难查的问题。
+          price: formatCents(o.price_cents),
+          gross: formatCents(gross), grossCents: gross,
+          // 逐笔费用需要按订单重算，属于服务端的事；这里留空而不是猜一个，
+          // 面板上下的关键金额（预计费用、执行后现金）都来自服务端。
+          estimatedFee: "—",
+          rationale: o.rationale,
+        };
+      })
+    : draft.orders.map((o) => ({
+        instrumentId: o.instrumentId, side: o.side, quantity: o.quantity,
+        price: o.price, gross: o.gross, grossCents: 0,
+        estimatedFee: o.estimatedFee, rationale: o.rationale,
+      }));
+
+  const shownFees = usingLive
+    ? formatCents(livePreview.estimatedFeesCents) : draft.estimatedFees;
+  const shownBuyTotal = usingLive
+    ? formatCents(rows.reduce((sum, r) => sum + (r.grossCents ?? 0), 0))
+    : draft.buyTotal;
+  const shownCashAfter = usingLive
+    ? formatCents(livePreview.cashAfterCents) : draft.cashAfter;
+
   return (
     <Card
       title="我的模拟草稿"
-      actions={<Badge tone="neutral">{draft.frozenLabel}</Badge>}
+      actions={
+        usingLive
+          ? <Badge tone="ok">服务端预览</Badge>
+          : <Badge tone="warn">只读夹具 · 非服务端计算</Badge>
+      }
     >
+      {/* 用夹具时必须显眼地说出来：这些数字没有经过任何服务端计算，
+          而下面的冻结按钮一旦按下，冻结的是服务端另算的一份计划。 */}
+      {!usingLive && (
+        <Callout tone="warn" title="当前显示的是只读演示数据，不是服务端计算结果">
+          下方订单与金额来自随前端分发的示例夹具。点「请求服务端预览」后，
+          这里会换成服务端算出的那一份——冻结的也是那一份。
+          在此之前不要按这两个数字判断资金占用。
+        </Callout>
+      )}
       <div className="grid-3" style={{ marginBottom: 14 }}>
         <div className="stat">
           <span className="stat-label">预计资金占用</span>
-          <span className="stat-value mono">{draft.buyTotal}</span>
+          <span className="stat-value mono">{shownBuyTotal}</span>
         </div>
         <div className="stat">
           <span className="stat-label">预计费用</span>
-          <span className="stat-value mono">{draft.estimatedFees}</span>
+          <span className="stat-value mono">{shownFees}</span>
         </div>
         <div className="stat">
           <span className="stat-label">执行后可用现金</span>
-          <span className="stat-value mono">{draft.cashAfter}</span>
+          <span className="stat-value mono">{shownCashAfter}</span>
         </div>
       </div>
 
-      <h4 style={{ marginBottom: 6 }}>订单差异预览</h4>
-      {draft.orders.length === 0 ? (
+      <h4 style={{ marginBottom: 6 }}>
+        订单差异预览
+        <span className="note">
+          {usingLive ? "（来自服务端预览，冻结的就是这一份）"
+                     : "（演示数据）"}
+        </span>
+      </h4>
+      {rows.length === 0 ? (
         <p className="note">当前没有需要调整的持仓，草稿为空。</p>
       ) : (
         <div className="table-wrap">
@@ -55,7 +118,7 @@ export function DraftPanel({
               </tr>
             </thead>
             <tbody>
-              {draft.orders.map((o) => (
+              {rows.map((o) => (
                 <tr key={o.instrumentId + o.side}>
                   <td>
                     <Badge tone={o.side === "BUY" ? "accent" : "neutral"}>

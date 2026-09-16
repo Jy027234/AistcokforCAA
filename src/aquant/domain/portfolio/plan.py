@@ -137,6 +137,9 @@ class PlanPreview:
     rule_checks: list[dict]
     excluded: list[dict]
     cash_weight_pct: Decimal
+    #: 按预览订单执行后的可用现金（分）。**服务端算**，不让界面自行推算：
+    #: 前端算第二遍就会出现"界面上的数字与账本不一样"这类最难查的问题。
+    cash_after_cents: int = 0
     #: 明确告知调用方：预览不冻结、不产生成交（A08）
     frozen: bool = False
     notes: list[str] = field(default_factory=list)
@@ -157,6 +160,7 @@ class PlanPreview:
             "rule_checks": self.rule_checks,
             "excluded": self.excluded,
             "cash_weight_pct": str(self.cash_weight_pct),
+            "cash_after_cents": self.cash_after_cents,
             "notes": self.notes,
         }
 
@@ -412,6 +416,10 @@ class PlanService:
         checks.append({"order": "*", "check": "PLAN_AFFORDABLE", "passed": True,
                        "detail": f"buy demand {buy_demand} <= available "
                                  f"{cash_available_cents + sell_supply}"})
+        # 执行后可用现金 = 现有现金 + 卖出所得 − 买入支出（含费用）。
+        # 放在服务端算：界面自行推算就会出现"界面数字与账本不一致"，
+        # 而且那种不一致只会在下单之后才被发现。
+        cash_after_cents = cash_available_cents + sell_supply - buy_demand
 
         if any(not c["passed"] for c in checks):
             failing = [c for c in checks if not c["passed"]]
@@ -434,6 +442,7 @@ class PlanService:
             targets=construction.targets, orders=orders,
             estimated_fees_cents=est_fees, rule_checks=checks,
             excluded=construction.excluded, cash_weight_pct=construction.cash_weight_pct,
+            cash_after_cents=cash_after_cents,
             frozen=False, notes=construction.notes,
         )
 

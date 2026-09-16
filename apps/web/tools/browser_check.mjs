@@ -189,13 +189,26 @@ async function main() {
       "(() => { const b = [...document.querySelectorAll('button')]" +
       ".find(x => x.textContent.includes('请求服务端预览')); b.click(); return true; })()",
     );
+    // 等"服务端预览结果"这一块出现。不用徽章文案当判据：
+    // 徽章是可改的呈现细节，这里要证明的是"服务端返回了预览"。
     await cdp.waitFor(
-      "document.body.innerText.includes('服务端预览已生成')",
+      "document.body.innerText.includes('服务端预览结果')",
       { label: "服务端预览返回", timeout: 25000 },
     );
     const previewText = await cdp.evaluate("document.body.innerText");
-    check("服务端预览已生成", previewText.includes("服务端预览已生成"));
+    check("服务端预览已返回", previewText.includes("服务端预览结果"));
     check("预览给出了参考价日（执行日之前）", /参考价日/.test(previewText));
+
+    // 关键一致性：拿到服务端预览后，**表格本身**必须换成服务端那一份，
+    // 而不是继续显示随前端分发的只读夹具。
+    // 原先表格永远来自夹具，而冻结按钮冻结的是服务端另算的一份——
+    // 使用者看到的是 A，冻结的是 B。
+    check("表格已切换到服务端结果", !previewText.includes("订单差异预览（演示数据）"),
+          "仍在显示演示数据");
+    check("只读夹具的警示已消失",
+          !previewText.includes("当前显示的是只读演示数据"),
+          "警示还在，说明仍显示夹具");
+    check("草稿徽章标为服务端预览", previewText.includes("服务端预览"), "");
 
     console.log("\n[4] 点确认冻结（一次性令牌 -> 冻结）");
     const clickLabel = await cdp.evaluate(
