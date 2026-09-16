@@ -286,6 +286,15 @@ if token == api.auth_token:
 
 ### 4.6 Q1 首个只读能力——**端到端通过**
 
+> **时效说明（后补）**：本节记录的是 Q0 时点的实测。当时 handler 读的是
+> 模块内写死的合成夹具，`snap-syn-001` 与 `SYN.A.600519` 因此成立。
+> 该夹具已删除——handler 现在读 M1 真实快照存储。
+> 因此**本节的冒烟输出不能按字面重跑**，它是一份"当时确实如此"的记录，
+> 而不是当前状态的证明。当前状态的证明在
+> `tests/security/test_agentctl_handler_contract.py` 与
+> `tests/security/test_agentctl_m1_storage.py`；
+> 接线过程中暴露的两个缺陷记在 `docs/implementation-baseline.md` §8.6。
+
 `capabilities/agentctl.capabilities.yaml` 声明 `aquant.research_card.read`（`side_effect_class: none`、`confirmation_policy: none`、`idempotency.required: true`），handler 在 `capabilities/aquant_lab_agentctl_handlers.py`。
 
 冒烟证据（`deploy/agentctl-q0/q0-smoke-evidence.json`）：

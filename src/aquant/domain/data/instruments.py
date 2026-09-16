@@ -108,9 +108,18 @@ class Instrument:
         version = self.status_on(day)
         if version is None or version.status is not SecurityStatus.LISTED:
             return False
-        if self.listed_on is not None:
-            return False  # 上市天数门槛由组合构建层按交易日计算
-        return self.delisted_on is None or day < self.delisted_on
+        # 上市天数门槛（exclude_listing_days）**不在这里判**：
+        # 它要求的是交易日数，而本方法只拿到一个日期。
+        # 曾经这里写的是 `if self.listed_on is not None: return False`——
+        # 那等于说「只要知道上市日期就不可模拟」，把一条信息
+        # 反过来当成了排除条件，真实数据下会把整池清空。
+        # 组合构建层拿到交易日历后再按 120 个交易日筛。
+        if self.delisted_on is not None and day >= self.delisted_on:
+            return False
+        if self.listed_on is not None and day < self.listed_on:
+            # 决策时点早于上市：那时它还不是可交易证券
+            return False
+        return True
 
 
 def assert_no_name_keyed_identity(ids: list[str]) -> None:

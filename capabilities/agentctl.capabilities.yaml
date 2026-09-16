@@ -74,8 +74,16 @@ capabilities:
   idempotency:
     required: true
     scope: tenant_actor_capability
+  # Q1 之前这里指的是合成夹具 SYN.A.600519 / snap-syn-001。handler 接上
+  # M1 真实存储之后那两个 ID 不再存在，冒烟必须指向**真实快照**——
+  # 否则它验的是一个已经不存在的东西，而且会以「读取失败」的形式
+  # 报出来，看起来像能力坏了。
+  #
+  # 真实快照是构建产物、不进版本库，因此冒烟只在跑过数据流水线的
+  # 机器上有意义：先在产品侧 `python tools/daily_run.py` 建快照，
+  # 或把 AQUANT_DATA_DIR 指向已有数据目录。
   smoke:
-    query: 读取 SYN.A.600519 在快照 snap-syn-001 下的研究卡
+    query: 读取贵州茅台在快照 snap-universe 下的研究卡
     arguments:
-      instrument_id: SYN.A.600519
-      snapshot_id: snap-syn-001
+      instrument_id: SH.600519
+      snapshot_id: snap-universe

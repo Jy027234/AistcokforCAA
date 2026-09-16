@@ -242,7 +242,7 @@ ADR-011 的边界（领域层不得依赖 agentctl）由
 | T5 M1 数据与证据底座 | ✅ | 合成 D01–D08；真实全市场快照 `snap-universe`（900 只 / 61 个交易日） |
 | T6 M2 账本与模拟 | ✅ | `tests/golden/test_s01_s10_simulator.py`、`tests/golden/test_dividend_persistence.py`、`tests/integration/t13_multiday.py`（多日 + 跨进程重启） |
 | T7 M3 工作台 | ✅ | 五页导航；写链路可走完；`tools/check_ui_flow.py`（交互 + 数字出处） |
-| T8 Q1 适配层 + 只读能力 | 🟡 | Q0 与首个合成只读能力成立；**handler 尚未接 M1 存储** |
+| T8 Q1 适配层 + 只读能力 | ✅ | Q0 成立；handler 已接 M1 真实存储，见 §8.2 与 §8.6 |
 | T9 Q3 预览与确认 | ✅ | `apps/api` 计划生命周期；`tools/check_real_flow.py`、`tools/check_both_sides.py` |
 | T10 Q2 证据研究 | ✅ | `src/aquant/domain/ai/evidence.py`、`src/aquant/domain/evidence/store.py`、`tools/check_model_egress.py` |
 | T11 Q4 作业与追踪 | ✅ | `src/aquant/operations/research_jobs.py`、`jobs.py`；`tests/api/test_research_jobs.py` |
@@ -260,6 +260,8 @@ ADR-011 的边界（领域层不得依赖 agentctl）由
 | 费率溯源 | `src/aquant/domain/simulation/verified_fees.py`、`tools/fetch_fee_sources.py` | 合成费率曾在真实数据上被静默使用 |
 | 数字出处检查 | `apps/web/tools/check_number_provenance.mjs` | 界面上的数字必须说得出自己从哪来 |
 | 本地 Docker 部署 | `Dockerfile`、`docker-compose.yml` | 试运行需要"一个容器起来就能看" |
+| 能力运行期接线 | `src/aquant/adapters/agentctl/runtime.py` | handler 不再自带夹具；默认读取器必须在**运行期**存在，否则"能力已注册"与"能力可用"是两回事 |
+| 能力 handler 契约守卫 | `tests/security/test_agentctl_handler_contract.py` | 基座按 `inspect.signature(fn).bind({})` 装载；这个前提此前**只是假设**，从没被断言过 |
 
 ### 8.3 事实修正：主规格**未**修订
 
@@ -302,10 +304,59 @@ ADR-011/012/013 也未被它引用。
 
 1. **主规格修订**（§8.3）——文档一致性债。
 2. **Q5 接入侧验收报告**——T12 的另一半，与量化侧报告**分别出具，互不替代**。
-3. **Q1 handler 接 M1 存储**——T8 未闭合的部分。
+   Q1 的 handler 接线已在 §8.6 关闭，但"接入侧验收"指的是**在真实接入
+   拓扑下重跑一遍并出具报告**，不是"代码写完了"。两者不能相互替代。
+3. **上市日期数据源**（§8.6）——`listed_on` 目前全为 NULL。
 4. **失败告警通道**——`AQUANT_ALERT_WEBHOOK` 未配置，告警只落盘。
 5. **券商佣金**——`commission_source=UNCONFIGURED_DEFAULT`，需要使用者填真实费率。
 6. **分红个税（§12.6）**——规格允许 PRE-TAX 标注，当前已如此；未实现完整税制。
 7. **F07/F09 绝对财务值**——需要付费源，见 ADR-005。
 8. **master 令牌持有人**（§8.4 第三项）。
+
+### 8.6 Q1 handler 接 M1 存储：接完才发现的两个问题
+
+这一段记录的是**接线过程中暴露出来的缺陷**，不是接线本身的做法。
+两个缺陷有同一个形状：**一段从未被执行过的代码，被测试全绿地保存了下来。**
+
+**缺陷一：能力被"注册成功"，却在第一次真实调用时失败。**
+
+handler 从"读模块内写死的夹具"改成"读注入的读取器"时，`reader` 被写成
+**必填关键字参数**。我自己的测试全部显式传了 `reader`，所以全绿；
+而基座装载 handler 用的是：
+
+```python
+inspect.signature(function).bind({})   # 一个位置参数
+```
+
+于是接入侧会看到"handler 可装载"，直到真实调用才 `TypeError`。
+`tests/security/test_agentctl_handler_contract.py` 现在把**基座真实的装载方式**
+搬进测试：按 agentctl 的 sys.path 约定 import，再按它的规则校验签名。
+该守卫已用修复前的签名实测会失败（`missing a required keyword-only argument`）。
+同理，`capabilities/agentctl.capabilities.yaml` 的 `smoke:` 仍指着已被删除的
+合成夹具 `SYN.A.600519 / snap-syn-001`，已改为真实快照 `SH.600519 / snap-universe`。
+
+**缺陷二：`listed_on` 一旦有值，就会把证券判为不可模拟。**
+
+`Instrument.is_simulatable` 里写着：
+
+```python
+if self.listed_on is not None:
+    return False   # 上市天数门槛由组合构建层按交易日计算
+```
+
+注释说的是"门槛在别处算"，代码做的是"知道上市日期就排除"——
+把一条**信息**当成了**排除条件**。它长期不可见，因为免费源没有采集上市日期，
+`listed_on` 恒为 NULL，那段分支从未执行；而所有既有测试用的都是 `listed_on=None`
+的标的，所以即使补上数据源、整池被清空，测试也仍然全绿。
+
+现已按 §3.1 的措辞重写：只排除**决策时点尚未上市**与**已退市**两种情形；
+上市天数门槛（`exclude_listing_days=120`，按**交易日**）留在组合构建层——
+本方法拿不到交易日历，在这里用自然日近似会静默地多留下新股。
+守卫见 `tests/pit/test_simulatable_listing_window.py`，同样已实测对旧谓词失败。
+
+**副产品（仍未关闭）**：`listed_on` 至今没有任何数据源在写，
+`tools/collect_universe.py` 不采集它。BaoStock 的日线接口提供 `ipoDate`，
+补上之后上面两条守卫才真正开始起作用。在补齐之前，
+能力卡片会如实说"缺少上市日期：无法判断历史时点是否已上市"——
+这句限制是真的，不是占位文案。
 
