@@ -197,6 +197,7 @@ def main() -> int:
 
             # 采集之后**核对实际拿到了哪一天**，再决定 ID。
             actual_last = _cache_last_day()
+            record.data_last_day = actual_last
             if actual_last is None:
                 record.reason = "缓存的行情窗口为空"
                 alert("采集缓存里没有任何行情", tradingDay=day)

@@ -101,3 +101,5 @@ deploy/agentctl-q0/daily-run*.log
 deploy/screens*/
 
 deploy/agentctl-q0/alerts*.jsonl
+deploy/agentctl-q0/iso-status*.log
+tmp_probe_app.py

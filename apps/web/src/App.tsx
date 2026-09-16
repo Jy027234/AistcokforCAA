@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { LoadState, WorkspaceData } from "./lib/types";
+import type { DataStatus, LoadState, WorkspaceData } from "./lib/types";
 import { formatRelative } from "./lib/format";
 import { TopBar, StatusDrawer, type Tab } from "./components/TopBar";
 import { api, AquantApiError, type PreviewResponse } from "./lib/api";
@@ -46,6 +46,11 @@ export default function App() {
   //: 服务端实时预览。为 null 时界面回退到只读夹具，并明确标注来源。
   const [livePreview, setLivePreview] = useState<PreviewResponse | null>(null);
   const [apiUp, setApiUp] = useState<boolean | null>(null);
+  //: 服务端返回的真实数据状态。
+  //:
+  //: 与夹具的 status 分开存，而不是覆盖进 data：data 是本 effect 的依赖，
+  //: 覆盖它会触发下一次 effect，形成循环。两者在渲染时合并。
+  const [liveStatus, setLiveStatus] = useState<DataStatus | null>(null);
   //: 已成功冻结的计划。只有它才能被执行——界面不提供"跳过冻结直接执行"。
   const [frozenPlanId, setFrozenPlanId] = useState<string | null>(null);
 
@@ -73,11 +78,27 @@ export default function App() {
   const data = state.kind === "ready" ? state.data : null;
 
   // 探测 API。界面不假装它在线——离线时明确显示为只读预览。
+  //
+  // 在线时**同时取真实状态**并替换掉夹具里的那一份。
+  //
+  // 原先只探测 health，状态仍全部来自 workspace.json：于是顶栏的
+  // "研究日期"、"数据已就绪"、以及服务端算出的**数据新鲜度**
+  // 都到不了界面。后端明明返回了 stale:true，界面照样显示"数据已就绪"——
+  // 这与草稿面板那个缺陷是同一个形状：**数据拿到了，但没被用上**。
   useEffect(() => {
     if (!data) return;
     let alive = true;
     api.health()
-      .then(() => { if (alive) setApiUp(true); })
+      .then(() => {
+        if (!alive) return;
+        setApiUp(true);
+        // 用 api.status() 而不是裸 fetch：它带 X-Aquant-Subject 头，
+        // 服务端要求这个头。第一版用裸 fetch，请求被 422 拒，
+        // 于是界面显示"API 离线"——而 API 明明是好的。
+        return api.status().then((live) => {
+          if (alive) setLiveStatus(live as unknown as DataStatus);
+        });
+      })
       .catch(() => { if (alive) setApiUp(false); });
     return () => { alive = false; };
   }, [data]);
@@ -169,11 +190,19 @@ export default function App() {
   return (
     <div className="app">
       <TopBar
-        status={data?.status ?? {
+        // 服务端在线时用**它的**状态；夹具的只作为离线兜底。
+        //
+        // 顶栏显示的是"研究日期 / 数据是否就绪 / 数据新不新"——
+        // 这些必须来自服务端。原先全部来自夹具，于是后端算出的
+        // 数据新鲜度到不了界面：后端返回 stale:true，界面照样写"数据已就绪"。
+        status={liveStatus ?? data?.status ?? {
           snapshotId: "—", kind: "—", asOfTime: new Date().toISOString(),
           publishedAt: null, dataMode: "—", watermark: null, qualityStatus: "—",
           readiness: "PARTIAL", readinessLabel: "载入中", blockingIssues: [],
           datasetSummary: [], timeLabel: "—", accountLabel: "模拟账户",
+          // 载入中时**不声明**新鲜度：null 表示"还不知道"，
+          // 而不是"数据是新的"。界面对这两者的处理必须不同。
+          freshness: null,
         }}
         tab={tab}
         onTab={setTab}

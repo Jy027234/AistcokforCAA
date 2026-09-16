@@ -37,6 +37,20 @@ export interface DataStatus {
   datasetSummary: DatasetSummary[];
   timeLabel: string;
   accountLabel: string;
+  /** 数据新鲜度。**null 表示未记录运行留痕**——那时不该声称"数据是新的"。 */
+  freshness: {
+    snapshotDay: string | null;
+    dataLastDay: string | null;
+    lastPublishedDay: string | null;
+    lastAttempt: {
+      tradingDay: string | null; outcome: string; reason: string | null;
+      finishedAt: string | null;
+      steps: { step: string; ok: boolean }[];
+    } | null;
+    stalenessDays: number | null;
+    stale: boolean;
+    detail: string;
+  } | null;
 }
 
 /** 因子行。数值以**展示串**给出（视图模型已格式化），

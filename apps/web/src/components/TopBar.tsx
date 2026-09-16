@@ -52,6 +52,12 @@ export function TopBar({
       <div className="topbar-status">
         <Badge tone="neutral">研究日期 {formatAsOf(status.asOfTime)}</Badge>
         <Badge tone={readinessTone(status.readiness)}>{status.readinessLabel}</Badge>
+        {/* 数据新鲜度。**落后了必须显眼**：界面一切正常、数字自洽、
+            对账通过，而它们基于的是几天前的数据——没人会自己注意到。
+            读不出新鲜度时不显示徽章，也不声称"数据是新的"。 */}
+        {status.freshness?.stale && (
+          <Badge tone="warn">数据落后 {status.freshness.stalenessDays} 天</Badge>
+        )}
         <Badge tone="accent">{status.accountLabel}</Badge>
         <button className="btn btn-sm" onClick={onOpenStatus}>
           {loading ? "刷新中…" : lastLoadedAt ? "已更新 " + lastLoadedAt : "运行状态"}
@@ -82,6 +88,15 @@ export function StatusDrawer({
             <dt>截止时点</dt><dd>{formatAsOf(status.asOfTime)}</dd>
             <dt>发布时间</dt><dd>{status.publishedAt ? formatAsOf(status.publishedAt) : "—"}</dd>
             <dt>数据模式</dt><dd><Badge tone={status.dataMode === "SYNTHETIC" ? "warn" : "neutral"}>{status.dataMode}</Badge></dd>
+            <dt>数据新鲜度</dt>
+            <dd>
+              {status.freshness?.detail ?? "未记录运行留痕，无法判断新鲜度"}
+              {status.freshness?.lastPublishedDay && (
+                <span className="note">
+                  （上次成功发布：{status.freshness.lastPublishedDay}）
+                </span>
+              )}
+            </dd>
             <dt>质量状态</dt><dd>{status.qualityStatus}</dd>
           </dl>
 

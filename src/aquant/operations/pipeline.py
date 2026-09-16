@@ -84,6 +84,12 @@ class RunRecord:
     started_at: str = ""
     finished_at: str = ""
     duration_seconds: float = 0.0
+    #: 采集缓存里**实际**的最后一个交易日（不是"今天"）。
+    #:
+    #: 记它是为了回答一个运维上很容易被忽略的问题：快照落后了没有。
+    #: 光看"上次跑成功是什么时候"不够——天天跑成功但数据源没更新，
+    #: 快照照样停在几天前，而界面上一切正常。
+    data_last_day: str | None = None
 
     def as_dict(self) -> dict:
         return asdict(self)

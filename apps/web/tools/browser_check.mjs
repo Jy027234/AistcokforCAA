@@ -172,6 +172,26 @@ async function main() {
     );
     check("界面识别出 API 在线", apiOnline);
 
+    // 顶栏状态必须来自服务端，而不是随前端分发的夹具。
+    //
+    // 原先只探测 health，状态全部来自 workspace.json：后端算出的
+    // 数据新鲜度到不了界面——后端返回 stale:true，界面照样显示"数据已就绪"。
+    // 这与草稿面板那个缺陷是同一个形状：**数据拿到了，但没被用上**。
+    const live = await cdp.evaluate(
+      "(async () => { const b = window.__AQUANT_API_BASE__ || '';" +
+      "const r = await fetch(b + '/api/v1/status'); return r.ok ? await r.json() : null; })()");
+    check("能取到服务端状态", Boolean(live && live.snapshotId),
+          live ? String(live.snapshotId) : "取不到");
+    const pageText = await cdp.evaluate("document.body.innerText");
+    check("顶栏研究日期与服务端一致",
+          Boolean(live) && pageText.includes(String(live.asOfTime).slice(0, 10)),
+          live ? "服务端 " + String(live.asOfTime).slice(0, 10) : "");
+    // 服务端说落后，界面就必须显示落后；服务端说新鲜，界面不得显示落后。
+    const stale = Boolean(live && live.freshness && live.freshness.stale);
+    const shownStale = /数据落后 \d+ 天/.test(pageText);
+    check("新鲜度与服务端判断一致", stale === shownStale,
+          "服务端 stale=" + stale + "，界面显示=" + shownStale);
+
     console.log("\n[2] 空态：还没冻结时不得显示账本数字");
     const beforeFreeze = await cdp.evaluate(
       "document.body.innerText.includes('先冻结计划')",

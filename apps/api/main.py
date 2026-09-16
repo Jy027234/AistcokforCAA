@@ -40,6 +40,7 @@ from aquant.application.assistant import (  # noqa: E402
 from aquant.application.research_cards import persist_card, research_cards
 from aquant.domain.ai.model import TextModelProvider  # noqa: E402
 from aquant.domain.evidence.store import evidence_for  # noqa: E402
+from aquant.operations.freshness import freshness  # noqa: E402
 from aquant.operations.research_jobs import (  # noqa: E402
     run_research_job, submit_research_job,
 )
@@ -131,9 +132,17 @@ class AppState:
     刻意保持简单：单机、单库、单快照，与 §14.2 的模块化单体一致。
     """
 
-    def __init__(self, con: sqlite3.Connection, root: Path) -> None:
+    def __init__(self, con: sqlite3.Connection, root: Path, *,
+                 data_dir: Path | None = None) -> None:
         self.con = con
         self.root = root
+        #: 启动时解析好的数据目录。
+        #:
+        #: **不要在请求处理里重新解析它**：_data_dir_from_env() 有副作用——
+        #: AQUANT_RESET_DATA=1 时它会 shutil.rmtree 数据目录。
+        #: 把它放进请求路径的后果是**每个请求都在删自己的数据目录**
+        #: （当时还开着 SQLite 连接）。这正是 /status 500 的原因。
+        self.data_dir = data_dir
         self.store = SnapshotStore(con, root)
         self.reader = SnapshotReader(self.store)
         self.snapshot_id = active_snapshot()
@@ -188,6 +197,44 @@ class AppState:
             # 快照读不出来时保持为空字典：宁可在下单前报"无适用规则"，
             # 也不要拿一份猜出来的板块去算涨跌停。
             self.listings = {}
+
+
+def daily_run_log_path(data_dir: Path | None = None) -> Path:
+    """每日流水的运行留痕位置。
+
+    默认与 tools/daily_run.py 一致（仓库里的 deploy/agentctl-q0/）。
+    刻意不**必须**跟着 AQUANT_DATA_DIR 走：那个变量指向的是账本数据目录，
+    而运行留痕是流水线自己的产物，两者可以不在同一处
+    （容器里数据在 /data，代码与 deploy 在 /app）。
+
+    **必须传入启动时解析好的 data_dir，不要在请求里重新解析。**
+    _data_dir_from_env() 带副作用（AQUANT_RESET_DATA=1 时删目录），
+    在请求路径里调用它等于每个请求都在删数据。
+    用 AQUANT_DAILY_RUN_LOG 可显式覆盖。
+    """
+
+    override = os.environ.get("AQUANT_DAILY_RUN_LOG", "").strip()
+    if override:
+        return Path(override)
+    candidates = [ROOT / "deploy" / "agentctl-q0" / "daily-runs.jsonl"]
+    if data_dir is not None:
+        candidates.append(data_dir / "daily-runs.jsonl")
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def _snapshot_last_day(state: "AppState") -> str | None:
+    """快照覆盖的最后一个交易日。读不出就返回 None，不猜。"""
+
+    try:
+        ref = state.reader.ref(state.snapshot_id)
+        rows = state.reader.daily_quotes(state.snapshot_id, as_of=ref.as_of_time)
+    except Exception:                                    # noqa: BLE001
+        return None
+    days = {r.trading_day for r in rows}
+    return max(days).isoformat() if days else None
 
 
 def resolve_fee_table(snapshot_id: str):
@@ -329,7 +376,7 @@ def build_state(data_dir: Path | None = None) -> AppState:
                 "先用对应脚本建成并发布该快照，或去掉这个环境变量使用合成快照"
             ) from None
         _seed_synthetic(con, root)
-    return AppState(con, root)
+    return AppState(con, root, data_dir=data_dir)
 
 
 # ======================================================================
@@ -933,7 +980,33 @@ def create_app(state: AppState | None = None) -> FastAPI:
 
     @app.get("/api/v1/status")
     def status(s: AppState = Depends(svc)) -> dict:
-        return build_data_status(s.reader, active_snapshot()).as_dict()
+        """数据状态。**含新鲜度**——快照落后了没有。
+
+        这一项容易被忽略：界面一切正常、数字自洽、对账通过，
+        而它们基于三天前的数据。光看"上次跑成功"也不够——
+        天天跑成功但数据源没更新，快照照样停在几天前。
+        因此比较的是快照覆盖的末日与采集实际拿到的末日。
+        """
+
+        out = build_data_status(s.reader, active_snapshot()).as_dict()
+        # 快照覆盖的最后一个交易日：取自交易数据集，而不是 as_of_time
+        # （as_of_time 是快照的时点，可能与行情末日不同）。
+        #
+        # 新鲜度是**附加信息**，不能因为它让整个状态接口 500——
+        # /status 是界面顶栏的命脉，读不出留痕应当是"不判断新鲜度"，
+        # 而不是"状态不可用"。
+        try:
+            out["freshness"] = freshness(
+                daily_run_log_path(s.data_dir),
+                snapshot_day=_snapshot_last_day(s)).as_dict()
+        except Exception as exc:                         # noqa: BLE001
+            import traceback
+            print("[api] 新鲜度计算失败（不影响状态本身）：", flush=True)
+            traceback.print_exc()
+            out["freshness"] = {
+                "stale": False, "detail": f"新鲜度不可用：{type(exc).__name__}",
+            }
+        return out
 
     @app.get("/api/v1/candidates")
     def candidates(s: AppState = Depends(svc)) -> dict:

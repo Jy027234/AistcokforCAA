@@ -77,11 +77,15 @@ class DataStatus:
     dataset_summary: list[dict]
     time_label: str
     account_label: str = "模拟账户"
+    #: 数据新鲜度（见 operations/freshness.py）。缺省为 None 表示
+    #: 调用方没有提供运行留痕——那时界面不该声称"数据是新的"。
+    freshness: dict | None = None
 
     def as_dict(self) -> dict:
         return {
             "snapshotId": self.snapshot_id, "kind": self.kind,
             "asOfTime": self.as_of_time, "publishedAt": self.published_at,
+            "freshness": self.freshness,
             "dataMode": self.data_mode, "watermark": self.watermark,
             "qualityStatus": self.quality_status, "readiness": self.readiness,
             "readinessLabel": self.readiness_label,
