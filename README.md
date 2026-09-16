@@ -189,12 +189,15 @@ node tools\page_dump.mjs --url http://127.0.0.1:8080 --tab portfolio   # 页面�
 
 ## 文档
 
+**阅读顺序：** 主规格 → **修订记录** → 实施状态 → 专题文档。
+
 | 文件 | 性质 |
 |---|---|
 | `A-Quant-Lab_开发文档_v0.2.md` | **主规格**：需求、技术架构、研究规范、验收、阶段 |
+| `docs/spec-revisions-2026-09.md` | **主规格定点修订**：哪一段被取代、取代它的是什么、依据在哪。**冲突时以它为准** |
 | `A-Quant-Lab_v0.2_结构化摘要.md` | 主规格结构化导读（含章节行号索引） |
+| `docs/implementation-baseline.md` | 任务表 + **§8 实施状态**（每条都指向可复核的证据） |
 | `docs/daily-pipeline.md` | 每日流水线：调度接入、退出码、告警、已知限制 |
-| `docs/implementation-baseline.md` | 实现基线（**早于近几轮，尚未同步**） |
 | `docs/data-rights-register.md` | 数据权利登记表 + 费率来源 |
 | `docs/adr/` | 架构决策记录（ADR-001…013） |
 | `docs/integration/q0-readiness-report.md` | Q0 接入就绪报告（本机实测） |

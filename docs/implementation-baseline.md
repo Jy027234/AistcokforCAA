@@ -223,3 +223,89 @@ ADR-011 的边界（领域层不得依赖 agentctl）由
 1. **免费源权利条款**：是否允许本地保存、模型处理与再分发？确认后方可进入模型链路（§17.2）。
 2. **本机代理是否为预期配置**（ADR-002）：若否，应关闭代理或改用直连出口。
 3. **生产部署启动方式**：是否使用 `--token-env`、master 令牌由谁持有（Q0 报告 O7）。
+---
+
+## 8. 实施状态（2026-09-16 补记）
+
+**性质：** 本节是对 §3 任务表的**状态补记**，不修改任务定义。
+每条都指向可复核的证据（测试文件、验收脚本、文档），
+**不写会随时间漂移的小计数**——计数写进文档就会过期，而过期的事实比没有事实更糟。
+
+### 8.1 任务状态
+
+| 任务 | 状态 | 证据 |
+|---|---|---|
+| T1 统一实施基线 | ✅ | 本文件 |
+| T2 版本与基座锁定 | ✅ | 锁定 SHA 记在 §3 T2；边界由 `tests/security/test_agentctl_boundary.py` 强制 |
+| T3 可运行骨架 | ✅ | `contracts/`、`schema/`、`configs/`、`examples/`、`tests/validate_spec.py` 全在 |
+| T4 真实数据验证 | ✅ | `docs/data-capability-baostock.md`、`docs/data-capability-eastmoney-direct.md`、ADR-004 |
+| T5 M1 数据与证据底座 | ✅ | 合成 D01–D08；真实全市场快照 `snap-universe`（900 只 / 61 个交易日） |
+| T6 M2 账本与模拟 | ✅ | `tests/golden/test_s01_s10_simulator.py`、`tests/golden/test_dividend_persistence.py`、`tests/integration/t13_multiday.py`（多日 + 跨进程重启） |
+| T7 M3 工作台 | ✅ | 五页导航；写链路可走完；`tools/check_ui_flow.py`（交互 + 数字出处） |
+| T8 Q1 适配层 + 只读能力 | 🟡 | Q0 与首个合成只读能力成立；**handler 尚未接 M1 存储** |
+| T9 Q3 预览与确认 | ✅ | `apps/api` 计划生命周期；`tools/check_real_flow.py`、`tools/check_both_sides.py` |
+| T10 Q2 证据研究 | ✅ | `src/aquant/domain/ai/evidence.py`、`src/aquant/domain/evidence/store.py`、`tools/check_model_egress.py` |
+| T11 Q4 作业与追踪 | ✅ | `src/aquant/operations/research_jobs.py`、`jobs.py`；`tests/api/test_research_jobs.py` |
+| T12 双重验收 | 🟡 | 量化侧双侧验收已成（`tools/check_both_sides.py`）；**Q5 接入侧报告未出** |
+
+### 8.2 本基线之后新增的能力（不在 §3 任务表里）
+
+| 能力 | 位置 | 为什么加 |
+|---|---|---|
+| 每日流水线 | `tools/daily_run.py`、`docs/daily-pipeline.md` | 手工更新数据无法长期运行；补上并发锁、休市判断、运行留痕 |
+| 失败告警 | `src/aquant/operations/alerting.py`、`tools/show_alerts.py` | 定时任务最常见的失败是**静默地什么也没做** |
+| 数据新鲜度 | `src/aquant/operations/freshness.py` | 没人会自己注意到快照落后了 |
+| 研究者卡片留档 | `src/aquant/application/research_cards.py` | 现算即弃无法回答"我那天看到的是什么" |
+| 助手消息与外发闸门 | `src/aquant/application/assistant.py`、`domain/ai/egress.py` | §5.5 与 §17.2 |
+| 费率溯源 | `src/aquant/domain/simulation/verified_fees.py`、`tools/fetch_fee_sources.py` | 合成费率曾在真实数据上被静默使用 |
+| 数字出处检查 | `apps/web/tools/check_number_provenance.mjs` | 界面上的数字必须说得出自己从哪来 |
+| 本地 Docker 部署 | `Dockerfile`、`docker-compose.yml` | 试运行需要"一个容器起来就能看" |
+
+### 8.3 事实修正：主规格**未**修订
+
+§6 末段写着需要修订主文档 §14.3 / §14.4 / §16.3 / §20。**这件事没有做。**
+截至 2026-09-16，`A-Quant-Lab_开发文档_v0.2.md` 里 `agentctl` 零命中，
+ADR-011/012/013 也未被它引用。
+
+诚实的表述是：ADR-011/012/013 是**仓库内**已采纳的决策，
+而主规格仍是接入前的版本。二者尚未合并。
+
+**这不阻塞开发**（代码与 ADR 一致），但它意味着"以主规格为准"这条规则
+在这些议题上会指向一份过时的文档。
+
+**同日更新：已用"定点修订"解决。** 新增 `docs/spec-revisions-2026-09.md`，
+逐条声明哪一段被取代、取代它的是什么、依据在哪；主规格开头也加了指向它的警示。
+冲突时以修订记录为准。
+
+选择定点修订而不是就地改写主规格，理由是：主规格是**需求与验收的基准**，
+被本基线、ADR 与实施文档多处引用。在 981 行里就地改动会让"主规格说了什么"
+失去唯一性——而它是所有争议的最终裁决依据。定点修订保留了
+"某年某月某日它是这么写的"这个事实。
+
+修订过程中另外发现一条**实现限制**，已记入补遗 R2.1：
+`apply_migrations()` 按序重放 `schema/*.sql`，靠 `IF NOT EXISTS` 幂等，
+**没有版本表**。因此新增表会生效，而**已有表的列与约束变更不会生效**——
+修改 schema 后必须显式重建数据目录。本项目已经踩过一次
+（给 CHECK 白名单加取值、给表加列，都是靠重建快照才生效的）。
+
+### 8.4 §7.2 三项已裁决
+
+§7.2 列的三项"仍需确认"均已关闭，原文保留作为当时的记录：
+
+| 事项 | 结论 | 依据 |
+|---|---|---|
+| 免费源权利条款 | 使用者授权 `model_processing`；`third_party_redistribution` 与 `commercial_use` 仍关闭 | `docs/data-rights-register.md` |
+| 本机代理是否预期 | 属预期配置，显式声明可信网段；安全含义已记录 | ADR-002 |
+| 生产部署启动方式 | 纪律已定（静态 master 令牌不下发）；**master 令牌持有人仍未指定** | ADR-013、Q0 报告 O7 |
+
+### 8.5 仍未完成的（按重要性）
+
+1. **主规格修订**（§8.3）——文档一致性债。
+2. **Q5 接入侧验收报告**——T12 的另一半，与量化侧报告**分别出具，互不替代**。
+3. **Q1 handler 接 M1 存储**——T8 未闭合的部分。
+4. **失败告警通道**——`AQUANT_ALERT_WEBHOOK` 未配置，告警只落盘。
+5. **券商佣金**——`commission_source=UNCONFIGURED_DEFAULT`，需要使用者填真实费率。
+6. **分红个税（§12.6）**——规格允许 PRE-TAX 标注，当前已如此；未实现完整税制。
+7. **F07/F09 绝对财务值**——需要付费源，见 ADR-005。
+8. **master 令牌持有人**（§8.4 第三项）。
+
