@@ -88,6 +88,19 @@ export function DraftPanel({
           : <Badge tone="warn">只读夹具 · 非服务端计算</Badge>
       }
     >
+      {/* 服务端结果与演示夹具**不一致**时必须说出来。
+          否则使用者点「请求服务端预览」后会看到数字"莫名变了"——
+          看起来像 bug，实际是两份不同来源的数据。
+          保守与默认两种口径的差异要报告（§12.4），这里是同一个道理。 */}
+      {usingLive && livePreview.orders.length !== draft.orders.length && (
+        <Callout tone="info" title="服务端结果与演示夹具不同">
+          服务端算出 <strong>{livePreview.orders.length}</strong> 笔订单，
+          而演示夹具是 <strong>{draft.orders.length}</strong> 笔——
+          夹具是随前端分发的示例数据，与你的账户无关。
+          <strong>以下数字与冻结的计划都以服务端为准。</strong>
+        </Callout>
+      )}
+
       {/* 用夹具时必须显眼地说出来：这些数字没有经过任何服务端计算，
           而下面的冻结按钮一旦按下，冻结的是服务端另算的一份计划。 */}
       {!usingLive && (
