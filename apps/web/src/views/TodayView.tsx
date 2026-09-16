@@ -89,6 +89,7 @@ export function TodayView({
       <Section
         title="研究候选"
         hint="先变化后排行"
+        dataSource="fixture"
         actions={<span className="note">全部数值绑定同一快照 {status.snapshotId}</span>}
       >
         <Card padded={false}>

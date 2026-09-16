@@ -71,11 +71,34 @@ export function RankBar({ rankPct, label }: { rankPct: number | null; label: str
   );
 }
 
+/** 区块的数据来源声明。
+ *
+ * 这不是装饰：它是**可被机器读取的契约**。界面上的数字必须说得出
+ * 自己从哪来，而"从哪来"靠人看是看不出来的——组合页曾经整块草稿
+ * 都来自随前端分发的只读夹具，而徽章写着「API 在线」。
+ *
+ *   * "api"     —— 数字必须能在某次服务端响应里找到（由 check 核对）；
+ *   * "fixture" —— 随前端分发的示例数据，必须同时带演示标注；
+ *   * "static"  —— 常量文案/标签，不含业务数字。
+ */
+export type DataSource = "api" | "fixture" | "static";
+
 export function Section({
-  title, hint, actions, children,
-}: { title: string; hint?: string; actions?: ReactNode; children: ReactNode }) {
+  title, hint, actions, children, dataSource, noNumericValue = false,
+}: {
+  title: string; hint?: string; actions?: ReactNode; children: ReactNode;
+  dataSource: DataSource;
+  /** 声明"本区块没有自己的业务数字"（只有常量文案与规格引用）。
+   *
+   * 用途是给出处检查器一个**显式**的排除依据，而不是让它去猜哪个数字
+   * 是业务数字。显式声明的价值在于：将来这个区块真的显示了一个金额，
+   * 那句声明就成了假话——而检查器会因此再次报红。
+   */
+  noNumericValue?: boolean;
+}) {
   return (
-    <section className="section">
+    <section className="section" data-source={dataSource}
+      data-no-numeric-value={noNumericValue ? "1" : undefined}>
       <div className="section-head">
         <h2>{title}</h2>
         {hint && <span className="hint">{hint}</span>}

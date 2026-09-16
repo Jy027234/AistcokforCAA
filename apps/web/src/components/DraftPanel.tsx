@@ -65,6 +65,20 @@ export function DraftPanel({
   const shownCashAfter = usingLive
     ? formatCents(livePreview.cashAfterCents) : draft.cashAfter;
 
+  /** 行业分布同样必须跟着订单表切换来源。
+   *  这一块原先在服务端态下仍显示夹具数值——我把订单表改成服务端来源时
+   *  漏了它，而两者在同一个面板里。 */
+  const industryRows = usingLive
+    ? (livePreview.industry ?? []).map((r) => ({
+        industryCode: r.industryCode, value: formatCents(r.valueCents),
+        sharePct: r.sharePct === null ? "—" : r.sharePct + "%",
+        overCap: r.overCap,
+      }))
+    : draft.industry.map((r) => ({
+        industryCode: r.industryCode, value: r.value,
+        sharePct: r.sharePct, overCap: r.overCap,
+      }));
+
   return (
     <Card
       title="我的模拟草稿"
@@ -138,15 +152,17 @@ export function DraftPanel({
         </div>
       )}
 
-      <h4 style={{ margin: "16px 0 6px" }}>行业分布（上限 {draft.industryCapPct}）</h4>
-      {draft.industry.length === 0 ? (
+      <h4 style={{ margin: "16px 0 6px" }}>
+        行业分布（上限 {usingLive ? livePreview.industryCapPct : draft.industryCapPct}）
+      </h4>
+      {industryRows.length === 0 ? (
         <p className="note">暂无行业敞口。</p>
       ) : (
         <div className="table-wrap">
           <table className="data">
             <thead><tr><th>行业</th><th className="num">市值</th><th className="num">占比</th><th /></tr></thead>
             <tbody>
-              {draft.industry.map((r) => (
+              {industryRows.map((r) => (
                 <tr key={r.industryCode}>
                   <td className="mono">{r.industryCode}</td>
                   <td className="num mono">{r.value}</td>

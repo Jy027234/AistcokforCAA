@@ -78,7 +78,7 @@ export function WorkspaceView({
 
   if (apiUp === false) {
     return (
-      <Section title="工作区">
+      <Section title="工作区" dataSource="static">
         <Card>
           <Callout tone="warn" title="写操作不可用">
             工作台 API 未运行，因此自选、因子计算与实验登记都不可用。
@@ -97,6 +97,7 @@ export function WorkspaceView({
       <Section
         title="工作区"
         hint="自选、因子排名、研究卡、决策日志、实验登记"
+        dataSource="api"
         actions={<Badge tone={apiUp === true ? "ok" : "neutral"}>
           {apiUp === true ? "API 在线" : "检测中"}</Badge>}
       >
@@ -104,7 +105,8 @@ export function WorkspaceView({
       </Section>
 
       {/* ------------------------------------------------ 自选 */}
-      <Section title="自选" hint="自选不产生订单，也不影响模拟持仓">
+      <Section title="自选" hint="自选不产生订单，也不影响模拟持仓" dataSource="api"
+        noNumericValue>
         <Card>
           <div className="row-actions">
             <input
@@ -165,7 +167,7 @@ export function WorkspaceView({
 
       {/* ---------------------------------------------- 研究卡 */}
       {(card || cardError || busy === "载入研究卡") && (
-        <Section title="研究卡" hint="数值、证据、反证与限制（§5.1）">
+        <Section title="研究卡" hint="数值、证据、反证与限制（§5.1）" dataSource="api">
           <Card>
             {busy === "载入研究卡" && <p className="note">正在载入研究卡…</p>}
             {cardError && <Callout tone="danger" title="无法载入研究卡">{cardError}</Callout>}
@@ -264,7 +266,8 @@ export function WorkspaceView({
       )}
 
       {/* -------------------------------------------- 因子排名 */}
-      <Section title="因子排名" hint="横截面排名，不是概率（§5.3）">
+      <Section title="因子排名" hint="横截面排名，不是概率（§5.3）" dataSource="api"
+        noNumericValue>
         <Card>
           <div className="row-actions">
             <button className="btn btn-primary" disabled={busy !== null}
@@ -347,7 +350,8 @@ export function WorkspaceView({
       </Section>
 
       {/* -------------------------------------------- 决策日志 */}
-      <Section title="决策日志" hint="模型原方案与人工方案分开保存（§11.3）">
+      <Section title="决策日志" hint="模型原方案与人工方案分开保存（§11.3）"
+        dataSource="api" noNumericValue>
         <Card>
           {decisions === null ? (
             <p className="note">正在载入决策日志…</p>
@@ -386,7 +390,8 @@ export function WorkspaceView({
       </Section>
 
       {/* -------------------------------------------- 实验登记 */}
-      <Section title="实验登记" hint="先登记、后看结果（§13.2）">
+      <Section title="实验登记" hint="先登记、后看结果（§13.2）" dataSource="api"
+        noNumericValue>
         <Card>
           {experiments === null ? (
             <p className="note">正在载入实验…</p>

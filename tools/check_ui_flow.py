@@ -113,7 +113,27 @@ def main() -> int:
              "--api", f"http://127.0.0.1:{API_PORT}"],
             cwd=WEB, text=True,
         )
-        return proc.returncode
+        if proc.returncode != 0:
+            return proc.returncode
+
+        # 数字出处检查：界面上每个区块都要声明数据来源，且声明与事实一致。
+        # 与上面那条的分工：那条验**交互**（点了会发生什么），
+        # 这条验**数字从哪来**——组合页曾经整块草稿显示夹具数字而徽章写着
+        # 「API 在线」，那不是交互能发现的问题。
+        provenance = WEB / "tools" / "check_number_provenance.mjs"
+        if not provenance.exists():
+            print(f"缺少数字出处检查脚本：{provenance}")
+            return 2
+        print()
+        print("=" * 60)
+        print("[数字出处] 界面上的数字必须说得出自己从哪来")
+        prov = subprocess.run(
+            ["node", str(provenance),
+             "--url", f"http://127.0.0.1:{WEB_PORT}",
+             "--api", f"http://127.0.0.1:{API_PORT}"],
+            cwd=WEB, text=True,
+        )
+        return prov.returncode
     finally:
         for p in (web, api):
             p.terminate()

@@ -1401,6 +1401,35 @@ def create_app(state: AppState | None = None) -> FastAPI:
         # 只读夹具里恰好有这个字段，真实响应里却没有，于是界面会显示
         # 一个来自夹具的数字来填空。
         out["cashAfterCents"] = pv.cash_after_cents
+        # 行业分布同样由**服务端**给出。
+        #
+        # 这一块原先在服务端态下仍然显示随前端分发的夹具数值——
+        # 我把订单表改成服务端来源时漏了它，而它和订单表在同一个面板里。
+        # 教训：改"这一块显示哪份数据"时，必须把同一面板里**所有**
+        # 数字过一遍，漏掉的那块会以"看起来正常"的方式继续显示旧数据。
+        # 权益口径用"执行后的组合价值"：现金 + 买入成交额 + 卖出成交额。
+        # 它与构建目标时的 equity 是同一个量（组合总市值），
+        # 因此行业占比与构建期的约束口径一致。
+        equity_cents = cash + sum(
+            int(o["quantity"] * o["price_cents"]) for o in pv.orders
+            if o["side"] == "BUY") + sum(
+            int(o["quantity"] * o["price_cents"]) for o in pv.orders
+            if o["side"] == "SELL")
+        industry_value: dict[str, int] = {}
+        for t in pv.targets:
+            value = int(Decimal(equity_cents) * t.weight_pct / Decimal(100))
+            code = t.industry_code or "UNKNOWN"
+            industry_value[code] = industry_value.get(code, 0) + value
+        cap = s.params.max_single_industry_pct
+        out["industry"] = [
+            {"industryCode": code, "valueCents": value,
+             "sharePct": (str((Decimal(value) * 100 / equity_cents).quantize(
+                 Decimal("0.01"))) if equity_cents else None),
+             "overCap": (Decimal(value) * 100 / equity_cents) > cap
+                        if equity_cents else False}
+            for code, value in sorted(industry_value.items())
+        ]
+        out["industryCapPct"] = str(cap)
         return out
 
     @app.post("/api/v1/plans/{plan_id}/confirmation")

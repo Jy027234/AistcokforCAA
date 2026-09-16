@@ -47,6 +47,7 @@ export function ResearchView({
       <Section
         title="研究"
         hint="同一实体使用同一卡片与证据链"
+        dataSource="fixture"
         actions={
           <div className="tabs" role="tablist" aria-label="研究范围">
             {SCOPES.map((s) => (

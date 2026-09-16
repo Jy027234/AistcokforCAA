@@ -115,6 +115,12 @@ export interface PreviewResponse {
   estimated_fees_cents: number;
   /** 按预览订单执行后的可用现金（分）。**服务端算**，界面只做显示换算。 */
   cashAfterCents: number;
+  /** 行业分布（服务端算）。缺了它，界面只能拿夹具的行业数值填空。 */
+  industry?: {
+    industryCode: string; valueCents: number;
+    sharePct: string | null; overCap: boolean;
+  }[];
+  industryCapPct?: string;
   rule_checks: { order: string; check: string; passed: boolean; detail?: string }[];
   excluded: { instrument_id?: string; instrumentId?: string; reason: string; detail?: string }[];
   cash_weight_pct: string;
