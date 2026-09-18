@@ -37,6 +37,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 checks: list[tuple[str, tuple[str, bool, str]]] = []
 
+#: §4.1 默认可模拟板块。**从产品模块取**，不在这里再抄一份：
+#: 抄一份就等于两处可以各说各话，而这条判据决定标的能不能成交。
+from main import SIMULATABLE_BOARDS  # noqa: E402
+
 
 def check(side: str, name: str, ok: bool, detail: object = "") -> None:
     text = detail if isinstance(detail, str) else json.dumps(
@@ -161,8 +165,29 @@ def run_side(side: str, con, reader, store_root: Path, *,
         fees, fee_note = synthetic_fee_table(), "合成测试费率（SYNTHETIC 快照）"
         note(side, "费率：" + fee_note)
     service = PlanService(con, reader, fees, BOARD_RULES, listings)
-    candidates = [Candidate(i["instrument_id"], i.get("industry_code") or "UNKNOWN", 0.5)
-                  for i in reader.instruments(snapshot_id, as_of=ref.as_of_time)[:8]]
+    # 候选必须带上**板块可模拟性**，与产品同一条判据。
+    #
+    # 这里原先是 `Candidate(id, industry, 0.5)`，`simulatable` 取默认 True——
+    # 于是创业板/科创板的标的会在这条"真实数据闭环"里真的成交，
+    # 而 §4.1 说它们首期只可展示、不进可执行模拟池。
+    # 验收脚本配置成生产不会用的样子，验的就不是产品行为。
+    #
+    # 取候选时**主板优先**：真实研究池按板块各 300 只排在一起，前 8 只
+    # 全部落在创业板——那样这条链路测的是"整池被板块规则排除之后"的行为，
+    # 而不是产品真正会执行的路径。
+    board_of = {iid: (board or "").upper() for iid, (_ex, board) in listings.items()}
+    instruments = list(reader.instruments(snapshot_id, as_of=ref.as_of_time))
+    instruments.sort(key=lambda i: (board_of.get(i["instrument_id"], "") not in SIMULATABLE_BOARDS,
+                                    i["instrument_id"]))
+    candidates = [Candidate(i["instrument_id"], i.get("industry_code") or "UNKNOWN", 0.5,
+                            simulatable=board_of.get(i["instrument_id"], "") in SIMULATABLE_BOARDS)
+                  for i in instruments[:8]]
+    # 这条断言是"配置没写错"的证据：若候选里一只可模拟的都没有，
+    # 下面的链路会因为"全被排除"而失败，而失败会指向别的原因。
+    check(side, "候选里至少一只可模拟（沪深主板）",
+          any(c.simulatable for c in candidates),
+          f"{sum(1 for c in candidates if c.simulatable)}/{len(candidates)} 可模拟"
+          f"（板块：{sorted({board_of.get(c.instrument_id, '?') for c in candidates})}）")
     portfolio = f"pf-q5-{side}-M"
     lots: list = []
     cash = 100_000_000

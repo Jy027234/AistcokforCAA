@@ -1,5 +1,5 @@
 {
-  "ran_at": "2026-09-15T17:26:16.368207+00:00",
+  "ran_at": "2026-09-18T17:23:28.168666+00:00",
   "checks": [
     {
       "side": "synthetic",
@@ -11,7 +11,7 @@
       "side": "synthetic",
       "name": "研究作业已入队",
       "ok": true,
-      "detail": "job_784d683dd3fd4d268990"
+      "detail": "job_2bc322fb87be45909d8a"
     },
     {
       "side": "synthetic",
@@ -39,6 +39,12 @@
     },
     {
       "side": "synthetic",
+      "name": "候选里至少一只可模拟（沪深主板）",
+      "ok": true,
+      "detail": "4/5 可模拟（板块：['GEM', 'MAIN']）"
+    },
+    {
+      "side": "synthetic",
       "name": "预览不冻结（A08）",
       "ok": true,
       "detail": ""
@@ -47,7 +53,7 @@
       "side": "synthetic",
       "name": "预览产生了可执行订单",
       "ok": true,
-      "detail": "4"
+      "detail": "3"
     },
     {
       "side": "synthetic",
@@ -59,13 +65,13 @@
       "side": "synthetic",
       "name": "执行产生了成交",
       "ok": true,
-      "detail": "4"
+      "detail": "3"
     },
     {
       "side": "synthetic",
       "name": "执行产生了账本分录",
       "ok": true,
-      "detail": "12"
+      "detail": "9"
     },
     {
       "side": "synthetic",
@@ -77,7 +83,7 @@
       "side": "synthetic",
       "name": "对账通过",
       "ok": true,
-      "detail": "{\"portfolio_id\": \"pf-q5-synthetic-M\", \"cash_cents\": 60292179, \"positions\": {\"SYN.A.000001\": 8600, \"SYN.A.300001\": 4900, \"SYN.A.600002\": 1100, \"SYN.A.600003\": 66"
+      "detail": "{\"portfolio_id\": \"pf-q5-synthetic-M\", \"cash_cents\": 70295679, \"positions\": {\"SYN.A.000001\": 8600, \"SYN.A.600002\": 1100, \"SYN.A.600003\": 6600}, \"receivables_cent"
     },
     {
       "side": "real",
@@ -89,7 +95,7 @@
       "side": "real",
       "name": "研究作业已入队",
       "ok": true,
-      "detail": "job_ded038fdcd2d48d29efc"
+      "detail": "job_b84f8a2750ba4969af21"
     },
     {
       "side": "real",
@@ -105,15 +111,27 @@
     },
     {
       "side": "real",
+      "name": "模型抽取与解析结果一致",
+      "ok": true,
+      "detail": "[]"
+    },
+    {
+      "side": "real",
       "name": "至少一条引用可在来源正文中定位",
       "ok": true,
-      "detail": "1/4"
+      "detail": "4/4"
     },
     {
       "side": "real",
       "name": "证据已落库并带字符偏移",
       "ok": true,
       "detail": "4 条引用"
+    },
+    {
+      "side": "real",
+      "name": "候选里至少一只可模拟（沪深主板）",
+      "ok": true,
+      "detail": "8/8 可模拟（板块：['MAIN']）"
     },
     {
       "side": "real",
@@ -125,7 +143,7 @@
       "side": "real",
       "name": "预览产生了可执行订单",
       "ok": true,
-      "detail": "6"
+      "detail": "8"
     },
     {
       "side": "real",
@@ -137,13 +155,13 @@
       "side": "real",
       "name": "执行产生了成交",
       "ok": true,
-      "detail": "6"
+      "detail": "8"
     },
     {
       "side": "real",
       "name": "执行产生了账本分录",
       "ok": true,
-      "detail": "18"
+      "detail": "24"
     },
     {
       "side": "real",
@@ -155,7 +173,7 @@
       "side": "real",
       "name": "对账通过",
       "ok": true,
-      "detail": "{\"portfolio_id\": \"pf-q5-real-M\", \"cash_cents\": 46488992, \"positions\": {\"SZ.300285\": 1500, \"SZ.300308\": 100, \"SZ.300394\": 300, \"SZ.300408\": 800, \"SZ.300475\": 500"
+      "detail": "{\"portfolio_id\": \"pf-q5-real-M\", \"cash_cents\": 20288378, \"positions\": {\"SH.600016\": 27000, \"SH.600026\": 4700, \"SH.600028\": 18100, \"SH.600030\": 3700, \"SH.600031\""
     }
   ],
   "conclusion": "PASS"
