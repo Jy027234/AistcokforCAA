@@ -216,7 +216,8 @@ export function WorkspaceView({
                           <tr key={f.factorId}>
                             <td>{f.name} <span className="mono">{f.factorId}</span></td>
                             <td className="num mono">{f.value}</td>
-                            <td className="num mono">{f.rankLabel}</td>
+                            {/* 未进排名时说明原因，而不是只显示一个"—"（§10.2） */}
+                            <td className="num mono">{f.exclusionLabel ? "未进排名" : f.rankLabel}</td>
                           </tr>
                         ))}
                       </tbody>

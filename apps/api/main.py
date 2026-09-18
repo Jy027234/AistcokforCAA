@@ -60,7 +60,7 @@ from aquant.domain.research.strategies import (  # noqa: E402
     KNOWN_FEATURE_SPECS, StrategyVersionError, ensure_strategy_version,
     seed_known_versions, strategy_versions,
 )
-from aquant.domain.research.runs import factor_values
+from aquant.domain.research.runs import factor_values, factor_values_for_snapshot
 from aquant.domain.simulation.corporate_actions import CashDividend
 from aquant.domain.simulation.fees import synthetic_fee_table
 from aquant.operations.jobs import Job, JobError, JobStore
@@ -1034,12 +1034,21 @@ def create_app(state: AppState | None = None) -> FastAPI:
     def research(instrument_id: str, trading_day: date, s: AppState = Depends(svc)) -> dict:
         ref = s.reader.ref(active_snapshot())
         bars = s.service._bars(active_snapshot(), trading_day, ref.as_of_time, [instrument_id])
+        # 因子值来自**已落库的研究运行**，不在这里现算。
+        #
+        # 这一段此前缺失，后果是：库里有因子、卡片上永远没有。两侧各自的
+        # 测试都是绿的——卡片层默认 factor_values=None 就是"没有因子"，
+        # 而那看起来与"这只没有因子值"完全一样。
+        factor_values, factor_note = factor_values_for_snapshot(
+            s.con, snapshot_id=active_snapshot(), instrument_id=instrument_id)
         try:
             card = build_research_card(
                 s.reader, snapshot_id=active_snapshot(), as_of=ref.as_of_time,
                 instrument_id=instrument_id, trading_day=trading_day,
                 board_rules=BOARD_RULES, listings=LISTINGS,
                 bar=bars.get(instrument_id),
+                factor_values=factor_values,
+                factor_note=factor_note,
                 # 证据来自作业的产出（§9）。**不在这里过滤 located**：
                 # 卡片要如实显示"这条引用在原文里定位不到"，
                 # 过滤掉等于让这类问题永远不出现在任何界面上。

@@ -178,3 +178,63 @@ def factor_values(con: sqlite3.Connection, *, research_run_id: str,
         params.append(factor_id)
     sql.append("ORDER BY factor_id, cross_sectional_rank DESC, instrument_id")
     return [dict(r) for r in con.execute(" ".join(sql), params).fetchall()]
+
+
+def factor_values_for_snapshot(con: sqlite3.Connection, *, snapshot_id: str,
+                               instrument_id: str | None = None) -> tuple[list[dict], str | None]:
+    """某个快照上**最近一次成功的研究运行**的因子值。
+
+    为什么需要这个入口：`factor_values` 要求调用方先知道 research_run_id，
+    而研究卡的使用者只知道"哪个快照、哪只股票"——他不知道也不需要知道
+    运行 ID。产品侧（`/api/v1/instruments/{id}/research`）因此一直没把一个
+    `research_run_id` 传进 `build_research_card`，卡片上的因子区永远是空的：
+    **库里有值，界面上没有**，而两侧各自的测试都是绿的。
+
+    选"最近一次**成功**"而不是"最近一次"：失败或仍在 RUNNING 的运行没有
+    因子值，若按时间取最新，一次失败就会让卡片把所有数值藏起来——
+    而失败的那次运行并没有让上一次的结果失效。
+
+    返回值第二项是**给人看的说明**：没有运行、或该标的被质量门排除时，
+    调用方要如实展示原因，不能显示成"值为空"。
+    """
+
+    run = con.execute(
+        "SELECT research_run_id, feature_version, status, started_at "
+        "FROM research_run WHERE snapshot_id=? AND status='SUCCEEDED' "
+        "ORDER BY started_at DESC LIMIT 1", (snapshot_id,)).fetchone()
+    if run is None:
+        any_run = con.execute(
+            "SELECT COUNT(*) FROM research_run WHERE snapshot_id=?",
+            (snapshot_id,)).fetchone()[0]
+        if any_run:
+            return [], ("该快照上已有研究运行，但没有一次成功；"
+                        "因子数值只能来自成功的研究运行。")
+        return [], ("该快照上尚未计算任何因子。"
+                    "如需卡片数值，请在快照上运行因子作业："
+                    "`python tools/compute_factors.py`（或 "
+                    "POST /api/v1/research/jobs 的 f10 作业）。")
+
+    rows = con.execute(
+        "SELECT instrument_id, factor_id, raw_value, cross_sectional_rank, "
+        "       exclusion_reason, coverage_ratio FROM feature_value "
+        "WHERE research_run_id=? ORDER BY factor_id, instrument_id",
+        (run["research_run_id"],)).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        if instrument_id is not None and r["instrument_id"] != instrument_id:
+            continue
+        out.append({
+            "instrument_id": r["instrument_id"],
+            "research_run_id": run["research_run_id"],
+            "factor_id": r["factor_id"],
+            # 视图层的命名约定（见 build_research_card 的 breakdown）
+            "value": r["raw_value"],
+            "rank_pct": r["cross_sectional_rank"],
+            "coverage": r["coverage_ratio"],
+            "exclusion_reason": r["exclusion_reason"],
+        })
+    note = None
+    if instrument_id is not None and not out:
+        note = ("该快照上有成功的研究运行，但本标的没有因子值"
+                "（多半被质量门排除：见排除原因的取值表）。")
+    return out, note

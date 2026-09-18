@@ -62,6 +62,24 @@ capabilities:
         type: array
       limitations:
         type: array
+      listed_on:
+        type: string
+        description: 上市日期（BaoStock ipoDate）。为空表示未采集到，
+          此时"决策时点是否已上市"与"上市未满规定交易日"两条判定不可用
+      status:
+        type: string
+      industry_code:
+        type: string
+      industry_name:
+        type: string
+      display_name:
+        type: string
+      exchange:
+        type: string
+      board:
+        type: string
+      watermark:
+        type: string
   result_object_types:
   - artifact_ref
   - evidence_ref

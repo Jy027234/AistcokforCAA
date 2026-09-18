@@ -20,6 +20,10 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from ..domain.data.reader import SnapshotReader
+from ..domain.research.exclusions import (
+    EXCLUSION_LABELS as _EXCLUSION_LABELS,
+    exclusion_label as _exclusion_label,
+)
 from ..domain.simulation.fees import FeeTable
 from ..domain.simulation.simulator import Bar, BoardRule
 
@@ -57,6 +61,18 @@ def factor_value(value: float | None, unit: str | None) -> str:
         return "—"
     digits = _VALUE_DIGITS.get((unit or "").lower(), 4)
     return f"{float(value):.{digits}f}"
+
+
+#: 稳定原因码 -> 人类可读说明（§10.2：算不出必须给原因，不能给 0 或省略）。
+#: 取值表在领域层（`aquant.domain.research.exclusions`），与能力 handler
+#: 共用同一份——同一个原因码在界面上和模型读到的卡片上不能是两种说法。
+EXCLUSION_LABELS = _EXCLUSION_LABELS
+
+
+def exclusion_label(reason: str | None) -> str | None:
+    """原因码 -> 说明。**认不出的码原样返回**：编一句解释比不解释更糟。"""
+
+    return _exclusion_label(reason)
 
 
 # ======================================================================
@@ -238,10 +254,16 @@ def build_research_card(
     listings: dict[str, tuple[str, str]],
     bar: Bar | None,
     factor_values: list[dict] | None = None,
+    factor_note: str | None = None,
     evidence: list[dict] | None = None,
     counter_evidence: list[dict] | None = None,
 ) -> ResearchCardVM:
-    """组装研究卡片。factor_values 由策略层算好后传入，视图层不计算因子。"""
+    """组装研究卡片。factor_values 由策略层算好后传入，视图层不计算因子。
+
+    `factor_note` 是**算不出因子时的说明**（没有研究运行、被质量门排除……）。
+    它必须能传到卡片上：一张没有数值的卡片如果不说原因，看起来就像
+    "算过了，值为空"，而这两种状态要采取的行动完全不同。
+    """
 
     instruments = {i["instrument_id"]: i
                    for i in reader.instruments(snapshot_id, as_of=as_of)}
@@ -266,6 +288,10 @@ def build_research_card(
          "rankLabel": (f"{float(f['rank_pct']) * 100:.0f}%" if f.get("rank_pct") is not None else "—"),
          "coverage": f.get("coverage"),
          "coverageLabel": (f"{float(f['coverage']):.2f}" if f.get("coverage") is not None else "—"),
+         # 被质量门排除的标的**也要出现**在表里，并带上原因。
+         # 过滤掉它们会让"这只算不出来"与"这只没被算过"在界面上长得一样。
+         "exclusionReason": f.get("exclusion_reason"),
+         "exclusionLabel": exclusion_label(f.get("exclusion_reason")),
          "contribution": f.get("contribution")}
         for f in (factor_values or [])
     ]
@@ -291,7 +317,7 @@ def build_research_card(
         comparison_scope=f"比较范围：{snapshot_id} 快照内可模拟池",
         evidence=ev,
         counter_evidence=ce,
-        uncertainties=[
+        uncertainties=([factor_note] if factor_note else []) + [
             "预期是否已被价格消化：首期不作判断",
             "缺少的数据：见数据状态抽屉中的数据集覆盖",
             "观察窗口：日频研究，初始策略每周调仓",

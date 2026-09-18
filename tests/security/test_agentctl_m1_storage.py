@@ -270,11 +270,24 @@ def test_computed_factors_are_returned_with_their_rank(world):
 
 
 def test_exclusion_label_map_covers_the_codes_the_pipeline_emits():
-    """原因码与说明必须成对。漏一个就会在界面上显示成空白。"""
+    """原因码与说明必须成对。漏一个就会在界面上显示成空白。
+
+    取值表现在只有**一份**（`aquant.domain.research.exclusions`），
+    能力 handler 与界面共用它。这里对着它断言：既要求覆盖 F10 实际
+    产出的中文原因，也要求 handler 真的用上了这张表——原先 handler 里
+    抄的是只含 `MISSING_*` 的子集，F10 的原因在模型侧没有说明。
+    """
+
+    from aquant.domain.research.exclusions import EXCLUSION_LABELS
 
     handlers = _load_handlers()
-    labels = handlers._EXCLUSION_LABELS
+    labels = handlers._exclusion_labels()
     assert labels, "原因码说明表不得为空"
-    for code, text in labels.items():
-        assert code.isupper(), code
-        assert text.strip(), code
+    assert set(labels) == set(EXCLUSION_LABELS), (
+        "handler 与产品取值表不一致：同一个原因码不能有两种说法")
+
+    # F10 在快照上真的会产出的原因，必须都在表里
+    for code in ("TTM 不可得（缺上年同期或口径不成立）",
+                 "快照未包含财务数据", "快照内无行情", "缺总股本或价格无效"):
+        assert code in labels, f"{code} 没有说明，界面上会显示成一个破折号"
+        assert labels[code].strip(), code

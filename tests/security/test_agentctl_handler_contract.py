@@ -260,8 +260,23 @@ def test_against_the_real_bundled_snapshot(monkeypatch):
     assert out["industry_code"].startswith("C"), out
     assert out["status"] == "LISTED", out
     assert out["data_mode"] == "PRODUCTION", out
-    assert out["factors"] == [], "该快照未跑研究作业，不应凭空出现因子值"
-    assert any("尚未计算任何因子" in x for x in out["limitations"]), out
+    # 上市日期来自 BaoStock 的 ipoDate（逐只采集）。为 NULL 说明采集没接上，
+    # 而"决策时点是否已上市"与"上市未满 120 个交易日"两条判定都会失效。
+    assert out["listed_on"] == "2001-08-27", out
+
+    # 因子：**取决于这份快照上有没有跑过落库的研究作业**，两条路都要正确。
+    #
+    # 原先这条断言写的是 `out["factors"] == []`，理由是有意不跑作业。
+    # 那条理由后来变成了缺陷的伪装：流水线"算"了因子（在内存里写报告），
+    # 却从没落库，于是"没有因子"看起来是设计如此。现在落库路径存在，
+    # 断言必须同时覆盖"有数值"与"如实说没有"两种情况。
+    if out["factors"]:
+        f10 = out["factors"][0]
+        assert f10["factor_id"] == "F10", f10
+        assert f10["value"] is not None, f10
+        assert f10["rank_pct"] is not None, "横截面排名必须一起返回"
+    else:
+        assert any("尚未计算任何因子" in x for x in out["limitations"]), out
 
 
 def test_default_factory_opens_the_store_read_only(monkeypatch, tmp_path):

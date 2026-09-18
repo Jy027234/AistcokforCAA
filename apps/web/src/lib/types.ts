@@ -65,6 +65,10 @@ export interface FactorRow {
   rankLabel: string;
   coverage: number | null;
   coverageLabel: string;
+  /** 被质量门排除时的原因码与说明（§10.2：算不出必须给原因）。
+   *  有值时 value 为 "—"，界面必须显示原因而不是只显示一个破折号。 */
+  exclusionReason: string | null;
+  exclusionLabel: string | null;
   contribution: number | null;
 }
 

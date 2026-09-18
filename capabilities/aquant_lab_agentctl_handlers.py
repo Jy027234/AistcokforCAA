@@ -46,15 +46,22 @@ def _error(code: str, message: str, object_id: str, retryable: bool, repair: str
     }
 
 
-#: 稳定原因码 -> 人类可读说明。**加了新码就必须同时加说明**——
-#: 上游按码做分支，说明只给人看。
-_EXCLUSION_LABELS = {
-    "MISSING_NET_PROFIT": "缺少净利润，无法计算盈利收益率",
-    "MISSING_TOTAL_SHARE": "缺少总股本，无法计算每股口径",
-    "MISSING_STATEMENT": "该期财报缺失或被质量门排除",
-    "NO_FINANCIAL_STATEMENT_BEFORE_AS_OF": "决策时点之前没有已公布的财报（PIT 闸门）",
-    "NON_POSITIVE_MARKET_CAP": "市值非正，比率无意义",
-}
+def _exclusion_labels() -> dict[str, str]:
+    """原因码 -> 说明。**取自产品的唯一取值表**，不在这里再抄一份。
+
+    这里原先有一份只覆盖 `MISSING_*` 英文码的副本，而 F10 在真实快照上
+    产出的中文原因（"TTM 不可得……"）不在其中：模型读到的卡片上，
+    排除原因的说明是空的。同一个原因码在界面与模型两侧必须同一种说法。
+
+    import 失败时返回空表：能力 handler 要能在没有 aquant 的进程里装载
+    （见模块开头的说明），此时说明字段为空而不是整次调用崩掉。
+    """
+
+    try:
+        from aquant.domain.research.exclusions import EXCLUSION_LABELS
+    except ImportError:
+        return {}
+    return dict(EXCLUSION_LABELS)
 
 
 def _read_limitations(card: dict[str, Any]) -> list[str]:
@@ -173,7 +180,7 @@ async def research_card_read(invocation: dict[str, Any], *,
             "coverage": f.get("coverage"),
             # §10.2 算不出时必须给原因，不能给 0 或省略
             "exclusion_reason": f.get("exclusion_reason"),
-            "exclusion_label": _EXCLUSION_LABELS.get(f.get("exclusion_reason") or ""),
+            "exclusion_label": _exclusion_labels().get(f.get("exclusion_reason") or ""),
         }
         for f in card["factors"]
     ]
@@ -195,6 +202,10 @@ async def research_card_read(invocation: dict[str, Any], *,
         "display_name": card["display_name"],
         "industry_code": card.get("industry_code"),
         "industry_name": card.get("industry_name"),
+        # 上市日期：卡片上的限制项由它推出（"缺少上市日期"），
+        # 因此它必须一起返回——否则调用方看到一句关于某个字段的限制，
+        # 却拿不到那个字段本身。
+        "listed_on": card.get("listed_on"),
         "status": card.get("status"),
         "data_completeness": _quality_label(snapshot),
         "factors": factors,

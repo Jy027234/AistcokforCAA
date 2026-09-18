@@ -76,7 +76,15 @@ export function ResearchCard({
                       {f.unit ? " " + f.unit : ""}
                     </span>
                   </div>
-                  <RankBar rankPct={f.rankPct} label="横截面排名" />
+                  {/* 算不出时必须给原因（§10.2）：只显示一个"—"，
+                      会让"被质量门排除"看起来像"值为空"。 */}
+                  {f.exclusionLabel ? (
+                    <p className="note" style={{ margin: "2px 0 0" }}>
+                      未进排名：{f.exclusionLabel}
+                    </p>
+                  ) : (
+                    <RankBar rankPct={f.rankPct} label="横截面排名" />
+                  )}
                 </div>
               ))}
             </div>
