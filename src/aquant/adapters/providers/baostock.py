@@ -242,6 +242,29 @@ class BaostockClient:
         _fields, rows = self._drain(rs)
         return rows, self._record(f"stock_industry:{code or 'ALL'}", rows)
 
+    def stock_basic(self, code: str) -> tuple[list[dict], Receipt]:
+        """证券基本资料。返回 code/code_name/ipoDate/outDate/type/status。
+
+        `ipoDate` 是**唯一的上市日期来源**：它决定 §3.1 的「新上市不足规定
+        交易日」与「决策时点是否已上市」能否判断。此前我方从不采集它，
+        `instrument.listed_on` 因此恒为 NULL，两条判定都退化成空操作。
+
+        **必须逐只查**：不带 code 的全量查询在本机实测会挂住（既不返回
+        也不报错），而单只只需 0.01~0.02 秒。调用方本来就在逐只取日线，
+        顺路取一次基本资料的边际成本可以忽略。
+
+        刻意**不提供**省略 code 的重载：那正是会挂住的调用形态，
+        把它做成默认参数等于把一个已知会卡住的路径摆在最顺手的入口。
+        """
+
+        if not code:
+            raise ValueError("stock_basic requires an explicit code (bulk query hangs)")
+        self._guard()
+        rs = self._run(lambda: self._bs.query_stock_basic(code=code),
+                       label=f"query_stock_basic({code})")
+        _fields, rows = self._drain(rs)
+        return rows, self._record(f"stock_basic:{code}", rows)
+
     def all_stock(self, day: str) -> tuple[list[dict], Receipt]:
         """某个交易日的全部证券（含指数）。day 形如 2026-09-14。"""
 

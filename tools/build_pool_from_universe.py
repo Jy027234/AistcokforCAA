@@ -69,6 +69,22 @@ def main() -> int:
             names[iid] = r.get("code_name") or ""
             industries[iid] = r
 
+    # 上市日期：**必须在这里重新取回来**，否则本脚本每次重写研究池都会把它抹掉。
+    #
+    # 这个脚本每天重写 configs/real-pool-csrc.yaml（池子要跟着成交额滚动），
+    # 而上市日期是逐只查 BaoStock `ipoDate` 采到的、属于静态参考事实。
+    # 两者合在一起的后果是：`tools/collect_listing_dates.py --write` 写进去的
+    # 上市日期，在**下一次重建池子时消失**——而 §3.1 的上市天数门槛正是
+    # 靠它判定的，于是门槛会静默地退回"没有数据、不判"。
+    #
+    # 取值优先级：行情缓存里的字段（随行情一起采）> 专门的上市日期缓存。
+    # 两者都没有就是 None（未知），**不是**"未上市"。
+    listed: dict[str, str] = {}
+    listing_cache = ROOT / "deploy" / "agentctl-q0" / "listing-dates.json"
+    if listing_cache.exists():
+        cached = json.loads(listing_cache.read_text(encoding="utf-8"))
+        listed.update(cached.get("by_instrument") or {})
+
     rows: list[dict] = []
     skipped: dict[str, int] = {}
 
@@ -101,6 +117,9 @@ def main() -> int:
             "median_amount_cents_20d": int(statistics.median(amounts)),
             "industry": (industry.get("industry") or "").strip(),
             "last_close_cents": series[-1]["close_cents"],
+            # 上市日期随池传递。None = 没采到（未知），
+            # **不是**「未上市」——下游据此只能放弃判断，不能当作已上市。
+            "listed_on": info.get("listed_on") or listed.get(iid),
         })
 
     print(f"\n过滤：保留 {len(rows)} 只，剔除 {sum(skipped.values())} 只")
@@ -128,6 +147,14 @@ def main() -> int:
 
     simulatable = [r for r in pool if r["board"] == "MAIN"]
     print(f"\n选池结果：{len(pool)} 只，其中可模拟（沪深主板）{len(simulatable)} 只")
+    with_listed = sum(1 for r in pool if r.get("listed_on"))
+    print(f"  其中带上市日期：{with_listed} 只"
+          + ("" if with_listed == len(pool)
+             else f"（缺 {len(pool) - with_listed} 只：跑 tools/collect_listing_dates.py --write 补齐）"))
+    why_required = ("上市日期决定 §3.1 的「上市未满规定交易日」与「决策时点是否已上市」"
+                    "两条判定；缺失时门槛退回「不判」")
+    if not with_listed:
+        print(f"  ⚠ {why_required}")
     print(f"  成交额区间：{min(r['median_amount_cents_20d'] for r in pool) / 1e10:.2f}"
           f" ~ {max(r['median_amount_cents_20d'] for r in pool) / 1e10:.2f} 亿元（近 20 日中位数）")
 

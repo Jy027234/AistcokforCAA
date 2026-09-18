@@ -47,6 +47,11 @@ LOOKBACK_CALENDAR_DAYS = 10
 FETCH_ATTEMPTS = 3
 FETCH_BACKOFF_SECONDS = 2.0
 
+#: 上市日期的单独尝试次数。它比行情轻得多（实测 0.01~0.02s/只），
+#: 因此不跟行情共用重试预算：行情失败会把整只标的记为失败，
+#: 而上市日期失败只是「这次没取到」，下次续跑再试。
+BASIC_ATTEMPTS = 2
+
 #: 缓存里"行情行是怎么构造的"版本号。**改动行的构造口径就必须 +1**，
 #: 否则续跑判据会把用旧口径写出来的行当成已完成，那些行永远修不回来
 #: （本工具真的这样错过一次：补了前收却没重写首行的 prev_close_cents）。
@@ -260,6 +265,34 @@ def main() -> int:
             if got is None:
                 failed[key] = last_error or "unknown failure"
                 continue
+            # --- 上市日期（只取一次，失败不影响行情） ---
+            # `ipoDate` 是判断「上市未满规定交易日」与「决策时点是否已上市」
+            # 的唯一依据。此前从不采集，`instrument.listed_on` 恒为 NULL，
+            # 于是两条判定都退化成空操作——而账面看不出来。
+            #
+            # 单独记在 listed_on 字段而不是塞进 rows：它是**逐只**属性，
+            # 且必须能在续跑时判定「这只补过了」。
+            #
+            # **取不到时不要写这个键**。写 None 与"没采过"在缓存里长得一样，
+            # 而续跑判据是"键在不在"——写成 None 会让这次失败变成永久结果，
+            # 下次续跑直接跳过。这一层 5219 只是逐只查的，代价不小，
+            # 因此正常情况下用 `tools/collect_listing_dates.py`（只查研究池，
+            # 并且把失败与缺失分开记）。
+            listed_on = cached.get("listed_on")
+            if listed_on is None:
+                for attempt in range(1, BASIC_ATTEMPTS + 1):
+                    try:
+                        basic, _ = bs.stock_basic(code)
+                        hit = next((r for r in basic if r.get("code") == code), None)
+                        raw_ipo = (hit or {}).get("ipoDate") or ""
+                        # 空串是「没有」而不是一个日期：写成 "" 会让
+                        # 下游把它当成有值的字符串。
+                        listed_on = raw_ipo.strip() or None
+                        break
+                    except Exception:                   # noqa: BLE001
+                        if attempt < BASIC_ATTEMPTS:
+                            time.sleep(FETCH_BACKOFF_SECONDS * attempt)
+
             before = [b for b in got if b["trading_day"] < days[0]
                       and b.get("close_cents") is not None]
             by_day = {b["trading_day"]: b for b in got}
@@ -286,7 +319,7 @@ def main() -> int:
             for row in rows:
                 row["prev_close_cents"] = prev
                 prev = row["close_cents"]
-            bars[key] = {
+            entry = {
                 "exchange": exchange, "board": board, "rows": rows,
                 # 窗口首行的前收只能来自窗口之前那一小段。
                 # 之前确实没有行情（新股）就写 None：未知就是未知，不能拿
@@ -296,6 +329,11 @@ def main() -> int:
                 "window": target_window,
                 "rows_format": ROWS_FORMAT,
             }
+            if listed_on is not None:
+                # 只有真的取到才写（见上：写成 None 会让续跑把它当成已完成）。
+                # 下游一律把 None / 缺键当作「未知」，而不是「未上市」。
+                entry["listed_on"] = listed_on
+            bars[key] = entry
             done += 1
 
             # 每 25 只落盘一次：崩溃或被杀时最多丢 25 只，

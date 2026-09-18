@@ -110,7 +110,11 @@ def main() -> int:
             "board": entry["board"],
             "security_class": "EQUITY",
             "short_name": entry["name"],
-            "listed_on": None,
+            # 上市日期来自研究池（池由 build_pool_from_universe.py 从
+            # BaoStock ipoDate 带过来）。**不再写死 None**：写死会让
+            # §3.1「新上市不足规定交易日」与「决策时点是否已上市」
+            # 两条判定永远无法生效，而快照看起来完全正常。
+            "listed_on": entry.get("listed_on"),
             # 行业取自**权威分类缓存**，不是手工声明
             "industry_code": (entry["industry"][:3] if entry.get("industry") else None),
             "industry_name": entry.get("industry") or None,
@@ -245,6 +249,33 @@ def main() -> int:
         "corporate_actions": actions,
         "events": [],
     }
+    # --- 财务数据随快照冻结（因子落库的前提） ---
+    #
+    # 没有它，`compute_f10_for_snapshot` 只能把每只标的标成
+    # "快照未包含财务数据"：F10 会一天不落地算出 0 个值，
+    # 而流水线的每一步都报成功。财务按季度更新、抓取也慢，
+    # 但**快照里必须有它**，否则研究卡上的数值无法回答
+    # "这是哪个时点的财报"。
+    fin_path = ROOT / "deploy" / "agentctl-q0" / "financials-cache.json"
+    if fin_path.exists():
+        fin_cache = json.loads(fin_path.read_text(encoding="utf-8"))
+        pool_ids = {i["instrument_id"] for i in instruments}
+        statements = {iid: periods
+                      for iid, periods in (fin_cache.get("statements") or {}).items()
+                      if iid in pool_ids}
+        doc["financials"] = {
+            "created_at": fin_cache.get("created_at"),
+            "updated_at": fin_cache.get("updated_at"),
+            "source_id": "baostock",
+            "unit_notes": "netProfit 单位为元；totalShare 为股；均由 records.py 归一",
+            "statements": statements,
+        }
+        check("财务数据覆盖池内标的 >= 90%",
+              len(statements) >= len(pool_ids) * 0.9,
+              f"{len(statements)}/{len(pool_ids)} 只（源：financials-cache.json）")
+    else:
+        check("财务缓存存在", False, f"缺少 {fin_path}，先跑 tools/collect_financials.py")
+
     report = builder.ingest(doc, source_id="baostock", data_version="universe")
     check("入库证券数正确", report.instruments == len(instruments),
           str(report.instruments))
