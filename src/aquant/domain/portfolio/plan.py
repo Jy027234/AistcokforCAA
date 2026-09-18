@@ -30,11 +30,13 @@ from decimal import Decimal
 
 from ..data.db import write_tx
 from ..data.reader import SnapshotReader, QuoteRow
+from ..data.snapshot import SnapshotError
 from ..portfolio.construction import (
     Candidate,
     ConstructionParams,
     TargetWeight,
     construct_targets,
+    listed_trading_days,
     weights_to_orders,
 )
 from ..simulation.corporate_actions import (
@@ -308,6 +310,128 @@ class PlanService:
                 continue
             kept.append(candidate)
         return kept, excluded
+
+    def _filter_by_listing_age(self, *, snapshot_id: str, trading_day: date,
+                               as_of: datetime, candidates: list[Candidate],
+                               ) -> tuple[list[Candidate], list[dict], list[str]]:
+        """§3.1 / §11.2：上市未满 ``exclude_listing_days`` 个交易日的标的不进模拟池。
+
+        这条规则此前从未生效过，虽然参数一直在配置里：
+
+          * `ConstructionParams.exclude_listing_days = 120` 声明了它，但
+            全仓库没有任何一行读它——配置写着却不生效，比没有这条配置更糟，
+            因为使用者会以为新股已经被排除了；
+          * 免费源长期没有上市日期，`listed_on` 恒为 None，所以即使有人
+            去读这个参数，也没有数据可供判断。数据补齐之后（BaoStock ipoDate），
+            "参数没人读"这件事才暴露出来。
+
+        **必须说清楚的一件事：门槛判不了"精确的 120 个交易日"。**
+        研究池只有 61 个交易日的历史，快照日历也只有这么多天。一只 2019 年
+        上市的股票，它的上市天数远超 120，但用快照日历去数只能数出 61。
+        因此这里判的不是"上市天数"，而是**可判定的那一部分**：
+
+          1. 上市日晚于决策日 —— 那时它还不是可交易证券（§7.1）；
+          2. 上市日落在快照窗口**之内** —— 用窗口内的交易日数判定，
+             窗口内不够 120 天，就必然不够 120 天（单调），结论可靠；
+          3. 上市日在窗口起点**之前** —— 窗口内的天数不足以证明或否证门槛。
+             此时**不排除**，并把"历史长度不足、门槛无法判定"写成一条 note。
+
+        把情形 3 当成"不合格"会清空整池；当成"合格"而不留痕，则是拿未知做
+        准入判断。两者都是本项目已经踩过的错。
+
+        另外两条不可让渡的口径：
+
+          * **交易日，不是自然日**。120 个自然日 ≈ 80 个交易日，用自然日
+            近似会把门槛静默放宽三分之一。日历取自**已发布快照**。
+          * **缺上市日期不排除，但必须留痕**（与情形 3 同理）。
+        """
+
+        threshold = self.params.exclude_listing_days
+        if threshold <= 0:
+            return list(candidates), [], []
+
+        try:
+            calendar = [date.fromisoformat(d)
+                        for d in self.reader.trading_calendar(snapshot_id, as_of=as_of)]
+        except (SnapshotError, FileNotFoundError) as exc:
+            # 数据集"登记了但读不到"（哈希校验失败、文件被删）也是读不到。
+            # 只吞这两种：它们是数据可用性问题，不是代码缺陷，
+            # 而调用方要的是一句可修复的话，不是一个栈。
+            calendar = []
+            read_error = f"{type(exc).__name__}: {exc}"
+        else:
+            read_error = None
+        if not calendar:
+            # 没有日历就不判。用自然日顶替正是被禁止的那种近似。
+            raise PlanError(
+                "DATA_NOT_READY",
+                f"snapshot {snapshot_id} carries no readable trading calendar, so the "
+                f"{threshold}-trading-day listing gate cannot be evaluated"
+                + (f"（{read_error}）" if read_error else ""),
+                "trading_calendar",
+                "publish the snapshot with its trading calendar, or set "
+                "exclude_listing_days to 0 to state explicitly that newly listed "
+                "instruments are allowed",
+            ) from None
+        window_start = calendar[0]
+        instruments = {i["instrument_id"]: i
+                       for i in self.reader.instruments(snapshot_id, as_of=as_of)}
+
+        kept: list[Candidate] = []
+        excluded: list[dict] = []
+        unknown: list[str] = []
+        partial: list[str] = []
+        for candidate in candidates:
+            raw = (instruments.get(candidate.instrument_id) or {}).get("listed_on")
+            if not raw:
+                kept.append(candidate)
+                unknown.append(candidate.instrument_id)
+                continue
+            listed_on = date.fromisoformat(str(raw))
+
+            if listed_on > trading_day:
+                # 情形 1：决策时点还没上市
+                excluded.append({
+                    "instrument_id": candidate.instrument_id,
+                    "reason": "NOT_LISTED_YET",
+                    "detail": (f"上市日 {listed_on.isoformat()} 晚于决策日 "
+                               f"{trading_day.isoformat()}（§7.1）"),
+                })
+                continue
+
+            age = listed_trading_days(listed_on=listed_on, trading_day=trading_day,
+                                      calendar=calendar)
+            if listed_on >= window_start:
+                # 情形 2：窗口内上市。窗口内不够，则一定不够（单调）。
+                if age < threshold:
+                    excluded.append({
+                        "instrument_id": candidate.instrument_id,
+                        "reason": "LISTED_TOO_RECENTLY",
+                        "detail": (f"上市日 {listed_on.isoformat()} 落在快照窗口内，"
+                                   f"截至 {trading_day.isoformat()} 仅 {age} 个交易日 "
+                                   f"< 门槛 {threshold} 个交易日（§3.1）"),
+                    })
+                    continue
+            else:
+                # 情形 3：窗口外上市。快照日历覆盖不了门槛所需的长度。
+                partial.append(candidate.instrument_id)
+            kept.append(candidate)
+
+        notes: list[str] = []
+        if unknown:
+            notes.append(
+                f"{len(unknown)} 只标的缺少上市日期，未按 {threshold} 个交易日门槛"
+                f"排除（未知不等于合格，也不等于不合格）：{sorted(unknown)[:5]}"
+                + ("..." if len(unknown) > 5 else ""))
+        if partial:
+            notes.append(
+                f"{len(partial)} 只标的的上市日早于快照窗口起点 "
+                f"{window_start.isoformat()}，窗口内 "
+                f"{listed_trading_days(listed_on=window_start, trading_day=trading_day, calendar=calendar)} "
+                f"个交易日不足以判定 {threshold} 个交易日门槛；未排除，"
+                f"其历史长度也未纳入因子计算范围")
+        return kept, excluded, notes
+
     # ------------------------------------------------------------ preview
     def preview(
         self,
@@ -352,12 +476,20 @@ class PlanService:
             snapshot_id=snapshot_id, trading_day=trading_day, as_of=as_of,
             candidates=candidates,
         )
+        # 上市天数门槛同理：construct_targets 拿不到交易日历，
+        # 而用自然日近似会静默放宽门槛（§3.1）。
+        aged, listing_excluded, listing_notes = self._filter_by_listing_age(
+            snapshot_id=snapshot_id, trading_day=trading_day, as_of=as_of,
+            candidates=liquid,
+        )
         construction = construct_targets(
-            candidates=liquid, params=self.params, held=held_qty,
+            candidates=aged, params=self.params, held=held_qty,
             held_industry_value=held_industry_value, equity_value_cents=equity,
             bar_by_instrument=bars,
         )
         construction.excluded.extend(liquidity_excluded)
+        construction.excluded.extend(listing_excluded)
+        construction.notes.extend(listing_notes)
 
         orders = weights_to_orders(
             targets=construction.targets, params=self.params,

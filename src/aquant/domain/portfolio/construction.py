@@ -66,6 +66,26 @@ class ConstructionParams:
             )
 
 
+def listed_trading_days(*, listed_on: date, trading_day: date,
+                        calendar: list[date]) -> int:
+    """从上市日到 decision day 之间的**交易日**数（§3.1）。
+
+    口径写在这里而不散在调用点，因为这里最容易出两种静默错误：
+
+    1. **用自然日近似交易日**。120 个自然日约等于 80 个交易日，
+       会把"上市满 120 交易日"的门槛静默放宽三分之一——多放进来的是
+       刚上市、波动最剧烈的那一类，而账面上看不出任何异常。
+    2. **两端点算错一天**。上市当日算第 1 个交易日（与
+       `Instrument.is_simulatable` 的「上市当日起可模拟」一致），
+       因此区间是 `listed_on <= d <= trading_day` 的**闭区间**。
+
+    calendar 必须来自已发布快照的交易日历。缺日历时调用方不得调用本函数
+    ——用自然日顶替正是第 1 条。
+    """
+
+    return sum(1 for d in calendar if listed_on <= d <= trading_day)
+
+
 @dataclass(frozen=True, slots=True)
 class Candidate:
     instrument_id: str
