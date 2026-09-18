@@ -52,6 +52,10 @@ LOCK = ROOT / "deploy" / "agentctl-q0" / "daily-run.lock"
 RUNS = ROOT / "deploy" / "agentctl-q0" / "daily-runs.jsonl"
 ALERTS = ROOT / "deploy" / "agentctl-q0" / "alerts.jsonl"
 POOL = ROOT / "configs" / "real-pool-csrc.yaml"
+#: 已发布快照的数据目录。因子必须落在**这份**库里，
+#: 否则研究卡（它读的就是这里）永远看不到数值。
+SNAPSHOT_DIR = ROOT / "deploy" / "universe-snapshot"
+FACTORS_REPORT = ROOT / "deploy" / "agentctl-q0" / "factors-persist.json"
 
 #: 快照窗口的第一天。**固定不动**：窗口跟着当天滑动的话，
 #: 两次运行覆盖的日期范围不同，快照之间就没法比较。
@@ -241,16 +245,33 @@ def main() -> int:
                       exitCode=step["exitCode"], tail=step["tail"])
                 return _finish(run_log, record, started, 1)
 
-            # 3. 算因子（在新快照上）。失败不影响"快照已发布"这一事实，
-            #    但必须记下来——研究卡没有数值是一个要看到的状态。
-            step = run_step(["-m", "tests.integration.t12_f10_real"],
-                            label="计算 F10 因子")
+            # 3. 算因子并**落库**（在新快照上）。
+            #
+            # 这一步以前跑的是 `tests.integration.t12_f10_real`：它读采集缓存、
+            # 在内存里算一遍、写一份验收报告。于是"验收报告 PASS"与
+            # "快照库里 research_run 0 行"同时成立——流水线每天成功，
+            # 研究卡每天没有数值。落库与验收是两件事，必须分成两步。
+            step = run_step([
+                "tools/compute_factors.py",
+                "--snapshot-dir", str(SNAPSHOT_DIR), "--snapshot-id", snapshot_id,
+                "--json-out", str(FACTORS_REPORT),
+            ], label="因子落库")
             record.steps.append(step)
             if not step["ok"]:
-                # 快照已发布是事实，因子没算出来是另一个状态：
-                # 结果仍是 PUBLISHED，但这条必须告警——研究卡没有数值，
-                # 而"快照发布成功"会让人以为一切都好。
-                alert("快照已发布，但 F10 因子计算失败（研究卡将无数值）",
+                # 快照已发布是事实，因子没落库是另一个状态：结果仍是
+                # PUBLISHED，但这条必须告警——研究卡上没有数值。
+                alert("快照已发布，但因子未落库（研究卡将无数值）",
+                      tradingDay=day, snapshotId=snapshot_id,
+                      exitCode=step["exitCode"], tail=step["tail"])
+
+            # 4. 因子质量闸门。失败不影响"快照已发布"与"因子已落库"这两个事实，
+            #    但它说明数值本身有问题（单位、值域、亏损股被截断为 0……），
+            #    必须留下痕迹。
+            step = run_step(["-m", "tests.integration.t12_f10_real"],
+                            label="F10 质量闸门")
+            record.steps.append(step)
+            if not step["ok"]:
+                alert("F10 质量闸门未通过（数值可能不可信）",
                       tradingDay=day, snapshotId=snapshot_id,
                       exitCode=step["exitCode"], tail=step["tail"])
 

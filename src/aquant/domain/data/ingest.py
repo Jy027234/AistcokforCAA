@@ -404,4 +404,14 @@ class SnapshotBuilder:
         emit("trading_calendar", list(doc.get("trading_days") or []), cutoff)
         emit("corporate_actions", list(doc.get("corporate_actions") or []), cutoff)
         emit("events", list(doc.get("events") or []), cutoff)
+        # 财务数据**可选**：行情快照与合成快照本来就没有它。
+        #
+        # 但真实快照必须带上它，否则因子计算只能把每个标的标成
+        # "快照未包含财务数据"——F10 会一天不落地算出 0 个值，
+        # 而流水线每一步都报成功。财务数据按季度更新，粒度粗得多，
+        # 却必须先**随快照冻结**：研究卡上的数值必须能回答
+        # "这是哪个时点的财报"，而不是"采集时缓存里恰好有什么"。
+        financials = doc.get("financials")
+        if financials:
+            emit("financials", financials, cutoff)
         return refs
