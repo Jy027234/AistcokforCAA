@@ -314,10 +314,21 @@ async function main() {
 
     // 界面文案只是判据之一。真正要确认的是**服务端回应里有没有这些字段**：
     // 少一个字段时界面会静默显示"—"，看起来一样正常。
+    //
+    // 请求必须打到 **API 基地址**，不能用相对路径：`check_ui_flow.py` 起的是
+    // `vite preview`（静态托管，没有 `/api` 反向代理），相对路径会拿到
+    // index.html，`r.json()` 直接抛 "Unexpected end of JSON input"——
+    // 而那条异常看起来像产品故障，实际是这一行在问错服务器。
     const recJson = await cdp.evaluate(
-      "fetch('/api/v1/portfolios/" + PORTFOLIO + "/reconcile', { headers: " +
-      "{ 'X-Aquant-Subject': 'user:demo' } }).then(r => r.json())",
+      "(async () => { const b = window.__AQUANT_API_BASE__ || '';" +
+      "const r = await fetch(b + '/api/v1/portfolios/" + PORTFOLIO + "/reconcile'," +
+      "{ headers: { 'X-Aquant-Subject': 'user:demo' } });" +
+      "if (!r.ok) return { __status: r.status };" +
+      "return await r.json(); })()",
     );
+    check("对账接口返回 200",
+          recJson && recJson.__status === undefined,
+          JSON.stringify(recJson && recJson.__status));
     check("对账响应含 receivables_cents",
           typeof recJson.receivables_cents === "number",
           JSON.stringify(recJson.receivables_cents));

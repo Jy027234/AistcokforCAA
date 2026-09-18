@@ -1,7 +1,7 @@
 {
-  "ran_at": "2026-09-16T00:40:08.098842+00:00",
+  "ran_at": "2026-09-18T17:17:08.446760+00:00",
   "snapshot_id": "snap-universe",
-  "pool_id": "real-pool-universe-2026-09-15",
+  "pool_id": "real-pool-universe-2026-09-19",
   "instruments": 900,
   "boards": {
     "GEM": 300,
@@ -59,6 +59,11 @@
       "name": "公司行为的来源已登记",
       "ok": true,
       "detail": "已登记 ['baostock', 'cninfo']；被引用 []"
+    },
+    {
+      "name": "财务数据覆盖池内标的 >= 90%",
+      "ok": true,
+      "detail": "900/900 只（源：financials-cache.json）"
     },
     {
       "name": "入库证券数正确",

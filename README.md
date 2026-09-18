@@ -57,8 +57,9 @@ API 不在线时界面**明确显示只读状态并禁用写操作**，不会伪
 | 产品闭环 | ✅ | 预览→确认→冻结→执行→估值→对账，合成与真实数据各跑一遍 |
 | 工作台界面 | 🟡 | 五页可浏览；写链路走通；**界面上的数字有出处检查**（见下文） |
 | 研究作业与证据 | ✅ | 作业提交/执行/幂等、模型独立抽取、引用可定位、交叉核对 |
-| 每日流水线 | 🟡 | 采集→快照→因子→留痕→告警；**尚未接定时任务**（见 `docs/daily-pipeline.md`） |
-| agentctl 接入 | 🟡 | Q0 与首个合成只读能力成立；handler 尚未接 M1 存储 |
+| 每日流水线 | 🟡 | 采集→快照→**因子落库**→质量闸门；**尚未接定时任务**（见 `docs/daily-pipeline.md`） |
+| 研究卡上的因子数值 | ✅ | 因子落库（`research_run`/`feature_value`）→ 接口传入卡片；真实快照上 832/900 有值 |
+| agentctl 接入 | 🟡 | Q0 成立；唯一只读能力 `aquant.research_card.read` 已接 M1 真实存储（含因子值）；其余七个能力未接 |
 
 **数据层的已知限制（这些不影响流程验证，但影响结论）：**
 
@@ -66,17 +67,20 @@ API 不在线时界面**明确显示只读状态并禁用写操作**，不会伪
 - 行业分类**没有变更历史**，只能标注为 `RECONSTRUCTED`，回答不了历史时点
 - 公司行为在真实数据里只有 **2 条**分红记录；代码路径验证过，覆盖率没验证过
 - **券商佣金没有权威值**（券商约定），必须由使用者提供；印花税与过户费有权威来源并已留证
+- **上市天数门槛（120 个交易日）判不完整**：快照日历只有 61 天，窗口外上市的标的
+  只能记「不足以判定」而不排除（见下文「两类判定」）；能力卡片会如实说明
 
 ## 验证（全部以退出码为结论）
 
 | 检查 | 命令 | 目的 |
 |---|---|---|
 | 资料包自检 | `python tests/validate_spec.py` | 契约、示例、SQL、约束 |
-| 领域与接口测试 | `pytest tests` | 40 个测试文件 |
+| 领域与接口测试 | `pytest tests` | 606 个用例 / 62 个测试文件 |
 | 界面交互 + 数字出处 | `python tools/check_ui_flow.py` | 真浏览器点击；每个区块的数字必须说得出出处 |
 | 归档字节离线复核 | `python tools/verify_archive.py` | 留证字节与摘要一致 |
 | 真实数据闭环 | `python tools/check_real_flow.py` | 真实快照上走完决策闭环 |
 | 双侧验收 | `python tools/check_both_sides.py` | **同一套断言**在合成与真实上各跑一遍 |
+| 因子落库 | `python tools/compute_factors.py` | 真实快照上 900 行落库、832 行有值，并**回读**确认 |
 | 数字出处（单跑） | `node apps/web/tools/check_number_provenance.mjs --url …` | 见下文 |
 | HEAD 可复现性 | `python tools/check_reproducible.py` | 干净导出后全量测试仍通过 |
 
@@ -88,13 +92,41 @@ API 不在线时界面**明确显示只读状态并禁用写操作**，不会伪
 ```powershell
 # 全市场采集（首次，可续跑）
 python tools\collect_universe.py --start 2026-06-22 --end 2026-09-14
+# 上市日期（逐只查 BaoStock ipoDate，只查研究池里的几百只）
+python tools\collect_listing_dates.py --write
+# 从采集结果重建研究池（会**保留**已采到的上市日期）
+python tools\build_pool_from_universe.py --size 300 --write
 # 建成并发布快照
 python -m tests.integration.t10_universe_snapshot --window-start 2026-06-22
 
-# 每个交易日：采集 -> 快照 -> 因子 -> 留痕（并发锁 + 休市判断）
+# 每个交易日：采集 -> 快照 -> 因子落库 -> 质量闸门（并发锁 + 休市判断）
 python tools\daily_run.py --skip-if-done
 python tools\show_alerts.py --days 7      # 有 ERROR 时退出码 1
 ```
+
+**因子必须落库，否则研究卡上没有数值。** `tools/compute_factors.py` 走的是产品
+自己的落库路径（与 `POST /api/v1/research/jobs` 的因子作业同一条代码路径），
+写 `research_run` 与 `feature_value`：
+
+```powershell
+python tools\compute_factors.py --snapshot-id snap-universe --json-out deploy\agentctl-q0\factors-persist.json
+# 真实快照上：财务记录 5397 条 -> 900 行落库，其中 832 行有值，
+# 68 只标注「TTM 不可得（缺上年同期或口径不成立）」
+```
+
+`tests/integration/t12_f10_real` 仍然跑，但它的角色是**质量闸门**（值域、亏损股
+是否被截断为 0、覆盖率），不是"算因子"。二者曾经被合成一步：流水线每天报成功，
+而 `research_run` 一直是 0 行。
+
+### 两类用上市日期的判定
+
+| 判定 | 依据 | 快照窗口不足 120 天时 |
+|---|---|---|
+| 决策时点是否已上市 | `listed_on` 与决策日比较 | 可判（与窗口无关） |
+| 上市未满 120 个**交易日** | 窗口内实际交易日计数 | 上市日落在窗口内的可判（单调）；窗口外的记「不足以判定」,**不排除** |
+
+窗口外的标的不会被误排除，但门槛也没有被验证过——这句话写在预览的 `notes` 里，
+不藏在文档里。
 
 调度接入、退出码语义、以及四个必须知道的限制见 **`docs/daily-pipeline.md`**。
 
