@@ -100,6 +100,13 @@ Q5_DOMAIN_SCOPES = [
     "aquant.job.read",
 ]
 PRODUCT_TOKEN_SCOPES = [*FRONTDESK_SCOPE, *RESEARCH_SCOPE, *Q5_DOMAIN_SCOPES]
+# This grant is intentionally absent from PRODUCT_TOKEN_SCOPES.  It is issued
+# only to the synthetic trusted-user credential used to exercise the product's
+# confirmation bridge; ordinary model credentials cannot discover or invoke it.
+A09_CONFIRM_SCOPE = "aquant.simulation.confirm"
+A09_CONFIRM_CAPABILITY_ID = "aquant.simulation_plan.confirm_user"
+A09_USER_SUBJECT = "user:q5-a09"
+A09_TRUSTED_USER_SCOPES = ["frontdesk.action", A09_CONFIRM_SCOPE]
 LOW_SCOPE = ["model_gateway.complete"]
 RESEARCH_CAPABILITY_ID = "aquant.research_card.read"
 RESEARCH_CAPABILITY_VERSION = "1.0.0"
@@ -207,13 +214,13 @@ Q5_DOMAIN_BLOCKER_SPECS: dict[str, dict[str, Any]] = {
         ),
     },
     "A09": {
-        "required_capabilities": ["aquant.simulation_plan.preview"],
+        "required_capabilities": [A09_CONFIRM_CAPABILITY_ID],
         "required_entrypoint": (
-            "product-owned confirmation/freeze HTTP entrypoint bound to agentctl"
+            "product confirmation UI -> persisted one-time token -> agentctl runtime_capability.invoke"
         ),
         "reason": (
-            "当前 onboarding 只绑定 frontdesk.message，清单也明确不声明计划冻结；"
-            "没有可供 agentctl 调用的确认/冻结入口，无法在真实拓扑中提交陈旧确认。"
+            "清单必须声明一个仅受信用户 scope 可见的产品确认桥；普通模型凭证不得"
+            "看见或调用计划冻结能力。"
         ),
     },
 }
@@ -255,8 +262,10 @@ class RuntimeLease:
     hmac_key: str = ""
     product_token: str = ""
     low_scope_token: str = ""
+    trusted_user_token: str = ""
     product_token_id: str | None = None
     low_scope_token_id: str | None = None
+    trusted_user_token_id: str | None = None
     revoked: bool = False
     _log_handle: Any = None
 
@@ -268,6 +277,7 @@ class RuntimeLease:
                 self.hmac_key,
                 self.product_token,
                 self.low_scope_token,
+                self.trusted_user_token,
             )
             if value
         )
@@ -422,10 +432,22 @@ def _issue_credentials(config_path: Path, lease: RuntimeLease) -> None:
         ttl_seconds=900,
         allowed_products=[PRODUCT],
     )
+    trusted_user = issue_lite_token(
+        config_path,
+        tenant_id=TENANT,
+        subject=A09_USER_SUBJECT,
+        scopes=list(A09_TRUSTED_USER_SCOPES),
+        ttl_seconds=900,
+        allowed_products=[PRODUCT],
+    )
     lease.product_token = str(product["token"])
     lease.low_scope_token = str(low["token"])
+    lease.trusted_user_token = str(trusted_user["token"])
     lease.product_token_id = str((product.get("record") or {}).get("token_id") or "") or None
     lease.low_scope_token_id = str((low.get("record") or {}).get("token_id") or "") or None
+    lease.trusted_user_token_id = str(
+        (trusted_user.get("record") or {}).get("token_id") or ""
+    ) or None
     # Static operator credentials must remain outside the scoped agt_ namespace.
     lease.master_token = "q5_master_" + secrets.token_urlsafe(32)
     lease.hmac_key = secrets.token_urlsafe(48)
@@ -604,7 +626,11 @@ def _stop_server(lease: RuntimeLease) -> bool:
 
 def _revoke_credentials(config_path: Path, lease: RuntimeLease) -> None:
     failures: list[str] = []
-    for token_id in (lease.product_token_id, lease.low_scope_token_id):
+    for token_id in (
+        lease.product_token_id,
+        lease.low_scope_token_id,
+        lease.trusted_user_token_id,
+    ):
         if not token_id:
             continue
         last_error: Exception | None = None
@@ -1402,6 +1428,7 @@ def _capability_http_probe(
     idempotency_key: str | None = None,
     work_item_id: str | None = None,
     policy_decision_ref: dict[str, Any] | None = None,
+    risk_ceiling: str = "R2",
 ) -> dict[str, Any]:
     """Invoke a manifest-owned product handler through the live HTTP route."""
 
@@ -1434,7 +1461,7 @@ def _capability_http_probe(
     )
     body = {
         "tenant": TENANT,
-        "risk_ceiling": "R2",
+        "risk_ceiling": risk_ceiling,
         "invocation": invocation.to_dict(),
     }
     request = Request(
@@ -2933,6 +2960,264 @@ def _summarize_a08_preview_probe(probe: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _capability_describe_probe(
+    base_url: str,
+    token: str,
+    capability_id: str,
+) -> dict[str, Any]:
+    """Ask the live discovery route whether a capability is visible."""
+
+    request_id = "q5-a09-describe-" + uuid.uuid4().hex[:12]
+    request = Request(
+        base_url.rstrip("/") + "/frontdesk/capabilities/describe",
+        data=json.dumps(
+            {"tenant": TENANT, "capability_id": capability_id},
+            ensure_ascii=False,
+        ).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "X-Agentctl-Key": token,
+            "X-Request-Id": request_id,
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=PROBE_TIMEOUT) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            status_code = int(response.getcode())
+    except HTTPError as exc:
+        status_code = int(exc.code)
+        payload = _decode_http_error_payload(exc)
+    except Exception as exc:  # noqa: BLE001 - live capability boundary
+        return {
+            "accepted": False,
+            "http_status": None,
+            "transport": "client_or_network_error",
+            "exception": type(exc).__name__,
+            "capability_id": capability_id,
+        }
+    return {
+        "accepted": status_code == 200,
+        "http_status": status_code,
+        "transport": "http",
+        "capability_id": capability_id,
+        "response": _json_safe(redact(payload, (token,))),
+    }
+
+
+def _a09_live_probe(
+    base_url: str,
+    model_token: str,
+    trusted_user_token: str,
+    capabilities: Path,
+    fixture: dict[str, Any],
+) -> dict[str, Any]:
+    """Exercise the product user confirmation path and stale rejection live.
+
+    The product API issues the one-time token, the fixture account changes, and
+    the trusted user token submits that exact token through agentctl.  The
+    ordinary product/model token is checked separately for capability
+    invisibility and invoke rejection.
+    """
+
+    model_describe = _capability_describe_probe(
+        base_url, model_token, A09_CONFIRM_CAPABILITY_ID
+    )
+    model_invoke = _capability_http_probe(
+        base_url,
+        model_token,
+        capabilities,
+        A09_CONFIRM_CAPABILITY_ID,
+        arguments={
+            "plan_id": "plan-model-forbidden",
+            "confirmation_token": "model-attempt-token",
+        },
+        request_prefix="q5-a09-model",
+        risk_ceiling="R3",
+        work_item_id="q5-a09-model-work",
+        policy_decision_ref={"kind": "q5-a09-model-attempt"},
+    )
+    model_surface_blocked = bool(
+        model_describe.get("http_status") == 404
+        and model_invoke.get("accepted") is False
+    )
+
+    plan_id = ""
+    confirmation_token = ""
+    confirmation_path: dict[str, Any] = {}
+    api_state: Any = None
+    previous_snapshot: str | None = None
+    snapshot_env_pinned = False
+    try:
+        # Keep this import local: the live topology remains agentctl HTTP, but
+        # the product-owned user confirmation route is exercised in-process so
+        # the acceptance runner does not need to start a second public server.
+        api_root = ROOT / "apps" / "api"
+        if str(api_root) not in sys.path:
+            sys.path.insert(0, str(api_root))
+        from fastapi.testclient import TestClient
+        import main as api_main
+
+        # The copied Q5 product store contains snap-universe plus the new A08
+        # dataset, while its source pointer may name a newer deploy snapshot
+        # whose files are intentionally not copied.  Pin the in-process
+        # product API to the fixture snapshot for this user confirmation path.
+        previous_snapshot = os.environ.get("AQUANT_SNAPSHOT_ID")
+        os.environ["AQUANT_SNAPSHOT_ID"] = str(fixture["snapshot_id"])
+        snapshot_env_pinned = True
+        api_state = api_main.build_state(Path(fixture["data_dir"]))
+        preview_body = {
+            "portfolio_id": str(fixture["portfolio_id"]),
+            "snapshot_id": str(fixture["snapshot_id"]),
+            "trading_day": str(fixture["trading_day"]),
+        }
+        with TestClient(api_main.create_app(state=api_state)) as client:
+            preview_response = client.post(
+                "/api/v1/plans/preview", json=preview_body
+            )
+            confirmation_path["preview_status"] = preview_response.status_code
+            if preview_response.status_code == 200:
+                plan_id = str(preview_response.json().get("planId") or "")
+                confirmation_response = client.post(
+                    f"/api/v1/plans/{plan_id}/confirmation",
+                    headers={"X-Aquant-Subject": A09_USER_SUBJECT},
+                )
+                confirmation_path["confirmation_status"] = confirmation_response.status_code
+                if confirmation_response.status_code == 200:
+                    confirmation_token = str(
+                        confirmation_response.json().get("confirmationToken") or ""
+                    )
+                    confirmation_path["human_subject"] = A09_USER_SUBJECT
+                    confirmation_path["token_issued"] = bool(confirmation_token)
+                else:
+                    confirmation_path["confirmation_error"] = _json_safe(
+                        confirmation_response.json()
+                    )
+            else:
+                confirmation_path["preview_error"] = _json_safe(preview_response.json())
+    except Exception as exc:  # noqa: BLE001 - preserve A09 evidence
+        confirmation_path["exception"] = type(exc).__name__
+        confirmation_path["exception_detail"] = str(exc)[:300]
+    finally:
+        if snapshot_env_pinned:
+            if previous_snapshot is None:
+                os.environ.pop("AQUANT_SNAPSHOT_ID", None)
+            else:
+                os.environ["AQUANT_SNAPSHOT_ID"] = previous_snapshot
+        if api_state is not None:
+            try:
+                api_state.con.close()
+            except Exception:  # noqa: BLE001 - cleanup is best effort here
+                pass
+
+    if not plan_id or not confirmation_token:
+        return {
+            "passed": False,
+            "available": True,
+            "model_surface_blocked": model_surface_blocked,
+            "model_describe": model_describe,
+            "model_invoke": model_invoke,
+            "product_confirmation_path": confirmation_path,
+            "reason": "product API did not issue a confirmation token",
+        }
+
+    # Change the account after confirmation.  This is the controlled stale
+    # state transition the A09 domain test requires; the subsequent agentctl
+    # call must reject before writing a frozen plan or consuming the token.
+    from aquant.domain.data.db import connect as product_connect, write_tx
+
+    mutation_con = product_connect(Path(fixture["meta_path"]))
+    try:
+        with write_tx(mutation_con):
+            mutation_con.execute(
+                "INSERT INTO cash_entry "
+                "(entry_id,portfolio_id,entry_type,amount_cents,trading_day,occurred_at,note) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (
+                    "cash-q5-a09-account-change",
+                    str(fixture["portfolio_id"]),
+                    "OTHER",
+                    1,
+                    str(fixture["trading_day"]),
+                    datetime.now(UTC).isoformat(),
+                    "Q5 A09 deliberate post-confirmation account change",
+                ),
+            )
+    finally:
+        mutation_con.close()
+
+    before_rejection = _product_state_fingerprint(Path(fixture["meta_path"]))
+    trusted_probe = _capability_http_probe(
+        base_url,
+        trusted_user_token,
+        capabilities,
+        A09_CONFIRM_CAPABILITY_ID,
+        arguments={
+            "plan_id": plan_id,
+            "confirmation_token": confirmation_token,
+        },
+        request_prefix="q5-a09-trusted",
+        risk_ceiling="R3",
+        work_item_id="q5-a09-stale-confirmation",
+        policy_decision_ref={
+            "kind": "q5_trusted_user_confirmation",
+            "decision": "user_confirmed_product_token",
+            "reference": "q5-a09",
+        },
+    )
+    after_rejection = _product_state_fingerprint(Path(fixture["meta_path"]))
+    response = trusted_probe.get("response")
+    response = response if isinstance(response, dict) else {}
+    output = response.get("output")
+    output = output if isinstance(output, dict) else {}
+    error = output.get("error") if isinstance(output.get("error"), dict) else {}
+    receipt_bound = all(
+        bool(str(response.get(key) or "").strip())
+        for key in ("invocation_id", "trace_id", "idempotency_key", "capability_id")
+    ) and response.get("capability_id") == A09_CONFIRM_CAPABILITY_ID
+    evidence_ref_observed = (
+        isinstance(output.get("evidence_ref"), dict)
+        and output["evidence_ref"].get("capability_id") == A09_CONFIRM_CAPABILITY_ID
+        and bool(str(output["evidence_ref"].get("result_sha256") or "").strip())
+    )
+    stale_rejected = (
+        trusted_probe.get("accepted") is True
+        and output.get("ok") is False
+        and error.get("code") == "STALE_SNAPSHOT"
+    )
+    no_product_writes = before_rejection == after_rejection
+    passed = bool(
+        model_surface_blocked
+        and confirmation_path.get("token_issued") is True
+        and stale_rejected
+        and no_product_writes
+        and receipt_bound
+        and evidence_ref_observed
+        and output.get("agentctl_actor_verified") is True
+        and output.get("actor_user_id") == A09_USER_SUBJECT
+        and output.get("confirmation_path") == "product_owned_trusted_user"
+    )
+    return {
+        "passed": passed,
+        "available": trusted_probe.get("available") is True,
+        "model_surface_blocked": model_surface_blocked,
+        "model_describe_status": model_describe.get("http_status"),
+        "model_invoke_status": model_invoke.get("http_status"),
+        "product_confirmation_path": confirmation_path,
+        "trusted_http_status": trusted_probe.get("http_status"),
+        "trusted_stale_rejected": stale_rejected,
+        "trusted_error_code": error.get("code"),
+        "trusted_actor_verified": output.get("agentctl_actor_verified"),
+        "trusted_actor_user_id": output.get("actor_user_id"),
+        "receipt_bound": receipt_bound,
+        "evidence_ref_observed": evidence_ref_observed,
+        "no_product_writes_after_rejection": no_product_writes,
+        "state_sha256_before_rejection": before_rejection["sha256"],
+        "state_sha256_after_rejection": after_rejection["sha256"],
+        "response": _json_safe(response),
+    }
+
+
 def _run_cli(args: list[str], *, timeout: float = 30.0) -> dict[str, Any]:
     completed = subprocess.run(
         ["agentctl", *args],
@@ -3151,9 +3436,9 @@ def _q5_domain_blockers(
 ) -> dict[str, dict[str, Any]]:
     """Describe only structural A05-A09 blockers in the live manifest.
 
-    A declared product handler is eligible for a live probe.  A09 still has a
-    blocker because preview capability alone is not a product-owned
-    confirmation/freeze entrypoint; declared A05-A08 capabilities do not
+    A declared product handler is eligible for a live probe.  A09 requires the
+    separately scoped trusted-user confirmation bridge; preview alone would
+    still be a structural blocker.  Declared A05-A08 capabilities do not
     remain uncovered merely because they were once absent from Q0.
     """
 
@@ -3183,15 +3468,13 @@ def _q5_domain_blockers(
         missing_handlers = [item for item in required if not handlers.get(item)]
         if case in covered and not missing and not missing_handlers:
             continue
-        if not missing and not missing_handlers and case != "A09":
+        if not missing and not missing_handlers:
             continue
         if missing:
             blocker_code = "capability_not_declared"
         elif missing_handlers:
             blocker_code = "handler_not_declared"
         else:
-            # A09 still needs a product-owned confirmation/freeze route even
-            # if the preview capability is added later.
             blocker_code = "product_entrypoint_not_bound"
         reason = str(spec["reason"])
         blockers[case] = {
@@ -3355,7 +3638,7 @@ def render_report(report: dict[str, Any]) -> str:
         "",
         f"- 拓扑：{report.get('topology', 'live_http')}；端口：{report.get('server', {}).get('host')}:{report.get('server', {}).get('port')}。",
         "- 配置来源：capabilities/agentctl.capabilities.yaml 与 deploy/agentctl-q0/runtime.config.yaml。运行时 store 使用临时目录副本，避免污染既有 Q0 实例。",
-        "- 凭证：本次创建临时 master、产品受限令牌和低权限令牌；报告不保存令牌值、哈希、ID 或 HMAC；结束时撤销两个受限令牌。",
+        "- 凭证：本次创建临时 master、普通产品受限令牌、低权限令牌和单独的受信用户确认令牌；报告不保存令牌值、哈希、ID 或 HMAC；结束时撤销三个受限令牌。",
         "- live_topology 才计入接入侧覆盖；offline_contract 只作为辅助证据，不能冒充真实拓扑。",
         "",
         "## agentctl 基座限制",
@@ -3421,7 +3704,7 @@ def render_report(report: dict[str, Any]) -> str:
                 ]
             )
     else:
-        lines.append("- 本次未能读取 manifest，因此没有生成 A05–A09 的结构化阻断清单。")
+        lines.append("- 本次 manifest 已声明且加载了 A05–A09 所需的产品入口，未生成结构性阻断。")
     a14_blocker = blockers.get("A14") if isinstance(blockers, dict) else None
     lines.extend(["", "## A14 会话重开边界", ""])
     if isinstance(a14_blocker, dict):
@@ -3467,7 +3750,9 @@ def run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         # its blocker must be decided by the live invocation below, not by the
         # older static A05-A09 inventory.  Missing declarations/handlers still
         # remain blockers and therefore fail closed.
-        blockers = _q5_domain_blockers(args.capabilities, covered_cases={"A08"})
+        blockers = _q5_domain_blockers(
+            args.capabilities, covered_cases={"A08", "A09"}
+        )
         _apply_q5_domain_blockers(checks, blockers)
         if not is_port_free(args.host, args.port):
             raise PortOccupiedError(f"port {args.host}:{args.port} is already occupied")
@@ -3736,6 +4021,34 @@ def run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
                 },
             },
         )
+        if "A09" not in blockers:
+            a09_probe = _a09_live_probe(
+                base_url,
+                lease.product_token,
+                lease.trusted_user_token,
+                args.capabilities,
+                a08_fixture,
+            )
+            _set_check(
+                checks,
+                "A09",
+                status=(
+                    "passed"
+                    if a09_probe.get("passed")
+                    else (
+                        "uncovered"
+                        if a09_probe.get("available") is False
+                        else "failed"
+                    )
+                ),
+                evidence_kind="live_topology",
+                observed=(
+                    "可信用户确认令牌经 agentctl 到达产品冻结复核，账户变化后的陈旧确认被拒且计划状态未写入；普通模型凭证不可见"
+                    if a09_probe.get("passed")
+                    else "未形成普通模型不可见、可信用户路径到达且陈旧确认无写入的完整实时证据"
+                ),
+                detail=a09_probe,
+            )
         a13_probe = _a13_callback_chaos_probe(
             base_url,
             lease.product_token,
@@ -4026,6 +4339,9 @@ def run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             ),
             "temporary_low_privilege_issued": bool(
                 lease and lease.low_scope_token
+            ),
+            "temporary_trusted_user_issued": bool(
+                lease and lease.trusted_user_token
             ),
             "revoked": bool(lease and lease.revoked),
             "token_value_exposed": False,

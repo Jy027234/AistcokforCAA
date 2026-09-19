@@ -10,8 +10,14 @@ services:
     build: .
     image: aquant-lab:local
     ports:
-      - "8080:8000"
+      # 本地试运行的 API/前端端口只暴露给本机；不要改成 0.0.0.0。
+      - "127.0.0.1:8080:8000"
     environment:
+      # 这是 loopback 单用户演示边界，不是生产认证。宿主端口绑定提供
+      # loopback 部署边界；前端只传递 X-Aquant-Subject 标签，API 只接受
+      # 这个固定主体。容器内 TCP 对端可能是 bridge 地址。
+      AQUANT_IDENTITY_MODE: ${AQUANT_IDENTITY_MODE:-LOCAL_LOOPBACK_DEMO}
+      AQUANT_TRIAL_SUBJECT: ${AQUANT_TRIAL_SUBJECT:-user:demo}
       # 不设 AQUANT_SNAPSHOT_ID：让 API 用内置合成夹具自举一份快照，
       # 这样容器一起来界面就有内容。若显式挂载真实数据并指向真实快照，
       # 只读接口仍可用；模拟与估值按 §12.6 要求配置券商佣金。

@@ -21,6 +21,8 @@ handler 只依赖注入对象，不 import 任何 M1 或 agentctl 模块。
 from __future__ import annotations
 
 import importlib.util
+import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -103,6 +105,13 @@ def test_card_carries_the_snapshot_identity(world):
     assert out["as_of_time"] == ref.as_of_time.isoformat()
     assert out["data_mode"] == "SYNTHETIC"
     assert out["watermark"], "合成快照必须带水印（§15.4）"
+    ref = out["evidence_ref"]
+    unsigned = {key: value for key, value in out.items() if key != "evidence_ref"}
+    digest = hashlib.sha256(json.dumps(
+        unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str,
+    ).encode("utf-8")).hexdigest()
+    assert ref["result_sha256"] == f"sha256:{digest}"
+    assert ref["capability_id"] == "aquant.research_card.read"
 
 
 def test_data_completeness_is_derived_from_the_snapshot(world):

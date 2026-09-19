@@ -225,6 +225,15 @@ class PlanPreview:
             "reference_price_day": (self.reference_price_day.isoformat()
                                     if self.reference_price_day else None),
             "frozen": self.frozen,
+            "targets": [
+                {
+                    "instrument_id": target.instrument_id,
+                    "industry_code": target.industry_code,
+                    "weight_pct": str(target.weight_pct),
+                    "rationale": target.rationale,
+                }
+                for target in self.targets
+            ],
             # 订单金额由服务端随预览返回。界面不得用数量×价格再实现一遍
             # 业务口径，否则以后加入不同成交单位或舍入规则时会悄悄分叉。
             "orders": [
@@ -239,6 +248,92 @@ class PlanPreview:
             "cash_after_cents": self.cash_after_cents,
             "notes": self.notes,
         }
+
+    @classmethod
+    def from_dict(cls, payload: dict[str, object]) -> "PlanPreview":
+        """Restore a server-persisted confirmation preview.
+
+        A confirmation token may be submitted through a different process than
+        the one that calculated the preview.  Reconstructing the domain object
+        here keeps that bridge inside the product domain; callers never supply
+        an arbitrary preview to ``freeze``.
+        """
+
+        if not isinstance(payload, dict):
+            raise ValueError("persisted preview must be an object")
+
+        def _optional_datetime(value: object) -> datetime | None:
+            if value in (None, ""):
+                return None
+            parsed = datetime.fromisoformat(str(value))
+            if parsed.tzinfo is None:
+                raise ValueError("persisted preview datetime must include a timezone")
+            return parsed
+
+        def _optional_date(value: object) -> date | None:
+            if value in (None, ""):
+                return None
+            return date.fromisoformat(str(value))
+
+        raw_targets = payload.get("targets")
+        if not isinstance(raw_targets, list):
+            raise ValueError("persisted preview targets must be a list")
+        targets = [
+            TargetWeight(
+                instrument_id=str(item["instrument_id"]),
+                industry_code=str(item.get("industry_code") or ""),
+                weight_pct=Decimal(str(item["weight_pct"])),
+                rationale=str(item.get("rationale") or ""),
+            )
+            for item in raw_targets
+            if isinstance(item, dict)
+        ]
+        if len(targets) != len(raw_targets):
+            raise ValueError("persisted preview contains an invalid target")
+
+        raw_orders = payload.get("orders")
+        if not isinstance(raw_orders, list):
+            raise ValueError("persisted preview orders must be a list")
+        orders = [dict(item) for item in raw_orders if isinstance(item, dict)]
+        if len(orders) != len(raw_orders):
+            raise ValueError("persisted preview contains an invalid order")
+
+        def _list_of_dicts(key: str) -> list[dict]:
+            value = payload.get(key) or []
+            if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+                raise ValueError(f"persisted preview {key} must be a list of objects")
+            return [dict(item) for item in value]
+
+        trading_day = date.fromisoformat(str(payload["trading_day"]))
+        reference_price_day = _optional_date(payload.get("reference_price_day"))
+        return cls(
+            plan_id=str(payload["plan_id"]),
+            portfolio_id=str(payload["portfolio_id"]),
+            snapshot_id=str(payload["snapshot_id"]),
+            plan_version=str(payload["plan_version"]),
+            account_version=str(payload["account_version"]),
+            trading_day=trading_day,
+            reference_price_day=reference_price_day,
+            targets=targets,
+            orders=orders,
+            estimated_fees_cents=int(payload["estimated_fees_cents"]),
+            rule_checks=_list_of_dicts("rule_checks"),
+            excluded=_list_of_dicts("excluded"),
+            cash_weight_pct=Decimal(str(payload["cash_weight_pct"])),
+            cash_after_cents=int(payload.get("cash_after_cents") or 0),
+            frozen=bool(payload.get("frozen", False)),
+            notes=[str(item) for item in (payload.get("notes") or [])],
+            decision_snapshot_id=(
+                str(payload["decision_snapshot_id"])
+                if payload.get("decision_snapshot_id") else None
+            ),
+            decision_cutoff_at=_optional_datetime(payload.get("decision_cutoff_at")),
+            execution_snapshot_id=(
+                str(payload["execution_snapshot_id"])
+                if payload.get("execution_snapshot_id") else None
+            ),
+            execution_cutoff_at=_optional_datetime(payload.get("execution_cutoff_at")),
+        )
 
 
 def _preview_hash(preview: PlanPreview) -> str:
@@ -1045,17 +1140,89 @@ class PlanService:
 
         token = secrets.token_urlsafe(32)
         token_hash = "sha256:" + hashlib.sha256(token.encode()).hexdigest()
+        confirmation_id = "pc_" + uuid.uuid4().hex
         with write_tx(self.con):
             self.con.execute(
                 "INSERT INTO plan_confirmation (confirmation_id,token_hash,plan_id,portfolio_id,"
                 "snapshot_id,plan_version,account_version,preview_hash,subject,issued_at,"
                 "expires_at,consumed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,NULL)",
-                ("pc_" + uuid.uuid4().hex, token_hash, preview.plan_id,
+                (confirmation_id, token_hash, preview.plan_id,
                  preview.portfolio_id, preview.snapshot_id, preview.plan_version,
                  preview.account_version, _preview_hash(preview), subject, _iso(now),
                  _iso(now + ttl)),
             )
+            self.con.execute(
+                "INSERT INTO plan_confirmation_preview "
+                "(confirmation_id,plan_id,preview_json,created_at) VALUES (?,?,?,?)",
+                (confirmation_id, preview.plan_id,
+                 json.dumps(preview.as_dict(), ensure_ascii=False), _iso(now)),
+            )
         return token
+
+    def freeze_confirmation(
+        self,
+        *,
+        plan_id: str,
+        confirm_subject: str,
+        confirmation_token: str,
+        now: datetime | None = None,
+    ) -> dict:
+        """Freeze a product-issued confirmation from a trusted user bridge.
+
+        The bridge accepts only a plan id and the one-time token.  It loads the
+        exact preview captured when the product confirmation endpoint issued
+        that token, then delegates all state, subject, expiry and hash checks
+        to :meth:`freeze`.
+        """
+
+        if not confirmer_is_human(confirm_subject):
+            raise PlanError(
+                "DATA_NOT_READY",
+                f"confirmation subject {confirm_subject!r} is not a human principal",
+                plan_id,
+                "plan freeze is a user action; models never confirm plans (§16.3)",
+            )
+        token_hash = "sha256:" + hashlib.sha256(confirmation_token.encode()).hexdigest()
+        row = self.con.execute(
+            "SELECT pc.*, pcp.preview_json "
+            "FROM plan_confirmation pc "
+            "LEFT JOIN plan_confirmation_preview pcp "
+            "ON pcp.confirmation_id=pc.confirmation_id "
+            "WHERE pc.token_hash=? AND pc.plan_id=?",
+            (token_hash, plan_id),
+        ).fetchone()
+        if row is None or not row["preview_json"]:
+            raise PlanError(
+                "DATA_NOT_READY",
+                "confirmation token is invalid or has no persisted preview",
+                plan_id,
+                "request a fresh confirmation token from the product user interface",
+            )
+        try:
+            preview = PlanPreview.from_dict(json.loads(row["preview_json"]))
+        except (TypeError, ValueError, json.JSONDecodeError, KeyError) as exc:
+            raise PlanError(
+                "DATA_NOT_READY",
+                "confirmation preview is not valid",
+                plan_id,
+                "discard this confirmation and request a fresh preview",
+            ) from exc
+        if preview.plan_id != plan_id:
+            raise PlanError(
+                "STALE_SNAPSHOT",
+                "confirmation preview is bound to another plan",
+                plan_id,
+                "request confirmation for this exact preview",
+            )
+        return self.freeze(
+            preview=preview,
+            confirm_subject=confirm_subject,
+            confirmation_token=confirmation_token,
+            expected_account_version=preview.account_version,
+            current_lots=self._load_lots(preview.portfolio_id),
+            current_cash_cents=self._ledger_cash(preview.portfolio_id),
+            now=now,
+        )
 
     # ------------------------------------------------------------ freeze
     def freeze(

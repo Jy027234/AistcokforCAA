@@ -7,7 +7,9 @@ handler 模块本身不提供合成字典或测试专用写路径。
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -51,6 +53,7 @@ def world(tmp_path):
 def _invoke(function, arguments, *, metadata=None, **kwargs):
     return asyncio.run(function(
         {
+            "invocation_id": "invoke-q5-test",
             "validated_arguments": arguments,
             "metadata": metadata or {
                 "tenant_id": "tenant:test",
@@ -59,6 +62,20 @@ def _invoke(function, arguments, *, metadata=None, **kwargs):
         },
         **kwargs,
     ))
+
+
+def _assert_execution_evidence(out, capability_id):
+    ref = out["evidence_ref"]
+    assert ref["capability_id"] == capability_id
+    assert ref["invocation_id"] == "invoke-q5-test"
+    unsigned = {key: value for key, value in out.items() if key != "evidence_ref"}
+    canonical = json.dumps(
+        unsigned, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    digest = hashlib.sha256(canonical).hexdigest()
+    assert ref["result_sha256"] == f"sha256:{digest}"
+    assert ref["evidence_id"] == f"aquant-result://{capability_id}/{digest}"
 
 
 def test_event_evidence_reads_pit_data_and_never_submits_a_job(world):
@@ -76,6 +93,7 @@ def test_event_evidence_reads_pit_data_and_never_submits_a_job(world):
     assert out["snapshot_id"] == "snap-syn-001"
     assert out["pit_filter"] == "available_at <= as_of_time"
     assert out["evidence"]
+    _assert_execution_evidence(out, "aquant.event_evidence.read")
     malicious = out["evidence"][0]
     assert malicious["verificationStatus"] == "UNVERIFIED"
     assert malicious["authorization_blocked"] is True
@@ -150,6 +168,7 @@ def test_portfolio_read_uses_product_ledger_and_actor_context(world):
     assert out["positions"] == []
     assert out["actor_user_id"] == "user:alice"
     assert out["read_only"] is True
+    assert out["evidence_ref"]["capability_id"] == "aquant.portfolio.read"
 
 
 def test_experiment_submit_uses_durable_job_idempotency(world):
@@ -172,6 +191,7 @@ def test_experiment_submit_uses_durable_job_idempotency(world):
     assert first["job_ref"]["job_id"] == first["jobId"]
     assert first["job_ref"]["status"] == "pending"
     assert first["job_ref"]["status_capability_id"] == "aquant.job.status"
+    _assert_execution_evidence(first, "aquant.experiment.submit")
     assert con.execute("SELECT COUNT(*) FROM job").fetchone()[0] == 1
 
     other = _invoke(
@@ -226,6 +246,7 @@ def test_job_status_reads_durable_store_and_preserves_domain_state(world):
         "owner": "aquant_lab",
         "failure_code": "DATA_NOT_READY",
     }
+    _assert_execution_evidence(out, "aquant.job.status")
 
     denied = _invoke(
         handlers.job_status,
@@ -304,3 +325,51 @@ def test_simulation_preview_stops_on_missing_real_s1_inputs_without_writes(
         for name in before
     }
     assert after == before
+
+
+def test_trusted_user_confirmation_bridge_preserves_stale_error_evidence(world):
+    """The agentctl bridge delegates stale checks and emits execution evidence."""
+
+    con, _reader, _cards = world
+    handlers = _handlers()
+    from aquant.domain.portfolio.plan import PlanError
+
+    class StaleService:
+        def freeze_confirmation(self, **_kwargs):
+            raise PlanError(
+                "STALE_SNAPSHOT",
+                "account state changed since the preview",
+                "plan-test",
+                "re-preview against the current account state",
+            )
+
+    out = _invoke(
+        handlers.simulation_plan_confirm_user,
+        {"plan_id": "plan-test", "confirmation_token": "opaque-token"},
+        service=StaleService(),
+        reader=object(),
+        con=con,
+    )
+
+    assert out["ok"] is False
+    assert out["error"]["code"] == "STALE_SNAPSHOT"
+    assert out["confirmation_path"] == "product_owned_trusted_user"
+    assert out["agentctl_actor_verified"] is True
+    assert out["actor_user_id"] == "user:alice"
+    _assert_execution_evidence(out, "aquant.simulation_plan.confirm_user")
+
+
+def test_trusted_user_confirmation_bridge_rejects_model_actor(world):
+    con, _reader, _cards = world
+    handlers = _handlers()
+
+    out = _invoke(
+        handlers.simulation_plan_confirm_user,
+        {"plan_id": "plan-test", "confirmation_token": "opaque-token"},
+        metadata={"tenant_id": "tenant:test", "actor_user_id": "model:assistant"},
+        reader=object(),
+        con=con,
+    )
+
+    assert out["ok"] is False
+    assert out["error"]["code"] == "SOURCE_PERMISSION_MISSING"

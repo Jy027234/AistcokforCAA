@@ -21,6 +21,7 @@ Design constraints inherited from the A-Quant Lab spec:
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import date, datetime
 from typing import Any
@@ -192,7 +193,7 @@ async def research_card_read(invocation: dict[str, Any], *,
         # 没算出因子时要**说出来**，否则一张没有数值的卡片看起来像"算过了，值为空"
         limitations.append(card["factor_note"])
 
-    return {
+    return _with_execution_evidence(invocation, "aquant.research_card.read", {
         "ok": True,
         "snapshot_id": snapshot["snapshot_id"],
         "as_of_time": snapshot["as_of_time"],
@@ -212,7 +213,7 @@ async def research_card_read(invocation: dict[str, Any], *,
         "data_completeness": _quality_label(snapshot),
         "factors": factors,
         "limitations": limitations,
-    }
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +268,27 @@ def _invocation_owner(invocation: dict[str, Any]) -> dict[str, str] | None:
     if not tenant_id or not actor_user_id:
         return None
     return {"tenant_id": tenant_id, "actor_user_id": actor_user_id}
+
+
+def _with_execution_evidence(
+    invocation: dict[str, Any], capability_id: str, result: dict[str, Any]
+) -> dict[str, Any]:
+    """Bind a successful result to its agentctl invocation and exact bytes."""
+
+    canonical = json.dumps(
+        result, ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    digest = hashlib.sha256(canonical).hexdigest()
+    invocation_id = str(invocation.get("invocation_id") or "").strip()
+    evidence_ref: dict[str, Any] = {
+        "evidence_id": f"aquant-result://{capability_id}/{digest}",
+        "capability_id": capability_id,
+        "result_sha256": f"sha256:{digest}",
+    }
+    if invocation_id:
+        evidence_ref["invocation_id"] = invocation_id
+    return {**result, "evidence_ref": evidence_ref}
 
 
 def _as_datetime(value: Any, *, name: str) -> datetime:
@@ -570,7 +592,7 @@ async def event_evidence_read(invocation: dict[str, Any], *,
             else:
                 item["authorization_blocked"] = False
             enriched.append(item)
-        return {
+        return _with_execution_evidence(invocation, "aquant.event_evidence.read", {
             "ok": True,
             "snapshot_id": snapshot_id,
             "as_of_time": as_of.isoformat(),
@@ -580,7 +602,7 @@ async def event_evidence_read(invocation: dict[str, Any], *,
             "count": len(enriched),
             "evidence": enriched,
             "pit_filter": "available_at <= as_of_time",
-        }
+        })
     except (ValueError, TypeError) as exc:
         return _error("PIT_UNVERIFIED", str(exc), object_id, False,
                       "use the exact timezone-aware as_of_time from the snapshot")
@@ -618,13 +640,13 @@ async def portfolio_read(invocation: dict[str, Any], *,
         # schema currently has no portfolio_owner column, so expose the scope
         # explicitly rather than pretending the ledger query proved ownership.
         actor = _invocation_actor(invocation)
-        return {
+        return _with_execution_evidence(invocation, "aquant.portfolio.read", {
             "ok": True,
             **row,
             "subject_scope": "agentctl_verified_actor" if actor else "embedding_context",
             "actor_user_id": actor,
             "read_only": True,
-        }
+        })
     except KeyError as exc:
         return _error(
             "DATA_NOT_READY", str(exc), portfolio_id, False,
@@ -696,7 +718,7 @@ async def experiment_submit(invocation: dict[str, Any], *,
             ),
             owner_metadata=owner,
         )
-        return {
+        return _with_execution_evidence(invocation, "aquant.experiment.submit", {
             "ok": True,
             **out,
             "job_id": out.get("jobId"),
@@ -712,7 +734,7 @@ async def experiment_submit(invocation: dict[str, Any], *,
                 "status_capability_id": "aquant.job.status",
                 "submitted_at": out.get("submittedAt"),
             },
-        }
+        })
     except Exception as exc:  # noqa: BLE001
         return _domain_error(exc, object_id=snapshot_id)
     finally:
@@ -857,7 +879,7 @@ async def job_status(invocation: dict[str, Any], *,
         output.update(
             {key: value for key, value in optional_values.items() if value is not None}
         )
-        return output
+        return _with_execution_evidence(invocation, "aquant.job.status", output)
     except Exception as exc:  # noqa: BLE001
         return _domain_error(exc, object_id=job_id)
     finally:
@@ -1070,6 +1092,135 @@ async def simulation_plan_preview(invocation: dict[str, Any], *,
                 for target in preview.targets
             ],
         })
-        return out
+        return _with_execution_evidence(invocation, "aquant.simulation_plan.preview", out)
     except Exception as exc:  # noqa: BLE001
         return _domain_error(exc, object_id=portfolio_id or snapshot_id)
+
+
+async def simulation_plan_confirm_user(invocation: dict[str, Any], *,
+                                       service: Any | None = None,
+                                       reader: Any | None = None,
+                                       con: Any | None = None) -> dict[str, Any]:
+    """Submit a product-issued confirmation from a verified human user.
+
+    This is intentionally a narrow bridge rather than a model-facing freeze
+    capability.  The agentctl token must carry the separately granted trusted
+    user scope, the platform supplies the actor metadata, and the product
+    domain loads the exact preview persisted when the user confirmation route
+    issued the one-time token.
+    """
+
+    args = _invocation_arguments(invocation)
+    plan_id = str(args.get("plan_id") or "").strip()
+    confirmation_token = str(args.get("confirmation_token") or "").strip()
+    actor = _invocation_actor(invocation)
+    owner = _invocation_owner(invocation)
+    if not plan_id or not confirmation_token:
+        return _error(
+            "DATA_NOT_READY",
+            "plan_id and confirmation_token are required",
+            plan_id or "<empty>",
+            False,
+            "submit the one-time token issued by the product confirmation UI",
+        )
+    if actor is None or owner is None:
+        return _error(
+            "SOURCE_PERMISSION_MISSING",
+            "verified tenant_id and actor_user_id are required",
+            plan_id,
+            False,
+            "invoke through agentctl with an admitted trusted user context",
+        )
+
+    try:
+        from aquant.domain.portfolio.plan import confirmer_is_human
+
+        if not confirmer_is_human(actor):
+            return _error(
+                "SOURCE_PERMISSION_MISSING",
+                "the confirmation bridge accepts human users only",
+                plan_id,
+                False,
+                "complete confirmation in the product UI as a human user",
+            )
+    except ImportError:
+        return _error(
+            "DATA_NOT_READY",
+            "the product confirmation domain is unavailable",
+            plan_id,
+            True,
+            "start the product runtime with its domain package available",
+        )
+
+    close_after = False
+    if reader is None:
+        reader = _default_reader()
+    if reader is None:
+        return _error(
+            "DATA_NOT_READY",
+            "no product snapshot store is reachable",
+            plan_id,
+            True,
+            "point AQUANT_DATA_DIR at the product data directory",
+        )
+    if con is None:
+        con, close_after = _default_write_connection()
+    if con is None:
+        return _error(
+            "DATA_NOT_READY",
+            "no writable product metadata store is configured",
+            plan_id,
+            True,
+            "set AQUANT_DATA_DIR to an existing product data directory",
+        )
+
+    try:
+        if service is None:
+            from aquant.domain.data.reader import SnapshotReader
+            from aquant.domain.data.snapshot import SnapshotStore
+            from aquant.domain.portfolio.construction import ConstructionParams
+            from aquant.domain.portfolio.plan import PlanService
+            from aquant.domain.simulation.board_rules import BOARD_RULES
+            from aquant.domain.simulation.verified_fees import fee_table_from_env
+
+            domain_reader = _domain_reader(reader)
+            if not callable(getattr(domain_reader, "ref", None)):
+                root = getattr(reader, "root", None) or ""
+                domain_reader = SnapshotReader(SnapshotStore(con, root))
+            fee_table, _fee_note = fee_table_from_env()
+            # Freeze only uses the immutable snapshot references and fee/rule
+            # bindings.  It does not reconstruct targets, so an empty listing
+            # map is safe and prevents this bridge from becoming a second
+            # preview implementation.
+            service = PlanService(
+                con, domain_reader, fee_table, BOARD_RULES, {}, ConstructionParams()
+            )
+        result = service.freeze_confirmation(
+            plan_id=plan_id,
+            confirm_subject=actor,
+            confirmation_token=confirmation_token,
+        )
+        return _with_execution_evidence(invocation, "aquant.simulation_plan.confirm_user", {
+            "ok": True,
+            **result,
+            "actor_user_id": actor,
+            "tenant_id": owner["tenant_id"],
+            "confirmation_path": "product_owned_trusted_user",
+            "agentctl_actor_verified": True,
+            "read_only": False,
+        })
+    except Exception as exc:  # noqa: BLE001 - domain errors are structured
+        out = _domain_error(exc, object_id=plan_id)
+        out.update({
+            "actor_user_id": actor,
+            "tenant_id": owner["tenant_id"],
+            "confirmation_path": "product_owned_trusted_user",
+            "agentctl_actor_verified": True,
+            "read_only": False,
+        })
+        return _with_execution_evidence(
+            invocation, "aquant.simulation_plan.confirm_user", out
+        )
+    finally:
+        if close_after and con is not None:
+            con.close()

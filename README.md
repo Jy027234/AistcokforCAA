@@ -12,11 +12,25 @@ docker compose down -v         # 停并清空数据（从零开始）
 ```
 
 单容器同源：前端用相对路径请求 `/api`，因此不需要 CORS，也不需要反向代理。
+Compose 把端口绑定到 `127.0.0.1`，只用于本机试运行。
 容器**用内置合成夹具自举一份快照**，所以一起来界面就有内容，不需要挂载任何东西——
 顶部黄色水印会写明这是虚构示例数据。
 
-> ⚠️ **这不是生产形态。** 前端用的是演示主体开关（`user:demo`），
-> **不是身份认证**。生产形态（API 与前端分开、令牌纪律）见 ADR-013，尚未落实。
+> ⚠️ **这不是生产形态。** Compose 显式使用 `AQUANT_IDENTITY_MODE=LOCAL_LOOPBACK_DEMO`，
+> 并把 API 端口绑定到宿主机 `127.0.0.1`；API 把 `user:demo` 作为固定的单用户主体标签。
+> `X-Aquant-Subject` 仍然是自报 header，不是身份认证、Bearer 令牌或生产凭证。
+> 未声明身份模式的 API 会保留开发兼容接线，但 `/api/v1/readiness` 的 `trial.ready` 会被身份门禁阻断。
+> 生产形态（API 与前端分开、令牌纪律）见 ADR-013，尚未落实。
+
+身份模式通过 `AQUANT_IDENTITY_MODE` 显式声明。可用值是：
+
+- `LOCAL_LOOPBACK_DEMO`：本机单用户试运行；同时满足部署端口只绑定宿主机 loopback，
+  以及固定 `AQUANT_TRIAL_SUBJECT`。容器内的 TCP 对端可能是 bridge 地址，不能把它当作宿主机绑定证明。
+- `DEVELOPMENT_SELF_REPORTED`：开发测试用自报 `X-Aquant-Subject`，不具备试运行身份 assurance。
+
+`AQUANT_TRIAL_SUBJECT` 只是主体标签，不是共享秘密，不应被当作前端凭据。API 未设置
+`AQUANT_IDENTITY_MODE` 时会报告 `UNDECLARED_SELF_REPORTED`，因此不会把自报 header
+误报成可试运行的身份边界。示例配置见 [`configs/api.example.env`](configs/api.example.env)。
 
 想在本机开发 API 指向真实快照，设 `AQUANT_DATA_DIR` 指向发布数据根目录。
 不显式设置 `AQUANT_SNAPSHOT_ID` 时，API/worker 会读取该目录的
@@ -29,6 +43,8 @@ $env:AQUANT_DATA_DIR='E:\IT\A股量化交易\deploy\universe-snapshot'
 # $env:AQUANT_SNAPSHOT_ID='snap-eod-2026-09-18-<uuid>'
 $env:AQUANT_COMMISSION_RATE='0.00025'        # 你的券商费率，万分之 2.5 写作 0.00025
 $env:AQUANT_COMMISSION_MIN_CENTS='500'       # 最低 5 元
+$env:AQUANT_IDENTITY_MODE='LOCAL_LOOPBACK_DEMO'
+$env:AQUANT_TRIAL_SUBJECT='user:demo'         # 标签，不是共享秘密
 $env:PYTHONPATH='src'
 python -m uvicorn main:app --app-dir apps/api --host 127.0.0.1 --port 8000
 ```
@@ -45,6 +61,8 @@ python -m uvicorn main:app --app-dir apps/api --host 127.0.0.1 --port 8000
 ```powershell
 # --- 终端 1：启动 API（主入口所需） ---
 $env:PYTHONPATH='src'
+$env:AQUANT_IDENTITY_MODE='LOCAL_LOOPBACK_DEMO'
+$env:AQUANT_TRIAL_SUBJECT='user:demo'
 python -m uvicorn main:app --app-dir apps/api --host 127.0.0.1 --port 8000
 
 # --- 终端 2：启动前端 ---
@@ -68,13 +86,16 @@ python -m uvicorn main:app --app-dir apps/api --host 127.0.0.1 --port 8000
 # 终端 2：检查健康与数据状态，再启动前端
 Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
 Invoke-RestMethod http://127.0.0.1:8000/api/v1/status
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/readiness
 cd apps\web
 npm install
 npm run dev                         # http://localhost:5173
 ```
 
 页面顶部应显示合成数据水印；`/api/v1/status` 能返回 `snap-syn-001`。
-这条试运行只验证本机链路，不代表真实数据质量或生产部署已验收。
+`/api/v1/readiness` 会显示 `identity.assurance=LOCAL_SINGLE_USER_LOOPBACK`，
+并明确 `productionAuthentication=false`；这条试运行只验证本机链路，
+不代表真实数据质量或生产部署已验收。
 
 ## 当前状态
 

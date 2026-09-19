@@ -9,13 +9,17 @@ default_tenant_id: aquant-synthetic
 # Capability surface for A-Quant Lab.
 #
 # Deliberately ABSENT (main doc 16.3, supplements v0.2.1 4): execute_order,
-# write_ledger, run_shell, raw_sql, fetch_arbitrary_url and plan freeze. The
-# model has no mechanism to reach them because they are not declared here.
+# write_ledger, run_shell, raw_sql and fetch_arbitrary_url. Plan mutation is
+# also absent from the ordinary model surface: the only related declaration is
+# the separately scoped product-owned `confirm_user` bridge below. Its scope
+# is omitted from model credentials and its handler accepts only a verified
+# human actor plus a one-time token issued by the product UI.
 #
 # Q5 scope: the read/evidence, portfolio, simulation-preview and experiment
 # submit capabilities below are product-owned entry points. They read the
 # published snapshot/ledger and submit through the durable research-job store.
-# Plan freeze and all trading/escape-hatch capabilities remain undeclared.
+# Direct model plan freeze and all trading/escape-hatch capabilities remain
+# unavailable.
 
 capabilities:
 - capability_id: aquant.research_card.read
@@ -48,6 +52,7 @@ capabilities:
     - instrument_id
     - as_of_time
     - data_mode
+    - evidence_ref
     properties:
       ok:
         type: boolean
@@ -81,6 +86,8 @@ capabilities:
         type: string
       watermark:
         type: string
+      evidence_ref:
+        type: object
   result_object_types:
   - artifact_ref
   - evidence_ref
@@ -151,6 +158,7 @@ capabilities:
     - as_of_time
     - instrument_id
     - evidence
+    - evidence_ref
     properties:
       ok:
         type: boolean
@@ -170,6 +178,8 @@ capabilities:
         type: array
       pit_filter:
         type: string
+      evidence_ref:
+        type: object
   result_object_types:
   - artifact_ref
   - evidence_ref
@@ -207,6 +217,7 @@ capabilities:
     - portfolio_id
     - cash
     - positions
+    - evidence_ref
     properties:
       ok:
         type: boolean
@@ -222,8 +233,11 @@ capabilities:
         type: string
       read_only:
         type: boolean
+      evidence_ref:
+        type: object
   result_object_types:
   - artifact_ref
+  - evidence_ref
   side_effect_class: none
   risk_level: R1
   data_sensitivity: D1
@@ -276,6 +290,7 @@ capabilities:
     - snapshot_id
     - frozen
     - orders
+    - evidence_ref
     properties:
       ok:
         type: boolean
@@ -299,8 +314,11 @@ capabilities:
         type: integer
       read_only:
         type: boolean
+      evidence_ref:
+        type: object
   result_object_types:
   - artifact_ref
+  - evidence_ref
   side_effect_class: none
   risk_level: R1
   data_sensitivity: D1
@@ -310,6 +328,73 @@ capabilities:
   idempotency:
     required: true
     scope: tenant_actor_capability
+
+- capability_id: aquant.simulation_plan.confirm_user
+  version: 1.0.0
+  title: 提交受信用户确认
+  description: 由产品拥有的用户确认界面提交已签发的一次性确认令牌；模型不可见、不可调用，不接受模型主体或任意预览正文
+  when_to_use:
+  - 产品用户界面已向真实人类用户展示同一份模拟计划并签发一次性确认令牌
+  when_not_to_use:
+  - 模型、助手或自动化流程不得调用
+  - 不得把它当作普通计划冻结工具或传入自行构造的预览
+  handler: aquant_lab_agentctl_handlers:simulation_plan_confirm_user
+  input_schema:
+    type: object
+    required:
+    - plan_id
+    - confirmation_token
+    properties:
+      plan_id:
+        type: string
+      confirmation_token:
+        type: string
+    additionalProperties: false
+  output_schema:
+    type: object
+    required:
+    - ok
+    - plan_id
+    - confirmation_path
+    - agentctl_actor_verified
+    - evidence_ref
+    properties:
+      ok:
+        type: boolean
+      plan_id:
+        type: string
+      status:
+        type: string
+      confirmed_by:
+        type: string
+      confirmation_path:
+        type: string
+      agentctl_actor_verified:
+        type: boolean
+      actor_user_id:
+        type: string
+      error:
+        type: object
+      read_only:
+        type: boolean
+      evidence_ref:
+        type: object
+  result_object_types:
+  - artifact_ref
+  - evidence_ref
+  side_effect_class: internal
+  risk_level: R3
+  data_sensitivity: D1
+  required_scopes:
+  - aquant.simulation.confirm
+  confirmation_policy: explicit
+  idempotency:
+    required: true
+    scope: tenant_actor_capability
+  metadata:
+    owner: aquant_lab_product
+    visibility: trusted_user_confirmation_path
+    model_callable: false
 
 - capability_id: aquant.experiment.submit
   version: 1.0.0
@@ -346,6 +431,7 @@ capabilities:
     - status
     - idempotencyKey
     - job_ref
+    - evidence_ref
     properties:
       ok:
         type: boolean
@@ -367,8 +453,11 @@ capabilities:
         type: string
       job_ref:
         type: object
+      evidence_ref:
+        type: object
   result_object_types:
   - job_ref
+  - evidence_ref
   side_effect_class: internal
   risk_level: R2
   data_sensitivity: D1
@@ -408,6 +497,7 @@ capabilities:
     - jobId
     - status
     - job_ref
+    - evidence_ref
     properties:
       ok:
         type: boolean
@@ -442,8 +532,11 @@ capabilities:
         description: 经平台验证且与持久作业归属匹配的调用主体
       job_ref:
         type: object
+      evidence_ref:
+        type: object
   result_object_types:
   - job_ref
+  - evidence_ref
   side_effect_class: none
   risk_level: R0
   data_sensitivity: D1

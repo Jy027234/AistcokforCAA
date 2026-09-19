@@ -1,8 +1,8 @@
 {
   "schema_version": "aquant.q5.acceptance.v1",
-  "run_id": "q5-df9817c056b54ae0a2b38915cb2cb7ad",
-  "generated_at": "2026-09-19T11:45:18.223101+00:00",
-  "started_at": "2026-09-19T11:45:02.294301+00:00",
+  "run_id": "q5-0ac289285dd0480895cd99c76e38f6d6",
+  "generated_at": "2026-09-19T12:19:12.317145+00:00",
+  "started_at": "2026-09-19T12:18:53.596392+00:00",
   "topology": "live_http",
   "source_of_truth": {
     "capabilities": "capabilities\\agentctl.capabilities.yaml",
@@ -44,34 +44,13 @@
     "temporary_master_issued": true,
     "temporary_product_restricted_issued": true,
     "temporary_low_privilege_issued": true,
+    "temporary_trusted_user_issued": true,
     "revoked": true,
     "token_value_exposed": false,
     "token_hash_exposed": false,
     "hmac_exposed": false
   },
   "blockers": {
-    "A09": {
-      "blocker": true,
-      "blocker_code": "product_entrypoint_not_bound",
-      "required_capabilities": [
-        "aquant.simulation_plan.preview"
-      ],
-      "missing_capabilities": [],
-      "missing_handlers": [],
-      "declared_handlers": {
-        "aquant.simulation_plan.preview": "aquant_lab_agentctl_handlers:simulation_plan_preview"
-      },
-      "manifest_capabilities": [
-        "aquant.event_evidence.read",
-        "aquant.experiment.submit",
-        "aquant.job.status",
-        "aquant.portfolio.read",
-        "aquant.research_card.read",
-        "aquant.simulation_plan.preview"
-      ],
-      "required_entrypoint": "product-owned confirmation/freeze HTTP entrypoint bound to agentctl",
-      "reason": "当前 onboarding 只绑定 frontdesk.message，清单也明确不声明计划冻结；没有可供 agentctl 调用的确认/冻结入口，无法在真实拓扑中提交陈旧确认。"
-    },
     "A14": {
       "blocker": true,
       "blocker_code": "conversation_replay_transport_unconfigured",
@@ -105,43 +84,44 @@
     {
       "case": "A02",
       "title": "能力 apply 与激活重载",
-      "status": "failed",
+      "status": "passed",
       "evidence_kind": "offline_contract",
-      "observed": "manifest doctor 失败",
+      "observed": "manifest doctor 通过（未证明 live reload）",
       "detail": {
-        "exit_code": 1,
+        "exit_code": 0,
         "apply_exit_code": 0,
         "action": "doctor",
         "doctor_report": {
           "kind": "AgentctlProductIntegrationDoctorReport",
           "schema_version": "agentctl.integration.doctor.v1",
-          "ok": false,
+          "ok": true,
           "manifest": {
             "schema_version": "agentctl.product_capabilities.v1",
             "path": "E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml",
-            "digest": "dce1bbda0eac775bab0ea5076b7e617238166b7984ddfe18f0387f08ca7efe07",
+            "digest": "a61ad8404fd3175a738b45d4f6c7ae86f31669604c39e89fb1e4f0081fe5f6ba",
             "product_id": "aquant_lab",
             "capability_ids": [
               "aquant.research_card.read",
               "aquant.event_evidence.read",
               "aquant.portfolio.read",
               "aquant.simulation_plan.preview",
+              "aquant.simulation_plan.confirm_user",
               "aquant.experiment.submit",
               "aquant.job.status"
             ]
           },
           "config": {
-            "path": "C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-hmw_0ab1\\runtime.config.yaml",
+            "path": "C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-sa780oi6\\runtime.config.yaml",
             "inferred": false,
             "store": {
               "kind": "sqlite",
-              "path": "C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-hmw_0ab1\\.agentctl\\data\\product_integration.sqlite"
+              "path": "C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-sa780oi6\\.agentctl\\data\\product_integration.sqlite"
             }
           },
           "assurance": {
             "schema_version": "agentctl.integration_assurance_report.v1",
             "profile": "governed_execution",
-            "ok": false,
+            "ok": true,
             "checks": [
               {
                 "id": "product_manifest",
@@ -175,14 +155,14 @@
               },
               {
                 "id": "execution_evidence",
-                "status": "fail",
+                "status": "pass",
                 "required": true,
-                "remediation": "Enable bounded execution Evidence output for the capability path."
+                "remediation": null
               }
             ],
             "summary": {
-              "pass": 5,
-              "fail": 1
+              "pass": 6,
+              "fail": 0
             }
           },
           "checks": [
@@ -195,7 +175,7 @@
             {
               "id": "runtime_config",
               "status": "pass",
-              "detail": "C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-hmw_0ab1\\runtime.config.yaml",
+              "detail": "C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-sa780oi6\\runtime.config.yaml",
               "remediation": null
             },
             {
@@ -213,20 +193,20 @@
             {
               "id": "store_projection",
               "status": "pass",
-              "detail": "{\"conflicts\": 0, \"created\": 0, \"unchanged\": 13, \"updated\": 0}",
-              "remediation": "agentctl integration apply --manifest \"E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml\" --config \"C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-hmw_0ab1\\runtime.config.yaml\""
+              "detail": "{\"conflicts\": 0, \"created\": 0, \"unchanged\": 15, \"updated\": 0}",
+              "remediation": "agentctl integration apply --manifest \"E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml\" --config \"C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-sa780oi6\\runtime.config.yaml\""
             },
             {
               "id": "capability_view",
               "status": "pass",
-              "detail": "6 capability descriptor(s) visible",
-              "remediation": "agentctl integration apply --manifest \"E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml\" --config \"C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-hmw_0ab1\\runtime.config.yaml\""
+              "detail": "7 capability descriptor(s) visible",
+              "remediation": "agentctl integration apply --manifest \"E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml\" --config \"C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-sa780oi6\\runtime.config.yaml\""
             },
             {
               "id": "capability_bindings",
               "status": "pass",
-              "detail": "6 active binding(s) match",
-              "remediation": "agentctl integration apply --manifest \"E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml\" --config \"C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-hmw_0ab1\\runtime.config.yaml\""
+              "detail": "7 active binding(s) match",
+              "remediation": "agentctl integration apply --manifest \"E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml\" --config \"C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-sa780oi6\\runtime.config.yaml\""
             },
             {
               "id": "entitlements",
@@ -237,8 +217,8 @@
             {
               "id": "provider_registration",
               "status": "pass",
-              "detail": "registered: aquant.research_card.read, aquant.event_evidence.read, aquant.portfolio.read, aquant.simulation_plan.preview, aquant.experiment.submit, aquant.job.status",
-              "remediation": "agentctl integration validate --manifest \"E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml\" --config \"C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-hmw_0ab1\\runtime.config.yaml\""
+              "detail": "registered: aquant.research_card.read, aquant.event_evidence.read, aquant.portfolio.read, aquant.simulation_plan.preview, aquant.simulation_plan.confirm_user, aquant.experiment.submit, aquant.job.status",
+              "remediation": "agentctl integration validate --manifest \"E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml\" --config \"C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-sa780oi6\\runtime.config.yaml\""
             },
             {
               "id": "job_lifecycle",
@@ -290,19 +270,17 @@
             },
             {
               "id": "assurance.execution_evidence",
-              "status": "fail",
+              "status": "pass",
               "detail": "profile=governed_execution",
-              "remediation": "Enable bounded execution Evidence output for the capability path."
+              "remediation": null
             }
           ],
           "summary": {
-            "pass": 17,
+            "pass": 18,
             "warn": 0,
-            "fail": 1
+            "fail": 0
           },
-          "fix_commands": [
-            "Enable bounded execution Evidence output for the capability path."
-          ]
+          "fix_commands": []
         }
       }
     },
@@ -431,21 +409,27 @@
             "limitation_count": 2
           },
           "execution": {
-            "invocation_id": "invoke_0ecf6ff7700b4512",
-            "trace_id": "q5-a04-trace-52eb935f0e",
-            "idempotency_key": "invoke_0ecf6ff7700b4512",
+            "invocation_id": "invoke_92d3a2cb70f54f2f",
+            "trace_id": "q5-a04-trace-5bd973f6d5",
+            "idempotency_key": "invoke_92d3a2cb70f54f2f",
             "capability_id": "aquant.research_card.read"
           },
           "response": {
             "capability_id": "aquant.research_card.read",
-            "idempotency_key": "invoke_0ecf6ff7700b4512",
-            "invocation_id": "invoke_0ecf6ff7700b4512",
+            "idempotency_key": "invoke_92d3a2cb70f54f2f",
+            "invocation_id": "invoke_92d3a2cb70f54f2f",
             "output": {
               "as_of_time": "2026-09-14T07:00:00+00:00",
               "board": "MAIN",
               "data_completeness": "行情覆盖 100.0%",
               "data_mode": "PRODUCTION",
               "display_name": "贵州茅台",
+              "evidence_ref": {
+                "capability_id": "aquant.research_card.read",
+                "evidence_id": "aquant-result://aquant.research_card.read/0000e2795d262e7226623e34756f34969a78ae7c8948fa72a2c5da7347d6c87e",
+                "invocation_id": "invoke_92d3a2cb70f54f2f",
+                "result_sha256": "sha256:0000e2795d262e7226623e34756f34969a78ae7c8948fa72a2c5da7347d6c87e"
+              },
               "exchange": "SSE",
               "factors": [
                 {
@@ -472,7 +456,7 @@
               "watermark": "REAL MARKET DATA, RECONSTRUCTED POINT-IN-TIME -- NOT VALID FOR FORMAL PIT BACKTESTS"
             },
             "schema_version": "aios.runtime_invocation_result.v0.1",
-            "trace_id": "q5-a04-trace-52eb935f0e",
+            "trace_id": "q5-a04-trace-5bd973f6d5",
             "work_item_id": null
           }
         },
@@ -487,7 +471,7 @@
             "usage_records": [
               {
                 "source": "native_runtime",
-                "run_id": "run_fd_376be8c7dba237de0b737680670043486d4bd63a"
+                "run_id": "run_fd_5cb23e8add62a095b2d8933fc778ea7a4b197d50"
               }
             ],
             "warnings": []
@@ -510,12 +494,12 @@
         "no_product_writes": true,
         "job_count_before": 0,
         "job_count_after": 0,
-        "state_sha256_before": "sha256:ef5558875d073fdd74d1ba7b171c6f40284690dfae2902c84984dc80ef55a108",
-        "state_sha256_after": "sha256:ef5558875d073fdd74d1ba7b171c6f40284690dfae2902c84984dc80ef55a108",
+        "state_sha256_before": "sha256:31dd12f6ab9a079b5a0c1944f6279a676a1a54f68c424c9512aba4084232cdfe",
+        "state_sha256_after": "sha256:31dd12f6ab9a079b5a0c1944f6279a676a1a54f68c424c9512aba4084232cdfe",
         "response": {
           "capability_id": "aquant.event_evidence.read",
-          "idempotency_key": "invoke_e5e058bfa638429a",
-          "invocation_id": "invoke_e5e058bfa638429a",
+          "idempotency_key": "invoke_11b41b6776194b65",
+          "invocation_id": "invoke_11b41b6776194b65",
           "output": {
             "as_of_time": "2026-09-14T07:00:00+00:00",
             "count": 1,
@@ -547,6 +531,12 @@
                 "verificationStatus": "UNVERIFIED"
               }
             ],
+            "evidence_ref": {
+              "capability_id": "aquant.event_evidence.read",
+              "evidence_id": "aquant-result://aquant.event_evidence.read/325b9889ca22cfaa19a9da465fa08fbf7e0204365246d21d9c6eb08d756b9fd6",
+              "invocation_id": "invoke_11b41b6776194b65",
+              "result_sha256": "sha256:325b9889ca22cfaa19a9da465fa08fbf7e0204365246d21d9c6eb08d756b9fd6"
+            },
             "instrument_id": "SH.600519",
             "ok": true,
             "pit_filter": "available_at <= as_of_time",
@@ -554,7 +544,7 @@
             "watermark": "REAL MARKET DATA, RECONSTRUCTED POINT-IN-TIME -- NOT VALID FOR FORMAL PIT BACKTESTS"
           },
           "schema_version": "aios.runtime_invocation_result.v0.1",
-          "trace_id": "q5-a05-trace-21f55217b4",
+          "trace_id": "q5-a05-trace-ecd61217ca",
           "work_item_id": null
         },
         "probe": {
@@ -562,10 +552,10 @@
           "accepted": true,
           "transport": "http",
           "http_status": 200,
-          "request_id": "q5-a05-6e8999dc4847",
-          "trace_id": "q5-a05-trace-21f55217b4",
-          "invocation_id": "invoke_e5e058bfa638429a",
-          "idempotency_key": "invoke_e5e058bfa638429a",
+          "request_id": "q5-a05-7734bb402eea",
+          "trace_id": "q5-a05-trace-ecd61217ca",
+          "invocation_id": "invoke_11b41b6776194b65",
+          "idempotency_key": "invoke_11b41b6776194b65",
           "capability_id": "aquant.event_evidence.read",
           "arguments": {
             "instrument_id": "SH.600519",
@@ -574,8 +564,8 @@
           },
           "response": {
             "capability_id": "aquant.event_evidence.read",
-            "idempotency_key": "invoke_e5e058bfa638429a",
-            "invocation_id": "invoke_e5e058bfa638429a",
+            "idempotency_key": "invoke_11b41b6776194b65",
+            "invocation_id": "invoke_11b41b6776194b65",
             "output": {
               "as_of_time": "2026-09-14T07:00:00+00:00",
               "count": 1,
@@ -607,6 +597,12 @@
                   "verificationStatus": "UNVERIFIED"
                 }
               ],
+              "evidence_ref": {
+                "capability_id": "aquant.event_evidence.read",
+                "evidence_id": "aquant-result://aquant.event_evidence.read/325b9889ca22cfaa19a9da465fa08fbf7e0204365246d21d9c6eb08d756b9fd6",
+                "invocation_id": "invoke_11b41b6776194b65",
+                "result_sha256": "sha256:325b9889ca22cfaa19a9da465fa08fbf7e0204365246d21d9c6eb08d756b9fd6"
+              },
               "instrument_id": "SH.600519",
               "ok": true,
               "pit_filter": "available_at <= as_of_time",
@@ -614,7 +610,7 @@
               "watermark": "REAL MARKET DATA, RECONSTRUCTED POINT-IN-TIME -- NOT VALID FOR FORMAL PIT BACKTESTS"
             },
             "schema_version": "aios.runtime_invocation_result.v0.1",
-            "trace_id": "q5-a05-trace-21f55217b4",
+            "trace_id": "q5-a05-trace-ecd61217ca",
             "work_item_id": null
           }
         },
@@ -654,6 +650,12 @@
             ],
             "entry_count": 1
           },
+          "evidence_ref": {
+            "capability_id": "aquant.portfolio.read",
+            "evidence_id": "aquant-result://aquant.portfolio.read/2127be6f1995e80f3f9932068ec38e4fee3bcd6ae1b4fb01b7cc18395481c809",
+            "invocation_id": "invoke_08cdf34a9b884c8c",
+            "result_sha256": "sha256:2127be6f1995e80f3f9932068ec38e4fee3bcd6ae1b4fb01b7cc18395481c809"
+          },
           "fees_by_code": [],
           "fills": [],
           "kind": "M",
@@ -688,6 +690,12 @@
             ],
             "entry_count": 1
           },
+          "evidence_ref": {
+            "capability_id": "aquant.portfolio.read",
+            "evidence_id": "aquant-result://aquant.portfolio.read/2127be6f1995e80f3f9932068ec38e4fee3bcd6ae1b4fb01b7cc18395481c809",
+            "invocation_id": "invoke_7968a7d8178844d5",
+            "result_sha256": "sha256:2127be6f1995e80f3f9932068ec38e4fee3bcd6ae1b4fb01b7cc18395481c809"
+          },
           "fees_by_code": [],
           "fills": [],
           "kind": "M",
@@ -701,8 +709,8 @@
           "status": "ACTIVE",
           "subject_scope": "agentctl_verified_actor"
         },
-        "state_sha256_before": "sha256:ef5558875d073fdd74d1ba7b171c6f40284690dfae2902c84984dc80ef55a108",
-        "state_sha256_after": "sha256:ef5558875d073fdd74d1ba7b171c6f40284690dfae2902c84984dc80ef55a108",
+        "state_sha256_before": "sha256:31dd12f6ab9a079b5a0c1944f6279a676a1a54f68c424c9512aba4084232cdfe",
+        "state_sha256_after": "sha256:31dd12f6ab9a079b5a0c1944f6279a676a1a54f68c424c9512aba4084232cdfe",
         "model": {
           "accepted": true,
           "client_mode": "assist",
@@ -710,25 +718,25 @@
           "status": "failed",
           "reply_present": true,
           "reply_head": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
-          "request_id": "q5-a06-39d4feeda884"
+          "request_id": "q5-a06-8b2f7b69e64a"
         },
         "before_read": {
           "available": true,
           "accepted": true,
           "transport": "http",
           "http_status": 200,
-          "request_id": "q5-a06-before-c72b8d341b4d",
-          "trace_id": "q5-a06-before-trace-5688addaf9",
-          "invocation_id": "invoke_ca877004b84d476c",
-          "idempotency_key": "invoke_ca877004b84d476c",
+          "request_id": "q5-a06-before-278c7608d178",
+          "trace_id": "q5-a06-before-trace-0d08468dcb",
+          "invocation_id": "invoke_08cdf34a9b884c8c",
+          "idempotency_key": "invoke_08cdf34a9b884c8c",
           "capability_id": "aquant.portfolio.read",
           "arguments": {
             "portfolio_id": "q5-live-portfolio"
           },
           "response": {
             "capability_id": "aquant.portfolio.read",
-            "idempotency_key": "invoke_ca877004b84d476c",
-            "invocation_id": "invoke_ca877004b84d476c",
+            "idempotency_key": "invoke_08cdf34a9b884c8c",
+            "invocation_id": "invoke_08cdf34a9b884c8c",
             "output": {
               "account_type": "SIMULATED",
               "actor_user_id": "aquant-q5-product",
@@ -750,6 +758,12 @@
                 ],
                 "entry_count": 1
               },
+              "evidence_ref": {
+                "capability_id": "aquant.portfolio.read",
+                "evidence_id": "aquant-result://aquant.portfolio.read/2127be6f1995e80f3f9932068ec38e4fee3bcd6ae1b4fb01b7cc18395481c809",
+                "invocation_id": "invoke_08cdf34a9b884c8c",
+                "result_sha256": "sha256:2127be6f1995e80f3f9932068ec38e4fee3bcd6ae1b4fb01b7cc18395481c809"
+              },
               "fees_by_code": [],
               "fills": [],
               "kind": "M",
@@ -764,7 +778,7 @@
               "subject_scope": "agentctl_verified_actor"
             },
             "schema_version": "aios.runtime_invocation_result.v0.1",
-            "trace_id": "q5-a06-before-trace-5688addaf9",
+            "trace_id": "q5-a06-before-trace-0d08468dcb",
             "work_item_id": null
           }
         },
@@ -773,18 +787,18 @@
           "accepted": true,
           "transport": "http",
           "http_status": 200,
-          "request_id": "q5-a06-after-0b9d30dc3cbe",
-          "trace_id": "q5-a06-after-trace-17db06a0e5",
-          "invocation_id": "invoke_db529416200646fe",
-          "idempotency_key": "invoke_db529416200646fe",
+          "request_id": "q5-a06-after-47d1e61b8ab1",
+          "trace_id": "q5-a06-after-trace-ecbbb27d1d",
+          "invocation_id": "invoke_7968a7d8178844d5",
+          "idempotency_key": "invoke_7968a7d8178844d5",
           "capability_id": "aquant.portfolio.read",
           "arguments": {
             "portfolio_id": "q5-live-portfolio"
           },
           "response": {
             "capability_id": "aquant.portfolio.read",
-            "idempotency_key": "invoke_db529416200646fe",
-            "invocation_id": "invoke_db529416200646fe",
+            "idempotency_key": "invoke_7968a7d8178844d5",
+            "invocation_id": "invoke_7968a7d8178844d5",
             "output": {
               "account_type": "SIMULATED",
               "actor_user_id": "aquant-q5-product",
@@ -806,6 +820,12 @@
                 ],
                 "entry_count": 1
               },
+              "evidence_ref": {
+                "capability_id": "aquant.portfolio.read",
+                "evidence_id": "aquant-result://aquant.portfolio.read/2127be6f1995e80f3f9932068ec38e4fee3bcd6ae1b4fb01b7cc18395481c809",
+                "invocation_id": "invoke_7968a7d8178844d5",
+                "result_sha256": "sha256:2127be6f1995e80f3f9932068ec38e4fee3bcd6ae1b4fb01b7cc18395481c809"
+              },
               "fees_by_code": [],
               "fills": [],
               "kind": "M",
@@ -820,7 +840,7 @@
               "subject_scope": "agentctl_verified_actor"
             },
             "schema_version": "aios.runtime_invocation_result.v0.1",
-            "trace_id": "q5-a06-after-trace-17db06a0e5",
+            "trace_id": "q5-a06-after-trace-ecbbb27d1d",
             "work_item_id": null
           }
         },
@@ -838,7 +858,7 @@
         "attempt_count": 10,
         "distinct_runtime_idempotency_keys": true,
         "job_ids": [
-          "job_a44b402482c348c7b2f4"
+          "job_4da28e002d9a4690b3b6"
         ],
         "product_idempotency_keys": [
           "job-638b7973d5faf55cb00c835ffb5d18e6"
@@ -853,33 +873,39 @@
           "accepted": true,
           "transport": "http",
           "http_status": 200,
-          "request_id": "q5-a07-status-8e8d545d242e",
-          "trace_id": "q5-a07-status-trace-74e2ead081",
-          "invocation_id": "invoke_b0fa3f8d63d74e2c",
-          "idempotency_key": "invoke_b0fa3f8d63d74e2c",
+          "request_id": "q5-a07-status-f42cd6a4d481",
+          "trace_id": "q5-a07-status-trace-1351e2ff30",
+          "invocation_id": "invoke_593427929dde409e",
+          "idempotency_key": "invoke_593427929dde409e",
           "capability_id": "aquant.job.status",
           "arguments": {
-            "job_id": "job_a44b402482c348c7b2f4"
+            "job_id": "job_4da28e002d9a4690b3b6"
           },
           "response": {
             "capability_id": "aquant.job.status",
-            "idempotency_key": "invoke_b0fa3f8d63d74e2c",
-            "invocation_id": "invoke_b0fa3f8d63d74e2c",
+            "idempotency_key": "invoke_593427929dde409e",
+            "invocation_id": "invoke_593427929dde409e",
             "output": {
               "_frontdesk_step_status": "pending",
               "actor_user_id": "aquant-q5-product",
               "attemptCount": 0,
               "configVersion": "default",
+              "evidence_ref": {
+                "capability_id": "aquant.job.status",
+                "evidence_id": "aquant-result://aquant.job.status/03d2616dff5ea6b910e7b2d6e7231e29fa2f8f73eaa4b6ebc6a98dcfd6670b17",
+                "invocation_id": "invoke_593427929dde409e",
+                "result_sha256": "sha256:03d2616dff5ea6b910e7b2d6e7231e29fa2f8f73eaa4b6ebc6a98dcfd6670b17"
+              },
               "execution_contract": {
                 "executed": true,
                 "job_lifecycle_role": "status",
                 "job_ref": {
-                  "invocation_id": "invoke_b0fa3f8d63d74e2c",
-                  "job_id": "job_a44b402482c348c7b2f4",
+                  "invocation_id": "invoke_593427929dde409e",
+                  "job_id": "job_4da28e002d9a4690b3b6",
                   "owner": "aquant_lab",
                   "schema_version": "agentctl.runtime_job_ref.v1",
                   "status": "queued",
-                  "trace_id": "q5-a07-status-trace-74e2ead081"
+                  "trace_id": "q5-a07-status-trace-1351e2ff30"
                 },
                 "kind": "AgentctlRuntimeJobExecutionContract",
                 "next_action": "Query the product-owned job status before claiming completion.",
@@ -889,15 +915,15 @@
                 "terminal": false
               },
               "idempotencyKey": "job-638b7973d5faf55cb00c835ffb5d18e6",
-              "jobId": "job_a44b402482c348c7b2f4",
+              "jobId": "job_4da28e002d9a4690b3b6",
               "jobType": "FACTOR_COMPUTE",
               "job_ref": {
-                "invocation_id": "invoke_b0fa3f8d63d74e2c",
-                "job_id": "job_a44b402482c348c7b2f4",
+                "invocation_id": "invoke_593427929dde409e",
+                "job_id": "job_4da28e002d9a4690b3b6",
                 "owner": "aquant_lab",
                 "schema_version": "agentctl.runtime_job_ref.v1",
                 "status": "queued",
-                "trace_id": "q5-a07-status-trace-74e2ead081"
+                "trace_id": "q5-a07-status-trace-1351e2ff30"
               },
               "ok": true,
               "snapshotId": "snap-universe",
@@ -905,22 +931,22 @@
               "tradingDay": "2026-09-11"
             },
             "schema_version": "aios.runtime_invocation_result.v0.1",
-            "trace_id": "q5-a07-status-trace-74e2ead081",
+            "trace_id": "q5-a07-status-trace-1351e2ff30",
             "work_item_id": null
           }
         },
-        "state_sha256_before": "sha256:ef5558875d073fdd74d1ba7b171c6f40284690dfae2902c84984dc80ef55a108",
-        "state_sha256_after": "sha256:69e29bf221764c74bb3745c6cad843f1237910bab832eb9cace29fe94bc50809",
+        "state_sha256_before": "sha256:31dd12f6ab9a079b5a0c1944f6279a676a1a54f68c424c9512aba4084232cdfe",
+        "state_sha256_after": "sha256:bcd0a13a539dec49359aa43efc12364bbc4f255339ad5a9be39c299d8edad400",
         "probes": [
           {
             "available": true,
             "accepted": true,
             "transport": "http",
             "http_status": 200,
-            "request_id": "q5-a07-request-1-8ebe97767d",
-            "trace_id": "q5-a07-trace-1-8ebe97767d",
-            "invocation_id": "invoke_2c5a3c7ffd9f4bd4",
-            "idempotency_key": "q5-a07-runtime-1-8ebe97767d",
+            "request_id": "q5-a07-request-1-a83ff42792",
+            "trace_id": "q5-a07-trace-1-a83ff42792",
+            "invocation_id": "invoke_ba360c9e27944716",
+            "idempotency_key": "q5-a07-runtime-1-a83ff42792",
             "capability_id": "aquant.experiment.submit",
             "arguments": {
               "job_type": "FACTOR_COMPUTE",
@@ -929,25 +955,31 @@
             },
             "response": {
               "capability_id": "aquant.experiment.submit",
-              "idempotency_key": "q5-a07-runtime-1-8ebe97767d",
-              "invocation_id": "invoke_2c5a3c7ffd9f4bd4",
+              "idempotency_key": "q5-a07-runtime-1-a83ff42792",
+              "invocation_id": "invoke_ba360c9e27944716",
               "output": {
                 "_frontdesk_step_status": "pending",
                 "actor_user_id": "aquant-q5-product",
-                "created": true,
+                "created": false,
+                "evidence_ref": {
+                  "capability_id": "aquant.experiment.submit",
+                  "evidence_id": "aquant-result://aquant.experiment.submit/0cf12c100c2777f77e453e57382d975ee6fbf25e83a7e7adf20c5200b37c990e",
+                  "invocation_id": "invoke_ba360c9e27944716",
+                  "result_sha256": "sha256:0cf12c100c2777f77e453e57382d975ee6fbf25e83a7e7adf20c5200b37c990e"
+                },
                 "execution_contract": {
                   "executed": true,
                   "job_lifecycle_role": "submit",
                   "job_ref": {
-                    "invocation_id": "invoke_2c5a3c7ffd9f4bd4",
-                    "job_id": "job_a44b402482c348c7b2f4",
+                    "invocation_id": "invoke_ba360c9e27944716",
+                    "job_id": "job_4da28e002d9a4690b3b6",
                     "owner": "aquant_lab",
                     "schema_version": "agentctl.runtime_job_ref.v1",
                     "status": "queued",
                     "status_capability_id": "aquant.job.status",
-                    "submitted_at": "2026-09-19T11:45:09.317495+00:00",
-                    "trace_id": "q5-a07-trace-1-8ebe97767d",
-                    "work_item_id": "q5-a07-work-1-8ebe97767d"
+                    "submitted_at": "2026-09-19T12:19:02.418939+00:00",
+                    "trace_id": "q5-a07-trace-1-a83ff42792",
+                    "work_item_id": "q5-a07-work-1-a83ff42792"
                   },
                   "kind": "AgentctlRuntimeJobExecutionContract",
                   "next_action": "Query product-owned job status through capability aquant.job.status.",
@@ -958,30 +990,108 @@
                 },
                 "idempotencyKey": "job-638b7973d5faf55cb00c835ffb5d18e6",
                 "idempotency_key": "job-638b7973d5faf55cb00c835ffb5d18e6",
-                "jobId": "job_a44b402482c348c7b2f4",
+                "jobId": "job_4da28e002d9a4690b3b6",
                 "jobType": "FACTOR_COMPUTE",
-                "job_id": "job_a44b402482c348c7b2f4",
+                "job_id": "job_4da28e002d9a4690b3b6",
                 "job_ref": {
-                  "invocation_id": "invoke_2c5a3c7ffd9f4bd4",
-                  "job_id": "job_a44b402482c348c7b2f4",
+                  "invocation_id": "invoke_ba360c9e27944716",
+                  "job_id": "job_4da28e002d9a4690b3b6",
                   "owner": "aquant_lab",
                   "schema_version": "agentctl.runtime_job_ref.v1",
                   "status": "queued",
                   "status_capability_id": "aquant.job.status",
-                  "submitted_at": "2026-09-19T11:45:09.317495+00:00",
-                  "trace_id": "q5-a07-trace-1-8ebe97767d",
-                  "work_item_id": "q5-a07-work-1-8ebe97767d"
+                  "submitted_at": "2026-09-19T12:19:02.418939+00:00",
+                  "trace_id": "q5-a07-trace-1-a83ff42792",
+                  "work_item_id": "q5-a07-work-1-a83ff42792"
+                },
+                "note": "重复提交返回同一条作业：同一逻辑作业不产生第二次计算（§8.4）",
+                "ok": true,
+                "snapshotId": "snap-universe",
+                "status": "PENDING",
+                "submittedAt": "2026-09-19T12:19:02.418939+00:00",
+                "tradingDay": "2026-09-11"
+              },
+              "schema_version": "aios.runtime_invocation_result.v0.1",
+              "trace_id": "q5-a07-trace-1-a83ff42792",
+              "work_item_id": "q5-a07-work-1-a83ff42792"
+            }
+          },
+          {
+            "available": true,
+            "accepted": true,
+            "transport": "http",
+            "http_status": 200,
+            "request_id": "q5-a07-request-2-06aaca4641",
+            "trace_id": "q5-a07-trace-2-06aaca4641",
+            "invocation_id": "invoke_e260781360ff427f",
+            "idempotency_key": "q5-a07-runtime-2-06aaca4641",
+            "capability_id": "aquant.experiment.submit",
+            "arguments": {
+              "job_type": "FACTOR_COMPUTE",
+              "trading_day": "2026-09-11",
+              "snapshot_id": "snap-universe"
+            },
+            "response": {
+              "capability_id": "aquant.experiment.submit",
+              "idempotency_key": "q5-a07-runtime-2-06aaca4641",
+              "invocation_id": "invoke_e260781360ff427f",
+              "output": {
+                "_frontdesk_step_status": "pending",
+                "actor_user_id": "aquant-q5-product",
+                "created": true,
+                "evidence_ref": {
+                  "capability_id": "aquant.experiment.submit",
+                  "evidence_id": "aquant-result://aquant.experiment.submit/296a9c0dabd3ba8c890e2005fd8b380799bb3273696d6bff11e83fde1c5b2417",
+                  "invocation_id": "invoke_e260781360ff427f",
+                  "result_sha256": "sha256:296a9c0dabd3ba8c890e2005fd8b380799bb3273696d6bff11e83fde1c5b2417"
+                },
+                "execution_contract": {
+                  "executed": true,
+                  "job_lifecycle_role": "submit",
+                  "job_ref": {
+                    "invocation_id": "invoke_e260781360ff427f",
+                    "job_id": "job_4da28e002d9a4690b3b6",
+                    "owner": "aquant_lab",
+                    "schema_version": "agentctl.runtime_job_ref.v1",
+                    "status": "queued",
+                    "status_capability_id": "aquant.job.status",
+                    "submitted_at": "2026-09-19T12:19:02.216348+00:00",
+                    "trace_id": "q5-a07-trace-2-06aaca4641",
+                    "work_item_id": "q5-a07-work-2-06aaca4641"
+                  },
+                  "kind": "AgentctlRuntimeJobExecutionContract",
+                  "next_action": "Query product-owned job status through capability aquant.job.status.",
+                  "reason": "product_job_accepted",
+                  "schema_version": "agentctl.runtime_job_execution.v1",
+                  "status": "pending",
+                  "terminal": false
+                },
+                "idempotencyKey": "job-638b7973d5faf55cb00c835ffb5d18e6",
+                "idempotency_key": "job-638b7973d5faf55cb00c835ffb5d18e6",
+                "jobId": "job_4da28e002d9a4690b3b6",
+                "jobType": "FACTOR_COMPUTE",
+                "job_id": "job_4da28e002d9a4690b3b6",
+                "job_ref": {
+                  "invocation_id": "invoke_e260781360ff427f",
+                  "job_id": "job_4da28e002d9a4690b3b6",
+                  "owner": "aquant_lab",
+                  "schema_version": "agentctl.runtime_job_ref.v1",
+                  "status": "queued",
+                  "status_capability_id": "aquant.job.status",
+                  "submitted_at": "2026-09-19T12:19:02.216348+00:00",
+                  "trace_id": "q5-a07-trace-2-06aaca4641",
+                  "work_item_id": "q5-a07-work-2-06aaca4641"
                 },
                 "note": "作业已入队",
                 "ok": true,
                 "snapshotId": "snap-universe",
                 "status": "PENDING",
-                "submittedAt": "2026-09-19T11:45:09.317495+00:00",
+                "submittedAt": "2026-09-19T12:19:02.216348+00:00",
                 "tradingDay": "2026-09-11"
               },
               "schema_version": "aios.runtime_invocation_result.v0.1",
-              "trace_id": "q5-a07-trace-1-8ebe97767d",
-              "work_item_id": "q5-a07-work-1-8ebe97767d"
+              "trace_id": "q5-a07-trace-2-06aaca4641",
+              "work_item_id": "q5-a07-work-2-06aaca4641"
             }
           },
           {
@@ -989,10 +1099,10 @@
             "accepted": true,
             "transport": "http",
             "http_status": 200,
-            "request_id": "q5-a07-request-2-8d3f187c19",
-            "trace_id": "q5-a07-trace-2-8d3f187c19",
-            "invocation_id": "invoke_1da025ec515d4ecc",
-            "idempotency_key": "q5-a07-runtime-2-8d3f187c19",
+            "request_id": "q5-a07-request-3-8d73fa3268",
+            "trace_id": "q5-a07-trace-3-8d73fa3268",
+            "invocation_id": "invoke_c9f3172e887e41b4",
+            "idempotency_key": "q5-a07-runtime-3-8d73fa3268",
             "capability_id": "aquant.experiment.submit",
             "arguments": {
               "job_type": "FACTOR_COMPUTE",
@@ -1001,25 +1111,31 @@
             },
             "response": {
               "capability_id": "aquant.experiment.submit",
-              "idempotency_key": "q5-a07-runtime-2-8d3f187c19",
-              "invocation_id": "invoke_1da025ec515d4ecc",
+              "idempotency_key": "q5-a07-runtime-3-8d73fa3268",
+              "invocation_id": "invoke_c9f3172e887e41b4",
               "output": {
                 "_frontdesk_step_status": "pending",
                 "actor_user_id": "aquant-q5-product",
                 "created": false,
+                "evidence_ref": {
+                  "capability_id": "aquant.experiment.submit",
+                  "evidence_id": "aquant-result://aquant.experiment.submit/698ae1f638556cabfb460a2b3246b65f05b192b691c699f91e57b70196df8936",
+                  "invocation_id": "invoke_c9f3172e887e41b4",
+                  "result_sha256": "sha256:698ae1f638556cabfb460a2b3246b65f05b192b691c699f91e57b70196df8936"
+                },
                 "execution_contract": {
                   "executed": true,
                   "job_lifecycle_role": "submit",
                   "job_ref": {
-                    "invocation_id": "invoke_1da025ec515d4ecc",
-                    "job_id": "job_a44b402482c348c7b2f4",
+                    "invocation_id": "invoke_c9f3172e887e41b4",
+                    "job_id": "job_4da28e002d9a4690b3b6",
                     "owner": "aquant_lab",
                     "schema_version": "agentctl.runtime_job_ref.v1",
                     "status": "queued",
                     "status_capability_id": "aquant.job.status",
-                    "submitted_at": "2026-09-19T11:45:09.468937+00:00",
-                    "trace_id": "q5-a07-trace-2-8d3f187c19",
-                    "work_item_id": "q5-a07-work-2-8d3f187c19"
+                    "submitted_at": "2026-09-19T12:19:02.327799+00:00",
+                    "trace_id": "q5-a07-trace-3-8d73fa3268",
+                    "work_item_id": "q5-a07-work-3-8d73fa3268"
                   },
                   "kind": "AgentctlRuntimeJobExecutionContract",
                   "next_action": "Query product-owned job status through capability aquant.job.status.",
@@ -1030,30 +1146,30 @@
                 },
                 "idempotencyKey": "job-638b7973d5faf55cb00c835ffb5d18e6",
                 "idempotency_key": "job-638b7973d5faf55cb00c835ffb5d18e6",
-                "jobId": "job_a44b402482c348c7b2f4",
+                "jobId": "job_4da28e002d9a4690b3b6",
                 "jobType": "FACTOR_COMPUTE",
-                "job_id": "job_a44b402482c348c7b2f4",
+                "job_id": "job_4da28e002d9a4690b3b6",
                 "job_ref": {
-                  "invocation_id": "invoke_1da025ec515d4ecc",
-                  "job_id": "job_a44b402482c348c7b2f4",
+                  "invocation_id": "invoke_c9f3172e887e41b4",
+                  "job_id": "job_4da28e002d9a4690b3b6",
                   "owner": "aquant_lab",
                   "schema_version": "agentctl.runtime_job_ref.v1",
                   "status": "queued",
                   "status_capability_id": "aquant.job.status",
-                  "submitted_at": "2026-09-19T11:45:09.468937+00:00",
-                  "trace_id": "q5-a07-trace-2-8d3f187c19",
-                  "work_item_id": "q5-a07-work-2-8d3f187c19"
+                  "submitted_at": "2026-09-19T12:19:02.327799+00:00",
+                  "trace_id": "q5-a07-trace-3-8d73fa3268",
+                  "work_item_id": "q5-a07-work-3-8d73fa3268"
                 },
                 "note": "重复提交返回同一条作业：同一逻辑作业不产生第二次计算（§8.4）",
                 "ok": true,
                 "snapshotId": "snap-universe",
                 "status": "PENDING",
-                "submittedAt": "2026-09-19T11:45:09.468937+00:00",
+                "submittedAt": "2026-09-19T12:19:02.327799+00:00",
                 "tradingDay": "2026-09-11"
               },
               "schema_version": "aios.runtime_invocation_result.v0.1",
-              "trace_id": "q5-a07-trace-2-8d3f187c19",
-              "work_item_id": "q5-a07-work-2-8d3f187c19"
+              "trace_id": "q5-a07-trace-3-8d73fa3268",
+              "work_item_id": "q5-a07-work-3-8d73fa3268"
             }
           },
           {
@@ -1061,10 +1177,10 @@
             "accepted": true,
             "transport": "http",
             "http_status": 200,
-            "request_id": "q5-a07-request-3-1bd1b0a1fb",
-            "trace_id": "q5-a07-trace-3-1bd1b0a1fb",
-            "invocation_id": "invoke_2200b711bb7247a7",
-            "idempotency_key": "q5-a07-runtime-3-1bd1b0a1fb",
+            "request_id": "q5-a07-request-4-ea9428d5db",
+            "trace_id": "q5-a07-trace-4-ea9428d5db",
+            "invocation_id": "invoke_1de39e99f7794fdd",
+            "idempotency_key": "q5-a07-runtime-4-ea9428d5db",
             "capability_id": "aquant.experiment.submit",
             "arguments": {
               "job_type": "FACTOR_COMPUTE",
@@ -1073,25 +1189,31 @@
             },
             "response": {
               "capability_id": "aquant.experiment.submit",
-              "idempotency_key": "q5-a07-runtime-3-1bd1b0a1fb",
-              "invocation_id": "invoke_2200b711bb7247a7",
+              "idempotency_key": "q5-a07-runtime-4-ea9428d5db",
+              "invocation_id": "invoke_1de39e99f7794fdd",
               "output": {
                 "_frontdesk_step_status": "pending",
                 "actor_user_id": "aquant-q5-product",
                 "created": false,
+                "evidence_ref": {
+                  "capability_id": "aquant.experiment.submit",
+                  "evidence_id": "aquant-result://aquant.experiment.submit/11015f9793c70c88b98fa1f88547525b3c3a2cf99915d30def52205649c45cc0",
+                  "invocation_id": "invoke_1de39e99f7794fdd",
+                  "result_sha256": "sha256:11015f9793c70c88b98fa1f88547525b3c3a2cf99915d30def52205649c45cc0"
+                },
                 "execution_contract": {
                   "executed": true,
                   "job_lifecycle_role": "submit",
                   "job_ref": {
-                    "invocation_id": "invoke_2200b711bb7247a7",
-                    "job_id": "job_a44b402482c348c7b2f4",
+                    "invocation_id": "invoke_1de39e99f7794fdd",
+                    "job_id": "job_4da28e002d9a4690b3b6",
                     "owner": "aquant_lab",
                     "schema_version": "agentctl.runtime_job_ref.v1",
                     "status": "queued",
                     "status_capability_id": "aquant.job.status",
-                    "submitted_at": "2026-09-19T11:45:09.396690+00:00",
-                    "trace_id": "q5-a07-trace-3-1bd1b0a1fb",
-                    "work_item_id": "q5-a07-work-3-1bd1b0a1fb"
+                    "submitted_at": "2026-09-19T12:19:02.584306+00:00",
+                    "trace_id": "q5-a07-trace-4-ea9428d5db",
+                    "work_item_id": "q5-a07-work-4-ea9428d5db"
                   },
                   "kind": "AgentctlRuntimeJobExecutionContract",
                   "next_action": "Query product-owned job status through capability aquant.job.status.",
@@ -1102,30 +1224,30 @@
                 },
                 "idempotencyKey": "job-638b7973d5faf55cb00c835ffb5d18e6",
                 "idempotency_key": "job-638b7973d5faf55cb00c835ffb5d18e6",
-                "jobId": "job_a44b402482c348c7b2f4",
+                "jobId": "job_4da28e002d9a4690b3b6",
                 "jobType": "FACTOR_COMPUTE",
-                "job_id": "job_a44b402482c348c7b2f4",
+                "job_id": "job_4da28e002d9a4690b3b6",
                 "job_ref": {
-                  "invocation_id": "invoke_2200b711bb7247a7",
-                  "job_id": "job_a44b402482c348c7b2f4",
+                  "invocation_id": "invoke_1de39e99f7794fdd",
+                  "job_id": "job_4da28e002d9a4690b3b6",
                   "owner": "aquant_lab",
                   "schema_version": "agentctl.runtime_job_ref.v1",
                   "status": "queued",
                   "status_capability_id": "aquant.job.status",
-                  "submitted_at": "2026-09-19T11:45:09.396690+00:00",
-                  "trace_id": "q5-a07-trace-3-1bd1b0a1fb",
-                  "work_item_id": "q5-a07-work-3-1bd1b0a1fb"
+                  "submitted_at": "2026-09-19T12:19:02.584306+00:00",
+                  "trace_id": "q5-a07-trace-4-ea9428d5db",
+                  "work_item_id": "q5-a07-work-4-ea9428d5db"
                 },
                 "note": "重复提交返回同一条作业：同一逻辑作业不产生第二次计算（§8.4）",
                 "ok": true,
                 "snapshotId": "snap-universe",
                 "status": "PENDING",
-                "submittedAt": "2026-09-19T11:45:09.396690+00:00",
+                "submittedAt": "2026-09-19T12:19:02.584306+00:00",
                 "tradingDay": "2026-09-11"
               },
               "schema_version": "aios.runtime_invocation_result.v0.1",
-              "trace_id": "q5-a07-trace-3-1bd1b0a1fb",
-              "work_item_id": "q5-a07-work-3-1bd1b0a1fb"
+              "trace_id": "q5-a07-trace-4-ea9428d5db",
+              "work_item_id": "q5-a07-work-4-ea9428d5db"
             }
           },
           {
@@ -1133,10 +1255,10 @@
             "accepted": true,
             "transport": "http",
             "http_status": 200,
-            "request_id": "q5-a07-request-4-32d986b1ed",
-            "trace_id": "q5-a07-trace-4-32d986b1ed",
-            "invocation_id": "invoke_0a30209792774b36",
-            "idempotency_key": "q5-a07-runtime-4-32d986b1ed",
+            "request_id": "q5-a07-request-5-c00a9d4c88",
+            "trace_id": "q5-a07-trace-5-c00a9d4c88",
+            "invocation_id": "invoke_4390a6f420c44568",
+            "idempotency_key": "q5-a07-runtime-5-c00a9d4c88",
             "capability_id": "aquant.experiment.submit",
             "arguments": {
               "job_type": "FACTOR_COMPUTE",
@@ -1145,25 +1267,31 @@
             },
             "response": {
               "capability_id": "aquant.experiment.submit",
-              "idempotency_key": "q5-a07-runtime-4-32d986b1ed",
-              "invocation_id": "invoke_0a30209792774b36",
+              "idempotency_key": "q5-a07-runtime-5-c00a9d4c88",
+              "invocation_id": "invoke_4390a6f420c44568",
               "output": {
                 "_frontdesk_step_status": "pending",
                 "actor_user_id": "aquant-q5-product",
                 "created": false,
+                "evidence_ref": {
+                  "capability_id": "aquant.experiment.submit",
+                  "evidence_id": "aquant-result://aquant.experiment.submit/5324d4cb8019d0d0b61a4e4ef44d41d7759c85e526894867716e4e6dc1d7a272",
+                  "invocation_id": "invoke_4390a6f420c44568",
+                  "result_sha256": "sha256:5324d4cb8019d0d0b61a4e4ef44d41d7759c85e526894867716e4e6dc1d7a272"
+                },
                 "execution_contract": {
                   "executed": true,
                   "job_lifecycle_role": "submit",
                   "job_ref": {
-                    "invocation_id": "invoke_0a30209792774b36",
-                    "job_id": "job_a44b402482c348c7b2f4",
+                    "invocation_id": "invoke_4390a6f420c44568",
+                    "job_id": "job_4da28e002d9a4690b3b6",
                     "owner": "aquant_lab",
                     "schema_version": "agentctl.runtime_job_ref.v1",
                     "status": "queued",
                     "status_capability_id": "aquant.job.status",
-                    "submitted_at": "2026-09-19T11:45:09.527197+00:00",
-                    "trace_id": "q5-a07-trace-4-32d986b1ed",
-                    "work_item_id": "q5-a07-work-4-32d986b1ed"
+                    "submitted_at": "2026-09-19T12:19:02.501969+00:00",
+                    "trace_id": "q5-a07-trace-5-c00a9d4c88",
+                    "work_item_id": "q5-a07-work-5-c00a9d4c88"
                   },
                   "kind": "AgentctlRuntimeJobExecutionContract",
                   "next_action": "Query product-owned job status through capability aquant.job.status.",
@@ -1174,30 +1302,30 @@
                 },
                 "idempotencyKey": "job-638b7973d5faf55cb00c835ffb5d18e6",
                 "idempotency_key": "job-638b7973d5faf55cb00c835ffb5d18e6",
-                "jobId": "job_a44b402482c348c7b2f4",
+                "jobId": "job_4da28e002d9a4690b3b6",
                 "jobType": "FACTOR_COMPUTE",
-                "job_id": "job_a44b402482c348c7b2f4",
+                "job_id": "job_4da28e002d9a4690b3b6",
                 "job_ref": {
-                  "invocation_id": "invoke_0a30209792774b36",
-                  "job_id": "job_a44b402482c348c7b2f4",
+                  "invocation_id": "invoke_4390a6f420c44568",
+                  "job_id": "job_4da28e002d9a4690b3b6",
                   "owner": "aquant_lab",
                   "schema_version": "agentctl.runtime_job_ref.v1",
                   "status": "queued",
                   "status_capability_id": "aquant.job.status",
-                  "submitted_at": "2026-09-19T11:45:09.527197+00:00",
-                  "trace_id": "q5-a07-trace-4-32d986b1ed",
-                  "work_item_id": "q5-a07-work-4-32d986b1ed"
+                  "submitted_at": "2026-09-19T12:19:02.501969+00:00",
+                  "trace_id": "q5-a07-trace-5-c00a9d4c88",
+                  "work_item_id": "q5-a07-work-5-c00a9d4c88"
                 },
                 "note": "重复提交返回同一条作业：同一逻辑作业不产生第二次计算（§8.4）",
                 "ok": true,
                 "snapshotId": "snap-universe",
                 "status": "PENDING",
-                "submittedAt": "2026-09-19T11:45:09.527197+00:00",
+                "submittedAt": "2026-09-19T12:19:02.501969+00:00",
                 "tradingDay": "2026-09-11"
               },
               "schema_version": "aios.runtime_invocation_result.v0.1",
-              "trace_id": "q5-a07-trace-4-32d986b1ed",
-              "work_item_id": "q5-a07-work-4-32d986b1ed"
+              "trace_id": "q5-a07-trace-5-c00a9d4c88",
+              "work_item_id": "q5-a07-work-5-c00a9d4c88"
             }
           },
           {
@@ -1205,10 +1333,10 @@
             "accepted": true,
             "transport": "http",
             "http_status": 200,
-            "request_id": "q5-a07-request-5-d348a32e5c",
-            "trace_id": "q5-a07-trace-5-d348a32e5c",
-            "invocation_id": "invoke_d00709e7e3274e59",
-            "idempotency_key": "q5-a07-runtime-5-d348a32e5c",
+            "request_id": "q5-a07-request-6-9439a8a181",
+            "trace_id": "q5-a07-trace-6-9439a8a181",
+            "invocation_id": "invoke_c0c6c822e97d4759",
+            "idempotency_key": "q5-a07-runtime-6-9439a8a181",
             "capability_id": "aquant.experiment.submit",
             "arguments": {
               "job_type": "FACTOR_COMPUTE",
@@ -1217,25 +1345,31 @@
             },
             "response": {
               "capability_id": "aquant.experiment.submit",
-              "idempotency_key": "q5-a07-runtime-5-d348a32e5c",
-              "invocation_id": "invoke_d00709e7e3274e59",
+              "idempotency_key": "q5-a07-runtime-6-9439a8a181",
+              "invocation_id": "invoke_c0c6c822e97d4759",
               "output": {
                 "_frontdesk_step_status": "pending",
                 "actor_user_id": "aquant-q5-product",
                 "created": false,
+                "evidence_ref": {
+                  "capability_id": "aquant.experiment.submit",
+                  "evidence_id": "aquant-result://aquant.experiment.submit/57f861b5e22d6e9edb9b87da4bafbc6ee11f6537e1e2c591fe4f0030159e6bf6",
+                  "invocation_id": "invoke_c0c6c822e97d4759",
+                  "result_sha256": "sha256:57f861b5e22d6e9edb9b87da4bafbc6ee11f6537e1e2c591fe4f0030159e6bf6"
+                },
                 "execution_contract": {
                   "executed": true,
                   "job_lifecycle_role": "submit",
                   "job_ref": {
-                    "invocation_id": "invoke_d00709e7e3274e59",
-                    "job_id": "job_a44b402482c348c7b2f4",
+                    "invocation_id": "invoke_c0c6c822e97d4759",
+                    "job_id": "job_4da28e002d9a4690b3b6",
                     "owner": "aquant_lab",
                     "schema_version": "agentctl.runtime_job_ref.v1",
                     "status": "queued",
                     "status_capability_id": "aquant.job.status",
-                    "submitted_at": "2026-09-19T11:45:09.597348+00:00",
-                    "trace_id": "q5-a07-trace-5-d348a32e5c",
-                    "work_item_id": "q5-a07-work-5-d348a32e5c"
+                    "submitted_at": "2026-09-19T12:19:02.906364+00:00",
+                    "trace_id": "q5-a07-trace-6-9439a8a181",
+                    "work_item_id": "q5-a07-work-6-9439a8a181"
                   },
                   "kind": "AgentctlRuntimeJobExecutionContract",
                   "next_action": "Query product-owned job status through capability aquant.job.status.",
@@ -1246,30 +1380,30 @@
                 },
                 "idempotencyKey": "job-638b7973d5faf55cb00c835ffb5d18e6",
                 "idempotency_key": "job-638b7973d5faf55cb00c835ffb5d18e6",
-                "jobId": "job_a44b402482c348c7b2f4",
+                "jobId": "job_4da28e002d9a4690b3b6",
                 "jobType": "FACTOR_COMPUTE",
-                "job_id": "job_a44b402482c348c7b2f4",
+                "job_id": "job_4da28e002d9a4690b3b6",
                 "job_ref": {
-                  "invocation_id": "invoke_d00709e7e3274e59",
-                  "job_id": "job_a44b402482c348c7b2f4",
+                  "invocation_id": "invoke_c0c6c822e97d4759",
+                  "job_id": "job_4da28e002d9a4690b3b6",
                   "owner": "aquant_lab",
                   "schema_version": "agentctl.runtime_job_ref.v1",
                   "status": "queued",
                   "status_capability_id": "aquant.job.status",
-                  "submitted_at": "2026-09-19T11:45:09.597348+00:00",
-                  "trace_id": "q5-a07-trace-5-d348a32e5c",
-                  "work_item_id": "q5-a07-work-5-d348a32e5c"
+                  "submitted_at": "2026-09-19T12:19:02.906364+00:00",
+                  "trace_id": "q5-a07-trace-6-9439a8a181",
+                  "work_item_id": "q5-a07-work-6-9439a8a181"
                 },
                 "note": "重复提交返回同一条作业：同一逻辑作业不产生第二次计算（§8.4）",
                 "ok": true,
                 "snapshotId": "snap-universe",
                 "status": "PENDING",
-                "submittedAt": "2026-09-19T11:45:09.597348+00:00",
+                "submittedAt": "2026-09-19T12:19:02.906364+00:00",
                 "tradingDay": "2026-09-11"
               },
               "schema_version": "aios.runtime_invocation_result.v0.1",
-              "trace_id": "q5-a07-trace-5-d348a32e5c",
-              "work_item_id": "q5-a07-work-5-d348a32e5c"
+              "trace_id": "q5-a07-trace-6-9439a8a181",
+              "work_item_id": "q5-a07-work-6-9439a8a181"
             }
           },
           {
@@ -1277,10 +1411,10 @@
             "accepted": true,
             "transport": "http",
             "http_status": 200,
-            "request_id": "q5-a07-request-6-3389be82dc",
-            "trace_id": "q5-a07-trace-6-3389be82dc",
-            "invocation_id": "invoke_c93cd4b450a74e1d",
-            "idempotency_key": "q5-a07-runtime-6-3389be82dc",
+            "request_id": "q5-a07-request-7-ba3c4fc437",
+            "trace_id": "q5-a07-trace-7-ba3c4fc437",
+            "invocation_id": "invoke_2eafeee76b7c493b",
+            "idempotency_key": "q5-a07-runtime-7-ba3c4fc437",
             "capability_id": "aquant.experiment.submit",
             "arguments": {
               "job_type": "FACTOR_COMPUTE",
@@ -1289,25 +1423,31 @@
             },
             "response": {
               "capability_id": "aquant.experiment.submit",
-              "idempotency_key": "q5-a07-runtime-6-3389be82dc",
-              "invocation_id": "invoke_c93cd4b450a74e1d",
+              "idempotency_key": "q5-a07-runtime-7-ba3c4fc437",
+              "invocation_id": "invoke_2eafeee76b7c493b",
               "output": {
                 "_frontdesk_step_status": "pending",
                 "actor_user_id": "aquant-q5-product",
                 "created": false,
+                "evidence_ref": {
+                  "capability_id": "aquant.experiment.submit",
+                  "evidence_id": "aquant-result://aquant.experiment.submit/831228b88c4e039a5a495139e3bcad9d694e4de7e1a522889ab0d8e399d1e5c7",
+                  "invocation_id": "invoke_2eafeee76b7c493b",
+                  "result_sha256": "sha256:831228b88c4e039a5a495139e3bcad9d694e4de7e1a522889ab0d8e399d1e5c7"
+                },
                 "execution_contract": {
                   "executed": true,
                   "job_lifecycle_role": "submit",
                   "job_ref": {
-                    "invocation_id": "invoke_c93cd4b450a74e1d",
-                    "job_id": "job_a44b402482c348c7b2f4",
+                    "invocation_id": "invoke_2eafeee76b7c493b",
+                    "job_id": "job_4da28e002d9a4690b3b6",
                     "owner": "aquant_lab",
                     "schema_version": "agentctl.runtime_job_ref.v1",
                     "status": "queued",
                     "status_capability_id": "aquant.job.status",
-                    "submitted_at": "2026-09-19T11:45:09.792821+00:00",
-                    "trace_id": "q5-a07-trace-6-3389be82dc",
-                    "work_item_id": "q5-a07-work-6-3389be82dc"
+                    "submitted_at": "2026-09-19T12:19:02.836733+00:00",
+                    "trace_id": "q5-a07-trace-7-ba3c4fc437",
+                    "work_item_id": "q5-a07-work-7-ba3c4fc437"
                   },
                   "kind": "AgentctlRuntimeJobExecutionContract",
                   "next_action": "Query product-owned job status through capability aquant.job.status.",
@@ -1318,30 +1458,30 @@
                 },
                 "idempotencyKey": "job-638b7973d5faf55cb00c835ffb5d18e6",
                 "idempotency_key": "job-638b7973d5faf55cb00c835ffb5d18e6",
-                "jobId": "job_a44b402482c348c7b2f4",
+                "jobId": "job_4da28e002d9a4690b3b6",
                 "jobType": "FACTOR_COMPUTE",
-                "job_id": "job_a44b402482c348c7b2f4",
+                "job_id": "job_4da28e002d9a4690b3b6",
                 "job_ref": {
-                  "invocation_id": "invoke_c93cd4b450a74e1d",
-                  "job_id": "job_a44b402482c348c7b2f4",
+                  "invocation_id": "invoke_2eafeee76b7c493b",
+                  "job_id": "job_4da28e002d9a4690b3b6",
                   "owner": "aquant_lab",
                   "schema_version": "agentctl.runtime_job_ref.v1",
                   "status": "queued",
                   "status_capability_id": "aquant.job.status",
-                  "submitted_at": "2026-09-19T11:45:09.792821+00:00",
-                  "trace_id": "q5-a07-trace-6-3389be82dc",
-                  "work_item_id": "q5-a07-work-6-3389be82dc"
+                  "submitted_at": "2026-09-19T12:19:02.836733+00:00",
+                  "trace_id": "q5-a07-trace-7-ba3c4fc437",
+                  "work_item_id": "q5-a07-work-7-ba3c4fc437"
                 },
                 "note": "重复提交返回同一条作业：同一逻辑作业不产生第二次计算（§8.4）",
                 "ok": true,
                 "snapshotId": "snap-universe",
                 "status": "PENDING",
-                "submittedAt": "2026-09-19T11:45:09.792821+00:00",
+                "submittedAt": "2026-09-19T12:19:02.836733+00:00",
                 "tradingDay": "2026-09-11"
               },
               "schema_version": "aios.runtime_invocation_result.v0.1",
-              "trace_id": "q5-a07-trace-6-3389be82dc",
-              "work_item_id": "q5-a07-work-6-3389be82dc"
+              "trace_id": "q5-a07-trace-7-ba3c4fc437",
+              "work_item_id": "q5-a07-work-7-ba3c4fc437"
             }
           },
           {
@@ -1349,10 +1489,10 @@
             "accepted": true,
             "transport": "http",
             "http_status": 200,
-            "request_id": "q5-a07-request-7-2f928eed15",
-            "trace_id": "q5-a07-trace-7-2f928eed15",
-            "invocation_id": "invoke_486983cf586e4395",
-            "idempotency_key": "q5-a07-runtime-7-2f928eed15",
+            "request_id": "q5-a07-request-8-d97d8ccbae",
+            "trace_id": "q5-a07-trace-8-d97d8ccbae",
+            "invocation_id": "invoke_3d968b3ab2bf45a1",
+            "idempotency_key": "q5-a07-runtime-8-d97d8ccbae",
             "capability_id": "aquant.experiment.submit",
             "arguments": {
               "job_type": "FACTOR_COMPUTE",
@@ -1361,25 +1501,31 @@
             },
             "response": {
               "capability_id": "aquant.experiment.submit",
-              "idempotency_key": "q5-a07-runtime-7-2f928eed15",
-              "invocation_id": "invoke_486983cf586e4395",
+              "idempotency_key": "q5-a07-runtime-8-d97d8ccbae",
+              "invocation_id": "invoke_3d968b3ab2bf45a1",
               "output": {
                 "_frontdesk_step_status": "pending",
                 "actor_user_id": "aquant-q5-product",
                 "created": false,
+                "evidence_ref": {
+                  "capability_id": "aquant.experiment.submit",
+                  "evidence_id": "aquant-result://aquant.experiment.submit/b38416fe4b6d803083b4a0576ade0f2d795b4cea8347d86c9176f64598a1ca52",
+                  "invocation_id": "invoke_3d968b3ab2bf45a1",
+                  "result_sha256": "sha256:b38416fe4b6d803083b4a0576ade0f2d795b4cea8347d86c9176f64598a1ca52"
+                },
                 "execution_contract": {
                   "executed": true,
                   "job_lifecycle_role": "submit",
                   "job_ref": {
-                    "invocation_id": "invoke_486983cf586e4395",
-                    "job_id": "job_a44b402482c348c7b2f4",
+                    "invocation_id": "invoke_3d968b3ab2bf45a1",
+                    "job_id": "job_4da28e002d9a4690b3b6",
                     "owner": "aquant_lab",
                     "schema_version": "agentctl.runtime_job_ref.v1",
                     "status": "queued",
                     "status_capability_id": "aquant.job.status",
-                    "submitted_at": "2026-09-19T11:45:09.670829+00:00",
-                    "trace_id": "q5-a07-trace-7-2f928eed15",
-                    "work_item_id": "q5-a07-work-7-2f928eed15"
+                    "submitted_at": "2026-09-19T12:19:02.762953+00:00",
+                    "trace_id": "q5-a07-trace-8-d97d8ccbae",
+                    "work_item_id": "q5-a07-work-8-d97d8ccbae"
                   },
                   "kind": "AgentctlRuntimeJobExecutionContract",
                   "next_action": "Query product-owned job status through capability aquant.job.status.",
@@ -1390,30 +1536,30 @@
                 },
                 "idempotencyKey": "job-638b7973d5faf55cb00c835ffb5d18e6",
                 "idempotency_key": "job-638b7973d5faf55cb00c835ffb5d18e6",
-                "jobId": "job_a44b402482c348c7b2f4",
+                "jobId": "job_4da28e002d9a4690b3b6",
                 "jobType": "FACTOR_COMPUTE",
-                "job_id": "job_a44b402482c348c7b2f4",
+                "job_id": "job_4da28e002d9a4690b3b6",
                 "job_ref": {
-                  "invocation_id": "invoke_486983cf586e4395",
-                  "job_id": "job_a44b402482c348c7b2f4",
+                  "invocation_id": "invoke_3d968b3ab2bf45a1",
+                  "job_id": "job_4da28e002d9a4690b3b6",
                   "owner": "aquant_lab",
                   "schema_version": "agentctl.runtime_job_ref.v1",
                   "status": "queued",
                   "status_capability_id": "aquant.job.status",
-                  "submitted_at": "2026-09-19T11:45:09.670829+00:00",
-                  "trace_id": "q5-a07-trace-7-2f928eed15",
-                  "work_item_id": "q5-a07-work-7-2f928eed15"
+                  "submitted_at": "2026-09-19T12:19:02.762953+00:00",
+                  "trace_id": "q5-a07-trace-8-d97d8ccbae",
+                  "work_item_id": "q5-a07-work-8-d97d8ccbae"
                 },
                 "note": "重复提交返回同一条作业：同一逻辑作业不产生第二次计算（§8.4）",
                 "ok": true,
                 "snapshotId": "snap-universe",
                 "status": "PENDING",
-                "submittedAt": "2026-09-19T11:45:09.670829+00:00",
+                "submittedAt": "2026-09-19T12:19:02.762953+00:00",
                 "tradingDay": "2026-09-11"
               },
               "schema_version": "aios.runtime_invocation_result.v0.1",
-              "trace_id": "q5-a07-trace-7-2f928eed15",
-              "work_item_id": "q5-a07-work-7-2f928eed15"
+              "trace_id": "q5-a07-trace-8-d97d8ccbae",
+              "work_item_id": "q5-a07-work-8-d97d8ccbae"
             }
           },
           {
@@ -1421,10 +1567,10 @@
             "accepted": true,
             "transport": "http",
             "http_status": 200,
-            "request_id": "q5-a07-request-8-21f8232f8d",
-            "trace_id": "q5-a07-trace-8-21f8232f8d",
-            "invocation_id": "invoke_604ad1fac0aa4cd9",
-            "idempotency_key": "q5-a07-runtime-8-21f8232f8d",
+            "request_id": "q5-a07-request-9-b044dd87e3",
+            "trace_id": "q5-a07-trace-9-b044dd87e3",
+            "invocation_id": "invoke_a66f1263e1114226",
+            "idempotency_key": "q5-a07-runtime-9-b044dd87e3",
             "capability_id": "aquant.experiment.submit",
             "arguments": {
               "job_type": "FACTOR_COMPUTE",
@@ -1433,25 +1579,31 @@
             },
             "response": {
               "capability_id": "aquant.experiment.submit",
-              "idempotency_key": "q5-a07-runtime-8-21f8232f8d",
-              "invocation_id": "invoke_604ad1fac0aa4cd9",
+              "idempotency_key": "q5-a07-runtime-9-b044dd87e3",
+              "invocation_id": "invoke_a66f1263e1114226",
               "output": {
                 "_frontdesk_step_status": "pending",
                 "actor_user_id": "aquant-q5-product",
                 "created": false,
+                "evidence_ref": {
+                  "capability_id": "aquant.experiment.submit",
+                  "evidence_id": "aquant-result://aquant.experiment.submit/bfbc80c4d0ec8140d7b01894990eff212a7e138807089318a472544579905a65",
+                  "invocation_id": "invoke_a66f1263e1114226",
+                  "result_sha256": "sha256:bfbc80c4d0ec8140d7b01894990eff212a7e138807089318a472544579905a65"
+                },
                 "execution_contract": {
                   "executed": true,
                   "job_lifecycle_role": "submit",
                   "job_ref": {
-                    "invocation_id": "invoke_604ad1fac0aa4cd9",
-                    "job_id": "job_a44b402482c348c7b2f4",
+                    "invocation_id": "invoke_a66f1263e1114226",
+                    "job_id": "job_4da28e002d9a4690b3b6",
                     "owner": "aquant_lab",
                     "schema_version": "agentctl.runtime_job_ref.v1",
                     "status": "queued",
                     "status_capability_id": "aquant.job.status",
-                    "submitted_at": "2026-09-19T11:45:09.727157+00:00",
-                    "trace_id": "q5-a07-trace-8-21f8232f8d",
-                    "work_item_id": "q5-a07-work-8-21f8232f8d"
+                    "submitted_at": "2026-09-19T12:19:02.667613+00:00",
+                    "trace_id": "q5-a07-trace-9-b044dd87e3",
+                    "work_item_id": "q5-a07-work-9-b044dd87e3"
                   },
                   "kind": "AgentctlRuntimeJobExecutionContract",
                   "next_action": "Query product-owned job status through capability aquant.job.status.",
@@ -1462,30 +1614,30 @@
                 },
                 "idempotencyKey": "job-638b7973d5faf55cb00c835ffb5d18e6",
                 "idempotency_key": "job-638b7973d5faf55cb00c835ffb5d18e6",
-                "jobId": "job_a44b402482c348c7b2f4",
+                "jobId": "job_4da28e002d9a4690b3b6",
                 "jobType": "FACTOR_COMPUTE",
-                "job_id": "job_a44b402482c348c7b2f4",
+                "job_id": "job_4da28e002d9a4690b3b6",
                 "job_ref": {
-                  "invocation_id": "invoke_604ad1fac0aa4cd9",
-                  "job_id": "job_a44b402482c348c7b2f4",
+                  "invocation_id": "invoke_a66f1263e1114226",
+                  "job_id": "job_4da28e002d9a4690b3b6",
                   "owner": "aquant_lab",
                   "schema_version": "agentctl.runtime_job_ref.v1",
                   "status": "queued",
                   "status_capability_id": "aquant.job.status",
-                  "submitted_at": "2026-09-19T11:45:09.727157+00:00",
-                  "trace_id": "q5-a07-trace-8-21f8232f8d",
-                  "work_item_id": "q5-a07-work-8-21f8232f8d"
+                  "submitted_at": "2026-09-19T12:19:02.667613+00:00",
+                  "trace_id": "q5-a07-trace-9-b044dd87e3",
+                  "work_item_id": "q5-a07-work-9-b044dd87e3"
                 },
                 "note": "重复提交返回同一条作业：同一逻辑作业不产生第二次计算（§8.4）",
                 "ok": true,
                 "snapshotId": "snap-universe",
                 "status": "PENDING",
-                "submittedAt": "2026-09-19T11:45:09.727157+00:00",
+                "submittedAt": "2026-09-19T12:19:02.667613+00:00",
                 "tradingDay": "2026-09-11"
               },
               "schema_version": "aios.runtime_invocation_result.v0.1",
-              "trace_id": "q5-a07-trace-8-21f8232f8d",
-              "work_item_id": "q5-a07-work-8-21f8232f8d"
+              "trace_id": "q5-a07-trace-9-b044dd87e3",
+              "work_item_id": "q5-a07-work-9-b044dd87e3"
             }
           },
           {
@@ -1493,10 +1645,10 @@
             "accepted": true,
             "transport": "http",
             "http_status": 200,
-            "request_id": "q5-a07-request-9-fc430d1c82",
-            "trace_id": "q5-a07-trace-9-fc430d1c82",
-            "invocation_id": "invoke_9f7f282abe1d4539",
-            "idempotency_key": "q5-a07-runtime-9-fc430d1c82",
+            "request_id": "q5-a07-request-10-da78e367cd",
+            "trace_id": "q5-a07-trace-10-da78e367cd",
+            "invocation_id": "invoke_8f63e66454084914",
+            "idempotency_key": "q5-a07-runtime-10-da78e367cd",
             "capability_id": "aquant.experiment.submit",
             "arguments": {
               "job_type": "FACTOR_COMPUTE",
@@ -1505,25 +1657,31 @@
             },
             "response": {
               "capability_id": "aquant.experiment.submit",
-              "idempotency_key": "q5-a07-runtime-9-fc430d1c82",
-              "invocation_id": "invoke_9f7f282abe1d4539",
+              "idempotency_key": "q5-a07-runtime-10-da78e367cd",
+              "invocation_id": "invoke_8f63e66454084914",
               "output": {
                 "_frontdesk_step_status": "pending",
                 "actor_user_id": "aquant-q5-product",
                 "created": false,
+                "evidence_ref": {
+                  "capability_id": "aquant.experiment.submit",
+                  "evidence_id": "aquant-result://aquant.experiment.submit/752718e34867d42c64d7f2c378ce1ee22655885365fe5e6c5ea5bad6e4fd7a6d",
+                  "invocation_id": "invoke_8f63e66454084914",
+                  "result_sha256": "sha256:752718e34867d42c64d7f2c378ce1ee22655885365fe5e6c5ea5bad6e4fd7a6d"
+                },
                 "execution_contract": {
                   "executed": true,
                   "job_lifecycle_role": "submit",
                   "job_ref": {
-                    "invocation_id": "invoke_9f7f282abe1d4539",
-                    "job_id": "job_a44b402482c348c7b2f4",
+                    "invocation_id": "invoke_8f63e66454084914",
+                    "job_id": "job_4da28e002d9a4690b3b6",
                     "owner": "aquant_lab",
                     "schema_version": "agentctl.runtime_job_ref.v1",
                     "status": "queued",
                     "status_capability_id": "aquant.job.status",
-                    "submitted_at": "2026-09-19T11:45:09.848768+00:00",
-                    "trace_id": "q5-a07-trace-9-fc430d1c82",
-                    "work_item_id": "q5-a07-work-9-fc430d1c82"
+                    "submitted_at": "2026-09-19T12:19:03.007083+00:00",
+                    "trace_id": "q5-a07-trace-10-da78e367cd",
+                    "work_item_id": "q5-a07-work-10-da78e367cd"
                   },
                   "kind": "AgentctlRuntimeJobExecutionContract",
                   "next_action": "Query product-owned job status through capability aquant.job.status.",
@@ -1534,102 +1692,30 @@
                 },
                 "idempotencyKey": "job-638b7973d5faf55cb00c835ffb5d18e6",
                 "idempotency_key": "job-638b7973d5faf55cb00c835ffb5d18e6",
-                "jobId": "job_a44b402482c348c7b2f4",
+                "jobId": "job_4da28e002d9a4690b3b6",
                 "jobType": "FACTOR_COMPUTE",
-                "job_id": "job_a44b402482c348c7b2f4",
+                "job_id": "job_4da28e002d9a4690b3b6",
                 "job_ref": {
-                  "invocation_id": "invoke_9f7f282abe1d4539",
-                  "job_id": "job_a44b402482c348c7b2f4",
+                  "invocation_id": "invoke_8f63e66454084914",
+                  "job_id": "job_4da28e002d9a4690b3b6",
                   "owner": "aquant_lab",
                   "schema_version": "agentctl.runtime_job_ref.v1",
                   "status": "queued",
                   "status_capability_id": "aquant.job.status",
-                  "submitted_at": "2026-09-19T11:45:09.848768+00:00",
-                  "trace_id": "q5-a07-trace-9-fc430d1c82",
-                  "work_item_id": "q5-a07-work-9-fc430d1c82"
+                  "submitted_at": "2026-09-19T12:19:03.007083+00:00",
+                  "trace_id": "q5-a07-trace-10-da78e367cd",
+                  "work_item_id": "q5-a07-work-10-da78e367cd"
                 },
                 "note": "重复提交返回同一条作业：同一逻辑作业不产生第二次计算（§8.4）",
                 "ok": true,
                 "snapshotId": "snap-universe",
                 "status": "PENDING",
-                "submittedAt": "2026-09-19T11:45:09.848768+00:00",
+                "submittedAt": "2026-09-19T12:19:03.007083+00:00",
                 "tradingDay": "2026-09-11"
               },
               "schema_version": "aios.runtime_invocation_result.v0.1",
-              "trace_id": "q5-a07-trace-9-fc430d1c82",
-              "work_item_id": "q5-a07-work-9-fc430d1c82"
-            }
-          },
-          {
-            "available": true,
-            "accepted": true,
-            "transport": "http",
-            "http_status": 200,
-            "request_id": "q5-a07-request-10-05ae6962f6",
-            "trace_id": "q5-a07-trace-10-05ae6962f6",
-            "invocation_id": "invoke_a73960efee654d31",
-            "idempotency_key": "q5-a07-runtime-10-05ae6962f6",
-            "capability_id": "aquant.experiment.submit",
-            "arguments": {
-              "job_type": "FACTOR_COMPUTE",
-              "trading_day": "2026-09-11",
-              "snapshot_id": "snap-universe"
-            },
-            "response": {
-              "capability_id": "aquant.experiment.submit",
-              "idempotency_key": "q5-a07-runtime-10-05ae6962f6",
-              "invocation_id": "invoke_a73960efee654d31",
-              "output": {
-                "_frontdesk_step_status": "pending",
-                "actor_user_id": "aquant-q5-product",
-                "created": false,
-                "execution_contract": {
-                  "executed": true,
-                  "job_lifecycle_role": "submit",
-                  "job_ref": {
-                    "invocation_id": "invoke_a73960efee654d31",
-                    "job_id": "job_a44b402482c348c7b2f4",
-                    "owner": "aquant_lab",
-                    "schema_version": "agentctl.runtime_job_ref.v1",
-                    "status": "queued",
-                    "status_capability_id": "aquant.job.status",
-                    "submitted_at": "2026-09-19T11:45:09.928393+00:00",
-                    "trace_id": "q5-a07-trace-10-05ae6962f6",
-                    "work_item_id": "q5-a07-work-10-05ae6962f6"
-                  },
-                  "kind": "AgentctlRuntimeJobExecutionContract",
-                  "next_action": "Query product-owned job status through capability aquant.job.status.",
-                  "reason": "product_job_accepted",
-                  "schema_version": "agentctl.runtime_job_execution.v1",
-                  "status": "pending",
-                  "terminal": false
-                },
-                "idempotencyKey": "job-638b7973d5faf55cb00c835ffb5d18e6",
-                "idempotency_key": "job-638b7973d5faf55cb00c835ffb5d18e6",
-                "jobId": "job_a44b402482c348c7b2f4",
-                "jobType": "FACTOR_COMPUTE",
-                "job_id": "job_a44b402482c348c7b2f4",
-                "job_ref": {
-                  "invocation_id": "invoke_a73960efee654d31",
-                  "job_id": "job_a44b402482c348c7b2f4",
-                  "owner": "aquant_lab",
-                  "schema_version": "agentctl.runtime_job_ref.v1",
-                  "status": "queued",
-                  "status_capability_id": "aquant.job.status",
-                  "submitted_at": "2026-09-19T11:45:09.928393+00:00",
-                  "trace_id": "q5-a07-trace-10-05ae6962f6",
-                  "work_item_id": "q5-a07-work-10-05ae6962f6"
-                },
-                "note": "重复提交返回同一条作业：同一逻辑作业不产生第二次计算（§8.4）",
-                "ok": true,
-                "snapshotId": "snap-universe",
-                "status": "PENDING",
-                "submittedAt": "2026-09-19T11:45:09.928393+00:00",
-                "tradingDay": "2026-09-11"
-              },
-              "schema_version": "aios.runtime_invocation_result.v0.1",
-              "trace_id": "q5-a07-trace-10-05ae6962f6",
-              "work_item_id": "q5-a07-work-10-05ae6962f6"
+              "trace_id": "q5-a07-trace-10-da78e367cd",
+              "work_item_id": "q5-a07-work-10-da78e367cd"
             }
           }
         ],
@@ -1674,7 +1760,7 @@
             },
             "data_capability_card": {
               "count": 10,
-              "sha256": "sha256:076cf37f71e7eb3e9bd08048021b54b1b15a25df39c1683bc9e1a234075b0cfc"
+              "sha256": "sha256:c95d34f74bd0614bebc5c0c46df0517c4d1d611bf36180e35724410815fe126e"
             },
             "data_version": {
               "count": 0,
@@ -1686,11 +1772,11 @@
             },
             "document": {
               "count": 1,
-              "sha256": "sha256:8cf424fd1d7efc2ba58d56416ca9ed3f679fd6a50809f9685f74243b8b354d26"
+              "sha256": "sha256:bd4bd8396635ffd3aa78201b1c189f2f056790cda40d5fe60a0da35b126ababc"
             },
             "event": {
               "count": 1,
-              "sha256": "sha256:6e4d95d24e154d9af5011b8f696e227ac3206bd01c02e0e46e29e7a65dc97f8d"
+              "sha256": "sha256:83d35dd699668e3ef02c87c0635b719ce29493aab5c1b59f750eeda62fb4854f"
             },
             "event_counter_evidence": {
               "count": 0,
@@ -1742,7 +1828,7 @@
             },
             "job": {
               "count": 1,
-              "sha256": "sha256:05042dabfd73f0a74e4343c7bcc806f2d28553b55786d71c280c59c10e1ba83e"
+              "sha256": "sha256:6fd11055dd1b2ab26fd5d1d658b9fb4fa07bd163fc70a1ab7121b7892a7b88bd"
             },
             "lot_consumption": {
               "count": 0,
@@ -1779,6 +1865,10 @@
             "plan_confirmation": {
               "count": 0,
               "sha256": "sha256:ee5bd4bc8315a4bc4d1707bb826c0c5af9834b4156fcd384dc1b6f3798167a51"
+            },
+            "plan_confirmation_preview": {
+              "count": 0,
+              "sha256": "sha256:a7c8bfb9cecaab3ed686cbd97d93097ca228052048814604df78e017decdbd93"
             },
             "plan_fee_binding": {
               "count": 0,
@@ -1818,7 +1908,7 @@
             },
             "schema_migration": {
               "count": 4,
-              "sha256": "sha256:3bd6d0e5658c56012e9fe071fa2cadb5d3bb1279bb2fba77b1cd57f1ad4a2256"
+              "sha256": "sha256:154dd6d665269c5142a0f0937790ada1e36e51ea212651842dc55299206a57c2"
             },
             "simulation_plan": {
               "count": 0,
@@ -1842,7 +1932,7 @@
             },
             "source_registry": {
               "count": 3,
-              "sha256": "sha256:468d4832085ed5bc0a1aaece2ecaea72ec0fd878c301667b1cf769d2bd7af88b"
+              "sha256": "sha256:85d6780b81b90afd31d04a0e7addff183563df2a3d1c89da8629c56d6dccd493"
             },
             "strategy_version": {
               "count": 1,
@@ -1868,8 +1958,8 @@
           "a08_evidence_observed": true,
           "response": {
             "capability_id": "aquant.simulation_plan.preview",
-            "idempotency_key": "invoke_71c50a702fe24fc6",
-            "invocation_id": "invoke_71c50a702fe24fc6",
+            "idempotency_key": "invoke_1af2ea1dc6a74ddb",
+            "invocation_id": "invoke_1af2ea1dc6a74ddb",
             "output": {
               "account_version": "acct-630260631f727e5e",
               "actor_user_id": "aquant-q5-product",
@@ -1878,6 +1968,12 @@
               "decision_cutoff_at": "2026-08-25T12:30:00+00:00",
               "decision_snapshot_id": "snap-q5-a08",
               "estimated_fees_cents": 2579,
+              "evidence_ref": {
+                "capability_id": "aquant.simulation_plan.preview",
+                "evidence_id": "aquant-result://aquant.simulation_plan.preview/8d0b27cbb86d576df525be0d4a5d7fe1e502e93a11974d5923b9dba46e3a62dc",
+                "invocation_id": "invoke_1af2ea1dc6a74ddb",
+                "result_sha256": "sha256:8d0b27cbb86d576df525be0d4a5d7fe1e502e93a11974d5923b9dba46e3a62dc"
+              },
               "excluded": [],
               "execution_cutoff_at": "2026-08-25T12:30:00+00:00",
               "execution_snapshot_id": "snap-q5-a08",
@@ -1899,7 +1995,7 @@
                   "side": "BUY"
                 }
               ],
-              "plan_id": "plan_c5a60b2284bd4d73bb34",
+              "plan_id": "plan_cf9336b412ec4417a503",
               "plan_version": "plan-eb0fd61a5ad7ac7a",
               "portfolio_id": "pf-q5-a08",
               "read_only": true,
@@ -1936,7 +2032,7 @@
               "trading_day": "2026-08-25"
             },
             "schema_version": "aios.runtime_invocation_result.v0.1",
-            "trace_id": "q5-a08-trace-eff0cde8d7",
+            "trace_id": "q5-a08-trace-66b2f4705c",
             "work_item_id": null
           }
         },
@@ -1952,30 +2048,59 @@
     {
       "case": "A09",
       "title": "陈旧确认被拒绝",
-      "status": "uncovered",
-      "evidence_kind": "not_executed",
-      "observed": "未执行：真实 agentctl 入口被结构性阻断",
+      "status": "passed",
+      "evidence_kind": "live_topology",
+      "observed": "可信用户确认令牌经 agentctl 到达产品冻结复核，账户变化后的陈旧确认被拒且计划状态未写入；普通模型凭证不可见",
       "detail": {
-        "blocker": true,
-        "blocker_code": "product_entrypoint_not_bound",
-        "required_capabilities": [
-          "aquant.simulation_plan.preview"
-        ],
-        "missing_capabilities": [],
-        "missing_handlers": [],
-        "declared_handlers": {
-          "aquant.simulation_plan.preview": "aquant_lab_agentctl_handlers:simulation_plan_preview"
+        "passed": true,
+        "available": true,
+        "model_surface_blocked": true,
+        "model_describe_status": 404,
+        "model_invoke_status": 403,
+        "product_confirmation_path": {
+          "preview_status": 200,
+          "confirmation_status": 200,
+          "human_subject": "user:q5-a09"
         },
-        "manifest_capabilities": [
-          "aquant.event_evidence.read",
-          "aquant.experiment.submit",
-          "aquant.job.status",
-          "aquant.portfolio.read",
-          "aquant.research_card.read",
-          "aquant.simulation_plan.preview"
-        ],
-        "required_entrypoint": "product-owned confirmation/freeze HTTP entrypoint bound to agentctl",
-        "reason": "当前 onboarding 只绑定 frontdesk.message，清单也明确不声明计划冻结；没有可供 agentctl 调用的确认/冻结入口，无法在真实拓扑中提交陈旧确认。"
+        "trusted_http_status": 200,
+        "trusted_stale_rejected": true,
+        "trusted_error_code": "STALE_SNAPSHOT",
+        "trusted_actor_verified": true,
+        "trusted_actor_user_id": "user:q5-a09",
+        "receipt_bound": true,
+        "evidence_ref_observed": true,
+        "no_product_writes_after_rejection": true,
+        "state_sha256_before_rejection": "sha256:712209cc814ab51fa6e2e675889630c854931214f4169de71dfaa79dfeef0185",
+        "state_sha256_after_rejection": "sha256:712209cc814ab51fa6e2e675889630c854931214f4169de71dfaa79dfeef0185",
+        "response": {
+          "capability_id": "aquant.simulation_plan.confirm_user",
+          "idempotency_key": "invoke_76c13cc0d57a4d61",
+          "invocation_id": "invoke_76c13cc0d57a4d61",
+          "output": {
+            "actor_user_id": "user:q5-a09",
+            "agentctl_actor_verified": true,
+            "confirmation_path": "product_owned_trusted_user",
+            "error": {
+              "code": "STALE_SNAPSHOT",
+              "message": "account state changed since the preview",
+              "object_id": "plan_c7537dc8dc684bac9344",
+              "repair_action": "re-preview against the current account state before confirming",
+              "retryable": true
+            },
+            "evidence_ref": {
+              "capability_id": "aquant.simulation_plan.confirm_user",
+              "evidence_id": "aquant-result://aquant.simulation_plan.confirm_user/80e1ac8aaef23a4cce2f7b65f911a70e58ff03a8b3a4dcd79008d816d5116451",
+              "invocation_id": "invoke_76c13cc0d57a4d61",
+              "result_sha256": "sha256:80e1ac8aaef23a4cce2f7b65f911a70e58ff03a8b3a4dcd79008d816d5116451"
+            },
+            "ok": false,
+            "read_only": false,
+            "tenant_id": "aquant-synthetic"
+          },
+          "schema_version": "aios.runtime_invocation_result.v0.1",
+          "trace_id": "q5-a09-trusted-trace-79c54c53e9",
+          "work_item_id": "q5-a09-stale-confirmation"
+        }
       }
     },
     {
@@ -1995,7 +2120,7 @@
           "usage_records": [
             {
               "source": "native_runtime",
-              "run_id": "run_fd_376be8c7dba237de0b737680670043486d4bd63a"
+              "run_id": "run_fd_5cb23e8add62a095b2d8933fc778ea7a4b197d50"
             }
           ],
           "warnings": []
@@ -2022,17 +2147,17 @@
         "late_event_blocked": true,
         "old_experiment_view_unchanged": true,
         "no_product_writes": true,
-        "state_sha256_before": "sha256:dc050303702337fd7b2317ba7f655d5dd95ec2b940de1eae7af3f8f079ec9cf1",
-        "state_sha256_after": "sha256:dc050303702337fd7b2317ba7f655d5dd95ec2b940de1eae7af3f8f079ec9cf1",
+        "state_sha256_before": "sha256:45beb0f206421be1d6601d300fd30414cf8dfdf6a066a41f40df1e3c043c74b2",
+        "state_sha256_after": "sha256:45beb0f206421be1d6601d300fd30414cf8dfdf6a066a41f40df1e3c043c74b2",
         "old_before_probe": {
           "available": true,
           "accepted": true,
           "transport": "http",
           "http_status": 200,
-          "request_id": "q5-a11-old-before-6029b6dda781",
-          "trace_id": "q5-a11-old-before-trace-681aa74251",
-          "invocation_id": "invoke_a3910b6dd3ae4d7c",
-          "idempotency_key": "invoke_a3910b6dd3ae4d7c",
+          "request_id": "q5-a11-old-before-aecf5aeba547",
+          "trace_id": "q5-a11-old-before-trace-9a22cc0a30",
+          "invocation_id": "invoke_28adf9a249114697",
+          "idempotency_key": "invoke_28adf9a249114697",
           "capability_id": "aquant.event_evidence.read",
           "arguments": {
             "instrument_id": "SH.600519",
@@ -2041,8 +2166,8 @@
           },
           "response": {
             "capability_id": "aquant.event_evidence.read",
-            "idempotency_key": "invoke_a3910b6dd3ae4d7c",
-            "invocation_id": "invoke_a3910b6dd3ae4d7c",
+            "idempotency_key": "invoke_28adf9a249114697",
+            "invocation_id": "invoke_28adf9a249114697",
             "output": {
               "as_of_time": "2026-09-14T07:00:00+00:00",
               "count": 1,
@@ -2074,6 +2199,12 @@
                   "verificationStatus": "UNVERIFIED"
                 }
               ],
+              "evidence_ref": {
+                "capability_id": "aquant.event_evidence.read",
+                "evidence_id": "aquant-result://aquant.event_evidence.read/325b9889ca22cfaa19a9da465fa08fbf7e0204365246d21d9c6eb08d756b9fd6",
+                "invocation_id": "invoke_28adf9a249114697",
+                "result_sha256": "sha256:325b9889ca22cfaa19a9da465fa08fbf7e0204365246d21d9c6eb08d756b9fd6"
+              },
               "instrument_id": "SH.600519",
               "ok": true,
               "pit_filter": "available_at <= as_of_time",
@@ -2081,7 +2212,7 @@
               "watermark": "REAL MARKET DATA, RECONSTRUCTED POINT-IN-TIME -- NOT VALID FOR FORMAL PIT BACKTESTS"
             },
             "schema_version": "aios.runtime_invocation_result.v0.1",
-            "trace_id": "q5-a11-old-before-trace-681aa74251",
+            "trace_id": "q5-a11-old-before-trace-9a22cc0a30",
             "work_item_id": null
           }
         },
@@ -2090,10 +2221,10 @@
           "accepted": true,
           "transport": "http",
           "http_status": 200,
-          "request_id": "q5-a11-current-f198afbba9c5",
-          "trace_id": "q5-a11-current-trace-a06edeab73",
-          "invocation_id": "invoke_51bc90ce5b534fce",
-          "idempotency_key": "invoke_51bc90ce5b534fce",
+          "request_id": "q5-a11-current-7b4b1cb8dfba",
+          "trace_id": "q5-a11-current-trace-9a2de8fe87",
+          "invocation_id": "invoke_3627005fbd824e3b",
+          "idempotency_key": "invoke_3627005fbd824e3b",
           "capability_id": "aquant.event_evidence.read",
           "arguments": {
             "instrument_id": "SH.600519",
@@ -2105,8 +2236,8 @@
           },
           "response": {
             "capability_id": "aquant.event_evidence.read",
-            "idempotency_key": "invoke_51bc90ce5b534fce",
-            "invocation_id": "invoke_51bc90ce5b534fce",
+            "idempotency_key": "invoke_3627005fbd824e3b",
+            "invocation_id": "invoke_3627005fbd824e3b",
             "output": {
               "error": {
                 "code": "PIT_UNVERIFIED",
@@ -2118,7 +2249,7 @@
               "ok": false
             },
             "schema_version": "aios.runtime_invocation_result.v0.1",
-            "trace_id": "q5-a11-current-trace-a06edeab73",
+            "trace_id": "q5-a11-current-trace-9a2de8fe87",
             "work_item_id": null
           }
         },
@@ -2127,10 +2258,10 @@
           "accepted": true,
           "transport": "http",
           "http_status": 200,
-          "request_id": "q5-a11-old-after-3e0404237ab0",
-          "trace_id": "q5-a11-old-after-trace-97db0cebd4",
-          "invocation_id": "invoke_d0572bfa99d142ca",
-          "idempotency_key": "invoke_d0572bfa99d142ca",
+          "request_id": "q5-a11-old-after-39d26c5abfea",
+          "trace_id": "q5-a11-old-after-trace-468538f643",
+          "invocation_id": "invoke_68295469a0f64dc1",
+          "idempotency_key": "invoke_68295469a0f64dc1",
           "capability_id": "aquant.event_evidence.read",
           "arguments": {
             "instrument_id": "SH.600519",
@@ -2139,8 +2270,8 @@
           },
           "response": {
             "capability_id": "aquant.event_evidence.read",
-            "idempotency_key": "invoke_d0572bfa99d142ca",
-            "invocation_id": "invoke_d0572bfa99d142ca",
+            "idempotency_key": "invoke_68295469a0f64dc1",
+            "invocation_id": "invoke_68295469a0f64dc1",
             "output": {
               "as_of_time": "2026-09-14T07:00:00+00:00",
               "count": 1,
@@ -2172,6 +2303,12 @@
                   "verificationStatus": "UNVERIFIED"
                 }
               ],
+              "evidence_ref": {
+                "capability_id": "aquant.event_evidence.read",
+                "evidence_id": "aquant-result://aquant.event_evidence.read/325b9889ca22cfaa19a9da465fa08fbf7e0204365246d21d9c6eb08d756b9fd6",
+                "invocation_id": "invoke_68295469a0f64dc1",
+                "result_sha256": "sha256:325b9889ca22cfaa19a9da465fa08fbf7e0204365246d21d9c6eb08d756b9fd6"
+              },
               "instrument_id": "SH.600519",
               "ok": true,
               "pit_filter": "available_at <= as_of_time",
@@ -2179,7 +2316,7 @@
               "watermark": "REAL MARKET DATA, RECONSTRUCTED POINT-IN-TIME -- NOT VALID FOR FORMAL PIT BACKTESTS"
             },
             "schema_version": "aios.runtime_invocation_result.v0.1",
-            "trace_id": "q5-a11-old-after-trace-97db0cebd4",
+            "trace_id": "q5-a11-old-after-trace-468538f643",
             "work_item_id": null
           }
         },
@@ -2210,10 +2347,10 @@
         "archive_subject_id": "user:q5-a12",
         "subject_binding_assurance": "trusted_header_contract_only",
         "production_authentication_proven": false,
-        "initial_model_call_id": "mc-735c4d6a7afcc49a5393",
-        "replay_model_call_id": "mc-f3a516cad451bdca2cbe",
-        "initial_model_run_id": "mr-2c566dd9a6816dedc4067876",
-        "replay_model_run_id": "mr-4be9986b7f2378b535dc3eec",
+        "initial_model_call_id": "mc-bf3a9b2508e565ab77ce",
+        "replay_model_call_id": "mc-82058d51be2bc4e202f5",
+        "initial_model_run_id": "mr-03bf69db8f3a36fa9c1298af",
+        "replay_model_run_id": "mr-ba0550fb36d5d351c396fcab",
         "replay_status": 200,
         "changed_input_status": 409,
         "model_call_count": 1,
@@ -2227,7 +2364,7 @@
       "evidence_kind": "live_topology",
       "observed": "跨进程取消、迟到、重复与乱序回调均被状态机拒绝，非作业表未变化",
       "detail": {
-        "job_id": "job_4c09e5d2662743a6bf6e",
+        "job_id": "job_0fb2bc520ffe4135b2bc",
         "submit_accepted": true,
         "process_steps": [
           {
@@ -2235,7 +2372,7 @@
             "payload": {
               "action": "claim",
               "attempt_count": 1,
-              "job_id": "job_4c09e5d2662743a6bf6e",
+              "job_id": "job_0fb2bc520ffe4135b2bc",
               "lease_owner": "q5-a13-old",
               "ok": true,
               "status": "RUNNING"
@@ -2247,7 +2384,7 @@
             "payload": {
               "action": "claim",
               "attempt_count": 2,
-              "job_id": "job_4c09e5d2662743a6bf6e",
+              "job_id": "job_0fb2bc520ffe4135b2bc",
               "lease_owner": "q5-a13-new",
               "ok": true,
               "status": "RUNNING"
@@ -2260,7 +2397,7 @@
               "action": "finish-expect-rejected",
               "attempt_count": 2,
               "error_code": "DATA_NOT_READY",
-              "job_id": "job_4c09e5d2662743a6bf6e",
+              "job_id": "job_0fb2bc520ffe4135b2bc",
               "lease_owner": "q5-a13-new",
               "ok": true,
               "rejected": true,
@@ -2273,7 +2410,7 @@
             "payload": {
               "action": "release",
               "attempt_count": 2,
-              "job_id": "job_4c09e5d2662743a6bf6e",
+              "job_id": "job_0fb2bc520ffe4135b2bc",
               "lease_owner": null,
               "ok": true,
               "status": "PENDING"
@@ -2286,7 +2423,7 @@
               "action": "finish-expect-rejected",
               "attempt_count": 2,
               "error_code": "DATA_NOT_READY",
-              "job_id": "job_4c09e5d2662743a6bf6e",
+              "job_id": "job_0fb2bc520ffe4135b2bc",
               "lease_owner": null,
               "ok": true,
               "rejected": true,
@@ -2299,7 +2436,7 @@
             "payload": {
               "action": "claim",
               "attempt_count": 3,
-              "job_id": "job_4c09e5d2662743a6bf6e",
+              "job_id": "job_0fb2bc520ffe4135b2bc",
               "lease_owner": "q5-a13-final",
               "ok": true,
               "status": "RUNNING"
@@ -2312,7 +2449,7 @@
               "action": "finish",
               "attempt_count": 3,
               "error_code": null,
-              "job_id": "job_4c09e5d2662743a6bf6e",
+              "job_id": "job_0fb2bc520ffe4135b2bc",
               "lease_owner": null,
               "ok": true,
               "rejected": false,
@@ -2326,7 +2463,7 @@
               "action": "finish-expect-rejected",
               "attempt_count": 3,
               "error_code": "DATA_NOT_READY",
-              "job_id": "job_4c09e5d2662743a6bf6e",
+              "job_id": "job_0fb2bc520ffe4135b2bc",
               "lease_owner": null,
               "ok": true,
               "rejected": true,
@@ -2340,7 +2477,7 @@
               "action": "finish-expect-rejected",
               "attempt_count": 3,
               "error_code": "DATA_NOT_READY",
-              "job_id": "job_4c09e5d2662743a6bf6e",
+              "job_id": "job_0fb2bc520ffe4135b2bc",
               "lease_owner": null,
               "ok": true,
               "rejected": true,
@@ -2355,40 +2492,46 @@
         "attempt_count": 3,
         "live_status_verified": true,
         "non_job_tables_unchanged": true,
-        "state_sha256_before": "sha256:69e29bf221764c74bb3745c6cad843f1237910bab832eb9cace29fe94bc50809",
-        "state_sha256_after": "sha256:fe1007b3af359a6e953ef229335135c9f987c0ea87c23b38c53142e0bc0ef9c7",
+        "state_sha256_before": "sha256:712209cc814ab51fa6e2e675889630c854931214f4169de71dfaa79dfeef0185",
+        "state_sha256_after": "sha256:7b3ddcfbc58cc0737ab5d570147bc0ea919a146c51db556373794edcf9f6fccb",
         "status_probe": {
           "available": true,
           "accepted": true,
           "transport": "http",
           "http_status": 200,
-          "request_id": "q5-a13-status-f87499adddf8",
-          "trace_id": "q5-a13-status-trace-23c0377b98",
-          "invocation_id": "invoke_87dd74d6025e4b65",
-          "idempotency_key": "invoke_87dd74d6025e4b65",
+          "request_id": "q5-a13-status-5a0fcdc029df",
+          "trace_id": "q5-a13-status-trace-38d0935be7",
+          "invocation_id": "invoke_fb17b166a602400a",
+          "idempotency_key": "invoke_fb17b166a602400a",
           "capability_id": "aquant.job.status",
           "arguments": {
-            "job_id": "job_4c09e5d2662743a6bf6e"
+            "job_id": "job_0fb2bc520ffe4135b2bc"
           },
           "response": {
             "capability_id": "aquant.job.status",
-            "idempotency_key": "invoke_87dd74d6025e4b65",
-            "invocation_id": "invoke_87dd74d6025e4b65",
+            "idempotency_key": "invoke_fb17b166a602400a",
+            "invocation_id": "invoke_fb17b166a602400a",
             "output": {
               "_frontdesk_step_status": "completed",
               "actor_user_id": "aquant-q5-product",
               "attemptCount": 3,
-              "configVersion": "q5-a13-0b208de0e384",
+              "configVersion": "q5-a13-7f14b336e06b",
+              "evidence_ref": {
+                "capability_id": "aquant.job.status",
+                "evidence_id": "aquant-result://aquant.job.status/40542e8d5ab9707000d967e5966e7808d029ede3bb1129b81ebee5453f59b35b",
+                "invocation_id": "invoke_fb17b166a602400a",
+                "result_sha256": "sha256:40542e8d5ab9707000d967e5966e7808d029ede3bb1129b81ebee5453f59b35b"
+              },
               "execution_contract": {
                 "executed": true,
                 "job_lifecycle_role": "status",
                 "job_ref": {
-                  "invocation_id": "invoke_87dd74d6025e4b65",
-                  "job_id": "job_4c09e5d2662743a6bf6e",
+                  "invocation_id": "invoke_fb17b166a602400a",
+                  "job_id": "job_0fb2bc520ffe4135b2bc",
                   "owner": "aquant_lab",
                   "schema_version": "agentctl.runtime_job_ref.v1",
                   "status": "completed",
-                  "trace_id": "q5-a13-status-trace-23c0377b98"
+                  "trace_id": "q5-a13-status-trace-38d0935be7"
                 },
                 "kind": "AgentctlRuntimeJobExecutionContract",
                 "reason": "product_job_completed",
@@ -2396,16 +2539,16 @@
                 "status": "completed",
                 "terminal": true
               },
-              "idempotencyKey": "job-35f550748e9a2b4c05a9797fa931587f",
-              "jobId": "job_4c09e5d2662743a6bf6e",
+              "idempotencyKey": "job-bb0f8757c0bb140664f6e15d41d76574",
+              "jobId": "job_0fb2bc520ffe4135b2bc",
               "jobType": "FACTOR_COMPUTE",
               "job_ref": {
-                "invocation_id": "invoke_87dd74d6025e4b65",
-                "job_id": "job_4c09e5d2662743a6bf6e",
+                "invocation_id": "invoke_fb17b166a602400a",
+                "job_id": "job_0fb2bc520ffe4135b2bc",
                 "owner": "aquant_lab",
                 "schema_version": "agentctl.runtime_job_ref.v1",
                 "status": "completed",
-                "trace_id": "q5-a13-status-trace-23c0377b98"
+                "trace_id": "q5-a13-status-trace-38d0935be7"
               },
               "ok": true,
               "result": {
@@ -2416,7 +2559,7 @@
               "tradingDay": "2026-09-11"
             },
             "schema_version": "aios.runtime_invocation_result.v0.1",
-            "trace_id": "q5-a13-status-trace-23c0377b98",
+            "trace_id": "q5-a13-status-trace-38d0935be7",
             "work_item_id": null
           }
         },
@@ -2430,8 +2573,8 @@
       "evidence_kind": "live_topology",
       "observed": "真实 agentctl turn_projection 已 fail closed；缺少 Core replay 传输，A14 未覆盖",
       "detail": {
-        "conversation_id": "q5-a14-conv-d2fc461791",
-        "request_id": "q5-a14-efbd9cd3611c",
+        "conversation_id": "q5-a14-conv-5083ee8fb4",
+        "request_id": "q5-a14-898f50fc4ef9",
         "client_mode": "assist",
         "server_mode": "assist",
         "invoke_accepted": true,
@@ -2501,14 +2644,14 @@
       "evidence_kind": "live_topology",
       "observed": "崩溃租约由新进程接管并完成真实因子写入；重复提交与执行未改变产品库",
       "detail": {
-        "job_id": "job_06a048641b544f74a8ef",
+        "job_id": "job_c776d880964e48a598a5",
         "process_steps": [
           {
             "exit_code": 0,
             "payload": {
               "action": "claim",
               "attempt_count": 1,
-              "job_id": "job_06a048641b544f74a8ef",
+              "job_id": "job_c776d880964e48a598a5",
               "lease_owner": "q5-a16-crashed",
               "ok": true,
               "status": "RUNNING"
@@ -2520,7 +2663,7 @@
             "payload": {
               "action": "run-research",
               "attempt_count": 2,
-              "job_id": "job_06a048641b544f74a8ef",
+              "job_id": "job_c776d880964e48a598a5",
               "lease_owner": null,
               "ok": true,
               "research_run_id": "rr-fd34b28ce15c4d6ab38b4c81",
@@ -2543,7 +2686,7 @@
           "payload": {
             "action": "run-research",
             "attempt_count": 2,
-            "job_id": "job_06a048641b544f74a8ef",
+            "job_id": "job_c776d880964e48a598a5",
             "lease_owner": null,
             "ok": true,
             "research_run_id": "rr-fd34b28ce15c4d6ab38b4c81",
@@ -2557,46 +2700,52 @@
         "final_attempt_count": 2,
         "real_outputs_written": true,
         "retry_left_product_store_unchanged": true,
-        "state_sha256_before": "sha256:fe1007b3af359a6e953ef229335135c9f987c0ea87c23b38c53142e0bc0ef9c7",
-        "state_sha256_after_recovery": "sha256:a9e68c36f7047bdd8de175430b7467196b65463b55445af665eef2c7105f0752",
-        "state_sha256_after": "sha256:a9e68c36f7047bdd8de175430b7467196b65463b55445af665eef2c7105f0752",
+        "state_sha256_before": "sha256:7b3ddcfbc58cc0737ab5d570147bc0ea919a146c51db556373794edcf9f6fccb",
+        "state_sha256_after_recovery": "sha256:d8c849d763d1305ef58f23a51da2d45ab0238808db3b11ece7987abeeb60b572",
+        "state_sha256_after": "sha256:d8c849d763d1305ef58f23a51da2d45ab0238808db3b11ece7987abeeb60b572",
         "retry_probe": {
           "available": true,
           "accepted": true,
           "transport": "http",
           "http_status": 200,
-          "request_id": "q5-a16-retry-cd58f93a6b5e",
-          "trace_id": "q5-a16-retry-trace-9d922b610e",
-          "invocation_id": "invoke_feda4171e0c345bb",
-          "idempotency_key": "q5-a16-retry-da787f05feb4",
+          "request_id": "q5-a16-retry-7b9c3bae6a4e",
+          "trace_id": "q5-a16-retry-trace-b8e4ae7ab0",
+          "invocation_id": "invoke_33e2abfacf104d9c",
+          "idempotency_key": "q5-a16-retry-fcb993e52180",
           "capability_id": "aquant.experiment.submit",
           "arguments": {
             "job_type": "FACTOR_COMPUTE",
             "trading_day": "2026-09-11",
             "snapshot_id": "snap-universe",
-            "config_version": "q5-a16-bc7128446cda"
+            "config_version": "q5-a16-cbb48d539811"
           },
           "response": {
             "capability_id": "aquant.experiment.submit",
-            "idempotency_key": "q5-a16-retry-da787f05feb4",
-            "invocation_id": "invoke_feda4171e0c345bb",
+            "idempotency_key": "q5-a16-retry-fcb993e52180",
+            "invocation_id": "invoke_33e2abfacf104d9c",
             "output": {
               "_frontdesk_step_status": "completed",
               "actor_user_id": "aquant-q5-product",
               "created": false,
+              "evidence_ref": {
+                "capability_id": "aquant.experiment.submit",
+                "evidence_id": "aquant-result://aquant.experiment.submit/47c8a905418de498bf7557e33f74d41f3356b2451a176980088e28f60fa5b4be",
+                "invocation_id": "invoke_33e2abfacf104d9c",
+                "result_sha256": "sha256:47c8a905418de498bf7557e33f74d41f3356b2451a176980088e28f60fa5b4be"
+              },
               "execution_contract": {
                 "executed": true,
                 "job_lifecycle_role": "submit",
                 "job_ref": {
-                  "invocation_id": "invoke_feda4171e0c345bb",
-                  "job_id": "job_06a048641b544f74a8ef",
+                  "invocation_id": "invoke_33e2abfacf104d9c",
+                  "job_id": "job_c776d880964e48a598a5",
                   "owner": "aquant_lab",
                   "schema_version": "agentctl.runtime_job_ref.v1",
                   "status": "completed",
                   "status_capability_id": "aquant.job.status",
-                  "submitted_at": "2026-09-19T11:45:14.829557+00:00",
-                  "trace_id": "q5-a16-retry-trace-9d922b610e",
-                  "work_item_id": "q5-a16-retry-work-48bbe11e4a23"
+                  "submitted_at": "2026-09-19T12:19:09.766506+00:00",
+                  "trace_id": "q5-a16-retry-trace-b8e4ae7ab0",
+                  "work_item_id": "q5-a16-retry-work-59e3231f86e2"
                 },
                 "kind": "AgentctlRuntimeJobExecutionContract",
                 "reason": "product_job_completed",
@@ -2604,32 +2753,32 @@
                 "status": "completed",
                 "terminal": true
               },
-              "idempotencyKey": "job-52c6ce38d1bc955bfca84675c881e20a",
-              "idempotency_key": "job-52c6ce38d1bc955bfca84675c881e20a",
-              "jobId": "job_06a048641b544f74a8ef",
+              "idempotencyKey": "job-fafe0332de2b23dbc6d686f84cf6f9ff",
+              "idempotency_key": "job-fafe0332de2b23dbc6d686f84cf6f9ff",
+              "jobId": "job_c776d880964e48a598a5",
               "jobType": "FACTOR_COMPUTE",
-              "job_id": "job_06a048641b544f74a8ef",
+              "job_id": "job_c776d880964e48a598a5",
               "job_ref": {
-                "invocation_id": "invoke_feda4171e0c345bb",
-                "job_id": "job_06a048641b544f74a8ef",
+                "invocation_id": "invoke_33e2abfacf104d9c",
+                "job_id": "job_c776d880964e48a598a5",
                 "owner": "aquant_lab",
                 "schema_version": "agentctl.runtime_job_ref.v1",
                 "status": "completed",
                 "status_capability_id": "aquant.job.status",
-                "submitted_at": "2026-09-19T11:45:14.829557+00:00",
-                "trace_id": "q5-a16-retry-trace-9d922b610e",
-                "work_item_id": "q5-a16-retry-work-48bbe11e4a23"
+                "submitted_at": "2026-09-19T12:19:09.766506+00:00",
+                "trace_id": "q5-a16-retry-trace-b8e4ae7ab0",
+                "work_item_id": "q5-a16-retry-work-59e3231f86e2"
               },
               "note": "重复提交返回同一条作业：同一逻辑作业不产生第二次计算（§8.4）",
               "ok": true,
               "snapshotId": "snap-universe",
               "status": "SUCCEEDED",
-              "submittedAt": "2026-09-19T11:45:14.829557+00:00",
+              "submittedAt": "2026-09-19T12:19:09.766506+00:00",
               "tradingDay": "2026-09-11"
             },
             "schema_version": "aios.runtime_invocation_result.v0.1",
-            "trace_id": "q5-a16-retry-trace-9d922b610e",
-            "work_item_id": "q5-a16-retry-work-48bbe11e4a23"
+            "trace_id": "q5-a16-retry-trace-b8e4ae7ab0",
+            "work_item_id": "q5-a16-retry-work-59e3231f86e2"
           }
         },
         "final_status_probe": {
@@ -2637,33 +2786,39 @@
           "accepted": true,
           "transport": "http",
           "http_status": 200,
-          "request_id": "q5-a16-final-0331110942a9",
-          "trace_id": "q5-a16-final-trace-be0d9dbae7",
-          "invocation_id": "invoke_229b517c7d79487a",
-          "idempotency_key": "invoke_229b517c7d79487a",
+          "request_id": "q5-a16-final-c6c105176dd7",
+          "trace_id": "q5-a16-final-trace-a082c91ce0",
+          "invocation_id": "invoke_847a9d9980d94736",
+          "idempotency_key": "invoke_847a9d9980d94736",
           "capability_id": "aquant.job.status",
           "arguments": {
-            "job_id": "job_06a048641b544f74a8ef"
+            "job_id": "job_c776d880964e48a598a5"
           },
           "response": {
             "capability_id": "aquant.job.status",
-            "idempotency_key": "invoke_229b517c7d79487a",
-            "invocation_id": "invoke_229b517c7d79487a",
+            "idempotency_key": "invoke_847a9d9980d94736",
+            "invocation_id": "invoke_847a9d9980d94736",
             "output": {
               "_frontdesk_step_status": "completed",
               "actor_user_id": "aquant-q5-product",
               "attemptCount": 2,
-              "configVersion": "q5-a16-bc7128446cda",
+              "configVersion": "q5-a16-cbb48d539811",
+              "evidence_ref": {
+                "capability_id": "aquant.job.status",
+                "evidence_id": "aquant-result://aquant.job.status/1765fdf038bedd1053d4e360255e600192d1b103dad9de01436b94c464d1fcf5",
+                "invocation_id": "invoke_847a9d9980d94736",
+                "result_sha256": "sha256:1765fdf038bedd1053d4e360255e600192d1b103dad9de01436b94c464d1fcf5"
+              },
               "execution_contract": {
                 "executed": true,
                 "job_lifecycle_role": "status",
                 "job_ref": {
-                  "invocation_id": "invoke_229b517c7d79487a",
-                  "job_id": "job_06a048641b544f74a8ef",
+                  "invocation_id": "invoke_847a9d9980d94736",
+                  "job_id": "job_c776d880964e48a598a5",
                   "owner": "aquant_lab",
                   "schema_version": "agentctl.runtime_job_ref.v1",
                   "status": "completed",
-                  "trace_id": "q5-a16-final-trace-be0d9dbae7"
+                  "trace_id": "q5-a16-final-trace-a082c91ce0"
                 },
                 "kind": "AgentctlRuntimeJobExecutionContract",
                 "reason": "product_job_completed",
@@ -2671,16 +2826,16 @@
                 "status": "completed",
                 "terminal": true
               },
-              "idempotencyKey": "job-52c6ce38d1bc955bfca84675c881e20a",
-              "jobId": "job_06a048641b544f74a8ef",
+              "idempotencyKey": "job-fafe0332de2b23dbc6d686f84cf6f9ff",
+              "jobId": "job_c776d880964e48a598a5",
               "jobType": "FACTOR_COMPUTE",
               "job_ref": {
-                "invocation_id": "invoke_229b517c7d79487a",
-                "job_id": "job_06a048641b544f74a8ef",
+                "invocation_id": "invoke_847a9d9980d94736",
+                "job_id": "job_c776d880964e48a598a5",
                 "owner": "aquant_lab",
                 "schema_version": "agentctl.runtime_job_ref.v1",
                 "status": "completed",
-                "trace_id": "q5-a16-final-trace-be0d9dbae7"
+                "trace_id": "q5-a16-final-trace-a082c91ce0"
               },
               "ok": true,
               "result": {
@@ -2699,7 +2854,7 @@
               "tradingDay": "2026-09-11"
             },
             "schema_version": "aios.runtime_invocation_result.v0.1",
-            "trace_id": "q5-a16-final-trace-be0d9dbae7",
+            "trace_id": "q5-a16-final-trace-a082c91ce0",
             "work_item_id": null
           }
         },
@@ -2711,10 +2866,10 @@
   ],
   "errors": [],
   "summary": {
-    "passed": 11,
-    "failed": 1,
-    "uncovered": 4,
-    "blocker_count": 2,
-    "live_topology_covered": 9
+    "passed": 13,
+    "failed": 0,
+    "uncovered": 3,
+    "blocker_count": 1,
+    "live_topology_covered": 10
   }
 }

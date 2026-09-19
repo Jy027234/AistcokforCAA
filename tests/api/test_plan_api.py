@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from datetime import date
 from pathlib import Path
@@ -22,6 +23,8 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 sys.path.insert(0, str(ROOT / "src"))
 
 from main import SNAPSHOT_ID, create_app  # noqa: E402
+from aquant.domain.data.db import write_tx  # noqa: E402
+from aquant.domain.portfolio.plan import PlanError, PlanPreview  # noqa: E402
 
 TRADING_DAY = "2026-09-08"
 USER = {"X-Aquant-Subject": "user:alice"}
@@ -301,6 +304,75 @@ def test_confirmation_requires_a_live_preview(client):
 
     r = confirm(client, "plan_does_not_exist")
     assert r.status_code == 404
+
+
+def test_confirmation_persists_the_exact_preview_for_a_cross_process_bridge(client):
+    """The trusted agentctl bridge must restore the server-issued preview."""
+
+    pv = preview(client).json()
+    plan_id = pv["planId"]
+    token_response = confirm(client, plan_id)
+    assert token_response.status_code == 200
+
+    row = client.app.state.aquant.con.execute(
+        "SELECT pc.plan_id,pc.preview_hash,pcp.preview_json "
+        "FROM plan_confirmation pc "
+        "JOIN plan_confirmation_preview pcp "
+        "ON pcp.confirmation_id=pc.confirmation_id "
+        "WHERE pc.plan_id=?",
+        (plan_id,),
+    ).fetchone()
+    assert row is not None
+    restored = PlanPreview.from_dict(json.loads(row["preview_json"]))
+    assert restored.plan_id == plan_id
+    assert restored.account_version == pv["account_version"]
+    assert row["preview_hash"].startswith("sha256:")
+
+
+def test_cross_process_stale_confirmation_is_rejected_before_freeze_write(tmp_path):
+    """A persisted confirmation still rejects an account change in another process."""
+
+    main = __import__("main")
+    first_state = main.build_state(tmp_path)
+    with TestClient(create_app(state=first_state)) as first:
+        pv = preview(first).json()
+        plan_id = pv["planId"]
+        token = confirm(first, plan_id).json()["confirmationToken"]
+        with write_tx(first_state.con):
+            first_state.con.execute(
+                "INSERT INTO cash_entry "
+                "(entry_id,portfolio_id,entry_type,amount_cents,trading_day,occurred_at,note) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (
+                    "cash-test-a09-change",
+                    "pf-syn-m",
+                    "OTHER",
+                    1,
+                    TRADING_DAY,
+                    "2026-09-19T00:00:00+00:00",
+                    "test account change after confirmation",
+                ),
+            )
+    first_state.con.close()
+
+    second_state = main.build_state(tmp_path)
+    try:
+        with pytest.raises(PlanError) as exc:
+            second_state.service.freeze_confirmation(
+                plan_id=plan_id,
+                confirm_subject="user:alice",
+                confirmation_token=token,
+            )
+        assert exc.value.code == "STALE_SNAPSHOT"
+        assert second_state.con.execute(
+            "SELECT COUNT(*) FROM simulation_plan WHERE plan_id=?", (plan_id,)
+        ).fetchone()[0] == 0
+        consumed = second_state.con.execute(
+            "SELECT consumed_at FROM plan_confirmation WHERE plan_id=?", (plan_id,)
+        ).fetchone()[0]
+        assert consumed is None
+    finally:
+        second_state.con.close()
 
 
 # ================================================================== A09 / 谎报

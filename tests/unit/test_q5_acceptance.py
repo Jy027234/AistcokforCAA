@@ -195,21 +195,13 @@ def test_enforcement_summary_does_not_accept_incomplete_evidence() -> None:
     assert detail["total"] == 1
 
 
-def test_declared_a05_a08_are_probeable_and_a09_stays_blocked() -> None:
+def test_declared_a05_a09_are_probeable_without_freeze_surface_blocker() -> None:
     blockers = q5._q5_domain_blockers(q5.DEFAULT_CAPABILITIES)
 
-    assert list(blockers) == ["A09"]
-    assert all(item["blocker"] is True for item in blockers.values())
-    for detail in blockers.values():
-        assert detail["blocker_code"] == "product_entrypoint_not_bound"
+    assert blockers == {}
 
     checks = q5._check_matrix()
     q5._apply_q5_domain_blockers(checks, blockers)
-    by_case = {item.case: item for item in checks}
-    for case in ("A09",):
-        assert by_case[case].status == "uncovered"
-        assert by_case[case].evidence_kind == "not_executed"
-        assert by_case[case].detail["blocker"] is True
 
     rendered = q5.render_report(
         {
@@ -222,7 +214,7 @@ def test_declared_a05_a08_are_probeable_and_a09_stays_blocked() -> None:
         }
     )
     assert "A05–A09 真实拓扑阻断" in rendered
-    assert "product_entrypoint_not_bound" in rendered
+    assert "未生成结构性阻断" in rendered
     assert "不能冒充 agentctl 真实拓扑通过" in rendered
 
 

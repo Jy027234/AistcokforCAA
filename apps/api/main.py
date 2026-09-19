@@ -6,8 +6,9 @@
     因此每条规则只有一处实现，不会在 API 层被"顺手简化"。
 
 安全语义（§16.3、Q0 报告 §4.3）：
-    * 确认主体由服务端从**已验证凭证**取得，不接受请求体自报。
-      这是 Q0 实测教训的直接应用：客户端传入的身份不是身份。
+    * 当前 ``X-Aquant-Subject`` 只是开发/本机试运行的主体标签，不是已验证
+      凭证。未声明身份模式时 readiness 会阻断；Compose 仅以 loopback 绑定和
+      固定单用户标签形成有限的本机边界，生产部署仍需服务端凭证映射。
     * 冻结令牌由服务端签发，前端只负责传递。
     * 令牌失效/过期不 panic：那是业务状态，返回 200 + TERMINAL 标记，
       避免把正常业务结果混进错误通道。
@@ -87,6 +88,180 @@ from aquant.domain.simulation.simulator import Bar, SimError
 
 ROOT = Path(__file__).resolve().parents[2]
 SNAPSHOT_ID = "snap-syn-001"
+
+# ---------------------------------------------------------------------- 身份边界
+#
+# 产品当前没有可在 HTTP API 中验证的生产凭证。为了不把
+# ``X-Aquant-Subject`` 这个演示接线误写成认证，身份模式必须显式出现在
+# readiness 中。Compose 会声明本机单用户试运行模式；没有声明的进程仍
+# 可以让旧的开发测试传入该头，但不能把它报告为可试运行。
+IDENTITY_MODE_ENV = "AQUANT_IDENTITY_MODE"
+TRIAL_SUBJECT_ENV = "AQUANT_TRIAL_SUBJECT"
+IDENTITY_MODE_LOCAL_TRIAL = "LOCAL_LOOPBACK_DEMO"
+IDENTITY_MODE_DEVELOPMENT_HEADER = "DEVELOPMENT_SELF_REPORTED"
+IDENTITY_MODE_UNDECLARED_HEADER = "UNDECLARED_SELF_REPORTED"
+IDENTITY_MODE_INVALID = "INVALID"
+
+
+@dataclass(frozen=True)
+class IdentityConfig:
+    """HTTP API 的身份接线说明与本机试运行约束。
+
+    ``X-Aquant-Subject`` 不是凭证。``LOCAL_LOOPBACK_DEMO`` 依赖部署层把
+    API 端口绑定到宿主机 loopback，再配合固定的单一主体标签和显式环境
+    配置来限制试运行范围，不能被当作生产认证。容器内的 TCP 对端通常是
+    bridge 地址，因此不能把 ``request.client.host`` 当成宿主机绑定证明。
+    """
+
+    mode: str
+    assurance: str
+    declared: bool
+    subject: str | None
+    local_only: bool
+    single_user: bool
+    production_authenticated: bool = False
+    config_error: str | None = None
+
+
+def _identity_config() -> IdentityConfig:
+    """解析身份模式。
+
+    未设置模式时保留自报头行为仅为兼容开发/单元测试；它是一个明确的
+    ``undeclared`` 状态，会在 readiness 的 ``trial`` 维度阻断。
+    """
+
+    raw = os.environ.get(IDENTITY_MODE_ENV, "").strip().lower()
+    aliases = {
+        "local_loopback_demo": IDENTITY_MODE_LOCAL_TRIAL,
+        "local_single_user_trial": IDENTITY_MODE_LOCAL_TRIAL,
+        "local_trial": IDENTITY_MODE_LOCAL_TRIAL,
+        "trial": IDENTITY_MODE_LOCAL_TRIAL,
+        "development_self_reported": IDENTITY_MODE_DEVELOPMENT_HEADER,
+        "development_header": IDENTITY_MODE_DEVELOPMENT_HEADER,
+        "development": IDENTITY_MODE_DEVELOPMENT_HEADER,
+        "dev": IDENTITY_MODE_DEVELOPMENT_HEADER,
+        "self_reported_header": IDENTITY_MODE_DEVELOPMENT_HEADER,
+    }
+    if not raw:
+        return IdentityConfig(
+            mode=IDENTITY_MODE_UNDECLARED_HEADER,
+            assurance="SELF_REPORTED_HEADER_UNDECLARED",
+            declared=False,
+            subject=None,
+            local_only=False,
+            single_user=False,
+        )
+
+    mode = aliases.get(raw)
+    if mode is None:
+        return IdentityConfig(
+            mode=IDENTITY_MODE_INVALID,
+            assurance="IDENTITY_CONFIGURATION_INVALID",
+            declared=True,
+            subject=None,
+            local_only=False,
+            single_user=False,
+            config_error=(
+                f"{IDENTITY_MODE_ENV}={raw!r} 不受支持；"
+                f"可选值为 {IDENTITY_MODE_LOCAL_TRIAL!r} 或 "
+                f"{IDENTITY_MODE_DEVELOPMENT_HEADER!r}"
+            ),
+        )
+
+    if mode == IDENTITY_MODE_LOCAL_TRIAL:
+        subject = os.environ.get(TRIAL_SUBJECT_ENV, "").strip() or "user:demo"
+        if not confirmer_is_human(subject):
+            return IdentityConfig(
+                mode=mode,
+                assurance="LOCAL_SINGLE_USER_LOOPBACK",
+                declared=True,
+                subject=subject,
+                local_only=True,
+                single_user=True,
+                config_error=(
+                    f"{TRIAL_SUBJECT_ENV} 必须是可由人工确认的主体标签，"
+                    "不能使用模型或系统主体"
+                ),
+            )
+        return IdentityConfig(
+            mode=mode,
+            assurance="LOCAL_SINGLE_USER_LOOPBACK",
+            declared=True,
+            subject=subject,
+            local_only=True,
+            single_user=True,
+        )
+
+    return IdentityConfig(
+        mode=mode,
+        assurance="SELF_REPORTED_HEADER_DEVELOPMENT",
+        declared=True,
+        subject=None,
+        local_only=False,
+        single_user=False,
+    )
+
+
+def _identity_readiness(config: IdentityConfig) -> dict:
+    """给 readiness 用的身份 assurance 视图。"""
+
+    issues: list[dict] = []
+    if config.mode == IDENTITY_MODE_UNDECLARED_HEADER:
+        issues.append({
+            "code": "IDENTITY_MODE_UNDECLARED",
+            "message": (
+                "当前请求使用自报 X-Aquant-Subject，但没有声明身份模式；"
+                "它只能用于开发，不能作为本机试运行的身份 assurance"
+            ),
+            "repairAction": (
+                f"设置 {IDENTITY_MODE_ENV}={IDENTITY_MODE_LOCAL_TRIAL}，"
+                "并保持部署端口只绑定宿主机 loopback（Compose 已声明）"
+            ),
+        })
+    elif config.mode == IDENTITY_MODE_DEVELOPMENT_HEADER:
+        issues.append({
+            "code": "IDENTITY_PRODUCTION_AUTH_REQUIRED",
+            "message": (
+                "DEVELOPMENT_SELF_REPORTED 只接受开发用自报 X-Aquant-Subject，"
+                "不具备生产认证 assurance"
+            ),
+            "repairAction": (
+                f"本机试运行请使用 {IDENTITY_MODE_ENV}="
+                f"{IDENTITY_MODE_LOCAL_TRIAL}"
+            ),
+        })
+    elif config.mode == IDENTITY_MODE_INVALID:
+        issues.append({
+            "code": "IDENTITY_MODE_INVALID",
+            "message": config.config_error or "身份模式配置无效",
+            "repairAction": (
+                f"设置 {IDENTITY_MODE_ENV}="
+                f"{IDENTITY_MODE_LOCAL_TRIAL} 或 "
+                f"{IDENTITY_MODE_DEVELOPMENT_HEADER}"
+            ),
+        })
+    elif config.config_error:
+        issues.append({
+            "code": "IDENTITY_TRIAL_SUBJECT_INVALID",
+            "message": config.config_error,
+            "repairAction": f"修复 {TRIAL_SUBJECT_ENV} 后重启 API",
+        })
+
+    return {
+        "mode": config.mode,
+        "assurance": config.assurance,
+        "subjectSource": "X-Aquant-Subject",
+        "declared": config.declared,
+        "localOnly": config.local_only,
+        "singleUser": config.single_user,
+        "productionAuthentication": config.production_authenticated,
+        "blockingIssues": issues,
+        "note": (
+            "本地单用户试运行只依赖 loopback、固定主体标签和显式配置；"
+            "它不等同于生产认证，也没有伪造 Bearer 或其他生产令牌"
+        ),
+    }
+
 
 #: 合成快照的交易所/板块清单；真实快照一律从快照内生证券读取。
 #: 用运行时解析而不是写死：指向真实快照时，写死的清单会让真实标的
@@ -759,7 +934,8 @@ def _published_snapshot_view(snapshot: PublishedSnapshot) -> dict:
     }
 
 
-def _manual_trial_readiness(state: "AppState", data_status: dict) -> dict:
+def _manual_trial_readiness(state: "AppState", data_status: dict,
+                            *, identity: IdentityConfig | None = None) -> dict:
     """计算一次人工 S1 模拟试运行的硬门槛。
 
     每日调度和外发告警属于持续运行条件，单列为 warning；这里的 ``ready``
@@ -767,6 +943,9 @@ def _manual_trial_readiness(state: "AppState", data_status: dict) -> dict:
     """
 
     issues: list[dict] = []
+    identity = identity or _identity_config()
+    identity_status = _identity_readiness(identity)
+    issues.extend(identity_status["blockingIssues"])
     mode = data_status.get("dataMode")
     current_id = data_status.get("snapshotId")
     if data_status.get("readiness") != "READY":
@@ -830,6 +1009,7 @@ def _manual_trial_readiness(state: "AppState", data_status: dict) -> dict:
     return {
         "mode": "MANUAL_SIMULATION",
         "ready": not issues,
+        "identity": identity_status,
         "blockingIssues": issues,
         "operationalWarnings": warnings,
     }
@@ -1097,6 +1277,9 @@ def create_app(state: AppState | None = None) -> FastAPI:
     app = FastAPI(title="A-Quant Lab API", version="0.1.0",
                   description="研究与模拟决策工作台。模拟账户，不连接券商。")
     app.state.aquant = state or build_state()
+    # 身份接线在进程启动时冻结，避免请求过程中改变环境变量而导致同一
+    # 个 API 实例的 assurance 语义漂移。
+    app.state.aquant_identity = _identity_config()
 
     cors_origins = _cors_origins_from_env()
     if cors_origins:
@@ -1116,16 +1299,30 @@ def create_app(state: AppState | None = None) -> FastAPI:
     # ---------------------------------------------------------------- 身份
     def current_subject(request: Request,
                         x_aquant_subject: str | None = Header(default=None)) -> str:
-        """当前确认主体。**来自服务端信任边界，不接受请求体自报。**
+        """解析当前主体，并执行声明的身份模式边界。
 
-        演示实现从受信任的头部取得（真实部署应由已验证凭证/签名上下文映射，
-        见 Q0 报告 §4.3：tenant 与 user 必须来自令牌，而不是请求体）。
-        这里额外校验人类主体，因为冻结是用户动作（§16.3）。
+        生产认证尚未接入。development/unset 模式保留自报头仅供开发兼容；
+        LOCAL_LOOPBACK_DEMO 要求部署层将端口绑定到宿主机 loopback，API
+        本身再固定单一主体标签。容器内不能通过 TCP peer 反推出宿主机绑定，
+        因此不检查 request.client.host；这两个模式都不产生 Bearer 或生产认证语义。
         """
+
+        identity: IdentityConfig = getattr(
+            request.app.state, "aquant_identity", _identity_config())
+        if identity.config_error:
+            raise HTTPException(status_code=503, detail=identity.config_error)
 
         subject = (x_aquant_subject or "").strip()
         if not subject:
             raise HTTPException(status_code=401, detail="missing authenticated subject")
+        if identity.local_only and subject != identity.subject:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "LOCAL_LOOPBACK_DEMO 只允许配置的单一试运行主体；"
+                    "X-Aquant-Subject 仍然不是生产凭证"
+                ),
+            )
         if not confirmer_is_human(subject):
             raise HTTPException(
                 status_code=403,
@@ -1442,14 +1639,18 @@ def create_app(state: AppState | None = None) -> FastAPI:
         }
 
     @app.get("/api/v1/readiness")
-    def readiness(s: AppState = Depends(svc)) -> dict:
-        """就绪状态：数据、账本、任务三个维度分开报。"""
+    def readiness(request: Request, s: AppState = Depends(svc)) -> dict:
+        """就绪状态：数据、账本、任务和身份 assurance 分开报。"""
 
         status = build_data_status(s.reader, s.current_snapshot()).as_dict()
         jobs = JobStore(s.con).counts_by_status()
-        trial = _manual_trial_readiness(s, status)
+        identity: IdentityConfig = getattr(
+            request.app.state, "aquant_identity", _identity_config())
+        identity_status = _identity_readiness(identity)
+        trial = _manual_trial_readiness(s, status, identity=identity)
         return {
             "ready": status.get("readiness") == "READY",
+            "identity": identity_status,
             "data": {
                 "snapshotId": status.get("snapshotId"),
                 "dataMode": status.get("dataMode"),
