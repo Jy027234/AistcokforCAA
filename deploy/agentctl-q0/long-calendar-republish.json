@@ -1,0 +1,66 @@
+{
+  "trading_day": "2026-09-18",
+  "snapshot_id": "snap-eod-2026-09-18-longcal-20260919",
+  "outcome": "PUBLISHED",
+  "steps": [
+    {
+      "step": "采集行情",
+      "ok": true,
+      "seconds": 2.6,
+      "tail": [
+        "==============================================================",
+        "采集完成：5219 只，321132 条行情，失败 0 只",
+        "缓存：E:\\IT\\A股量化交易\\deploy\\agentctl-q0\\universe-bars.json（60.5 MB）"
+      ],
+      "exitCode": 0
+    },
+    {
+      "step": "发布快照",
+      "ok": true,
+      "seconds": 1.0,
+      "tail": [
+        "快照已发布，等待提升为 current：snap-eod-2026-09-18-longcal-20260919",
+        "  窗口 2026-06-22 .. 2026-09-18（65 天）",
+        "  证券 900 只，行情 58484 条"
+      ],
+      "exitCode": 0
+    },
+    {
+      "step": "因子落库",
+      "ok": true,
+      "seconds": 3.2,
+      "tail": [
+        "  未进排名：68 只 —— TTM 不可得（缺上年同期或口径不成立）",
+        "  回读：feature_value 900 行，其中 832 行有值",
+        "报告：E:\\IT\\A股量化交易\\deploy\\agentctl-q0\\factors-persist.json"
+      ],
+      "exitCode": 0
+    },
+    {
+      "step": "F10 质量闸门",
+      "ok": true,
+      "seconds": 0.6,
+      "tail": [
+        "==============================================================",
+        "T12 F10 真实验收 7/7 通过",
+        "报告：E:\\IT\\A股量化交易\\deploy\\agentctl-q0\\t12-f10-real.json"
+      ],
+      "exitCode": 0
+    },
+    {
+      "step": "切换当前快照",
+      "ok": true,
+      "seconds": 0.2,
+      "tail": [
+        "current 已切换：snap-eod-2026-09-18-longcal-20260919"
+      ],
+      "exitCode": 0
+    }
+  ],
+  "reason": null,
+  "started_at": "2026-09-19T13:35:55.823865+00:00",
+  "finished_at": "2026-09-19T13:36:03.891734+00:00",
+  "duration_seconds": 8.1,
+  "data_last_day": "2026-09-18",
+  "source": "manual"
+}

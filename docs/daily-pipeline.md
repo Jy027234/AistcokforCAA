@@ -292,6 +292,13 @@ python tools/show_alerts.py --days 7      # 最近 7 天的 ERROR；有 ERROR �
 [07:17:43] 结果 PUBLISHED
 ```
 
+同日完成长交易日历迁移后，按相同五步链重新发布
+`snap-eod-2026-09-18-longcal-20260919`：逐只行情仍为 65 日，快照交易日历扩为
+535 日（2024-07-10 至 2026-09-18），因子仍为 900 行 / 832 行有值，质量闸门
+7/7 通过后才切换 current。真实门槛复核中，2026-04-08 上市的 `SH.603459`
+截至快照日为 114 个交易日，已按 `LISTED_TOO_RECENTLY` 排除。运行留痕见
+`deploy/agentctl-q0/long-calendar-republish.json`。
+
 落库后的复核（不是看返回值，而是重新查库、再走一遍产品接口）：
 
 | 检查 | 结果 |
