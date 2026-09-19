@@ -27,7 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from aquant.domain.data.db import apply_migrations, connect  # noqa: E402
 from aquant.operations import scheduler  # noqa: E402
 from aquant.operations.scheduler import (  # noqa: E402
-    RunSchedule, ScheduleError, is_due, next_fire, validate_time_of_day,
+    RunSchedule, ScheduleError, is_due, market_now, next_fire, validate_time_of_day,
 )
 
 CST = timezone(timedelta(hours=8))
@@ -68,6 +68,12 @@ def _schedule(**kw) -> RunSchedule:
 def test_next_fire_is_today_when_not_yet_passed():
     now = datetime(2026, 9, 18, 9, 0, tzinfo=CST)      # 周五上午
     assert next_fire(_schedule(), now=now) == datetime(2026, 9, 18, 20, 30, tzinfo=CST)
+
+
+def test_default_scheduler_clock_is_china_market_time():
+    now = market_now()
+    assert now.utcoffset() == timedelta(hours=8)
+    assert now.tzname() == "Asia/Shanghai"
 
 
 def test_next_fire_rolls_to_next_weekday_over_the_weekend():

@@ -1,5 +1,5 @@
 {
-  "ran_at": "2026-09-19T13:56:20.9294140Z",
+  "ran_at": "2026-09-19T13:59:42.8350553Z",
   "topology": "docker-compose-real",
   "current_snapshot": "snap-eod-2026-09-18-longcal-20260919",
   "data_ready": true,
@@ -15,14 +15,16 @@
     "heartbeat": {
       "running": true,
       "status": "RUNNING",
-      "workerId": "scheduler-890dc10e",
+      "workerId": "scheduler-4d1b1c8d",
       "pid": 1,
-      "startedAt": "2026-09-19T21:54:18.490066+08:00",
-      "heartbeatAt": "2026-09-19T21:56:18.594922+08:00",
-      "ageSeconds": 0.4,
+      "startedAt": "2026-09-19T21:58:51.085777+08:00",
+      "heartbeatAt": "2026-09-19T21:59:31.106448+08:00",
+      "ageSeconds": 9.7,
       "staleAfterSeconds": 90.0,
-      "detail": "worker 心跳正常（0.4 秒前）"
+      "detail": "worker 心跳正常（9.7 秒前）"
     },
+    "timezone": "Asia/Shanghai",
+    "next_fire_at": "2026-09-21T20:30:00+08:00",
     "dispatch_verification": {
       "requestId": "run_324dee84e90642ae",
       "source": "manual",

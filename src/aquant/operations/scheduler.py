@@ -46,6 +46,15 @@ _TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 SCHEDULE_ID = "daily"
 LAST_RUN_ID = "last"
 WORKER_HEARTBEAT_FILENAME = "scheduler-worker.json"
+# 产品只覆盖 A 股，调度时间的“本地”必须明确为北京时间。依赖进程本地
+# 时区会让同一份 20:30 配置在 Linux UTC 容器里变成北京时间次日 04:30。
+MARKET_TIMEZONE = timezone(timedelta(hours=8), name="Asia/Shanghai")
+
+
+def market_now() -> datetime:
+    """返回调度与交易日选择共同使用的北京时间。"""
+
+    return datetime.now(MARKET_TIMEZONE)
 
 
 def write_worker_heartbeat(
@@ -491,7 +500,7 @@ def status(con: sqlite3.Connection, *, now: datetime | None = None) -> dict:
     """给界面的一份完整状态：配置 + 下一次触发 + 最近一次运行 + 待处理请求。"""
 
     schedule = load_schedule(con)
-    moment = now or datetime.now().astimezone()
+    moment = now or market_now()
     nxt = next_fire(schedule, now=moment)
     return {
         "schedule": schedule.as_dict(),
@@ -499,4 +508,5 @@ def status(con: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         "lastRun": last_run(con),
         "pending": pending_request(con),
         "checkedAt": moment.isoformat(),
+        "timezone": "Asia/Shanghai",
     }

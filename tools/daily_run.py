@@ -46,6 +46,7 @@ from aquant.operations.alerting import (  # noqa: E402
 from aquant.operations.pipeline import (  # noqa: E402
     PipelineBusy, PipelineLock, RunLog, RunRecord,
 )
+from aquant.operations.scheduler import market_now  # noqa: E402
 from aquant.operations.snapshot_lifecycle import new_snapshot_id  # noqa: E402
 
 PYTHON = sys.executable
@@ -164,7 +165,7 @@ def main() -> int:
         return 2
 
     target = (date.fromisoformat(args.trading_day) if args.trading_day
-              else date.today())
+              else market_now().date())
     day = target.isoformat()
     # 生产默认值等采集确认实际末日后再生成，避免休市跳过也消耗一个
     # 看似已发布的物理 ID。显式 ID 只用于受控回放/迁移，仍禁止覆盖。

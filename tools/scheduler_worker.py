@@ -287,7 +287,7 @@ def main() -> int:
             from dataclasses import replace
             schedule_now = replace(schedule_now, interpreter=args.interpreter)
         return tick(con, worker_id=worker_id, data_dir=data_dir,
-                    schedule=schedule_now, now=datetime.now().astimezone(),
+                    schedule=schedule_now, now=scheduler.market_now(),
                     dry_run=args.dry_run)
 
     if args.once or args.now:
@@ -297,7 +297,7 @@ def main() -> int:
         # idle/fired 都算正常结束；ran:DONE 也正常；只有失败才非零。
         return 0 if result in ("idle", "fired") or result.endswith("DONE") else 1
 
-    started_at = datetime.now().astimezone()
+    started_at = scheduler.market_now()
     heartbeat_stop = threading.Event()
 
     def write_heartbeat(status: str = "RUNNING") -> None:
