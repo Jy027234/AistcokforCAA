@@ -116,10 +116,17 @@ def main() -> int:
                     help="该交易日已成功发布过就直接退出（定时任务推荐）")
     ap.add_argument("--dry-run", action="store_true", help="只说会做什么")
     ap.add_argument("--window-start", default=WINDOW_START)
+    ap.add_argument("--source", default="manual", choices=["manual", "scheduler"],
+                    help="谁发起的一次运行。写进留痕，用来回答"
+                         "「这次是到点跑的，还是有人点了按钮」——"
+                         "两者都合法，但排查时的下一步不一样。")
     ap.add_argument("--snapshot-id", default="snap-universe",
                     help="快照 ID。默认稳定不变——每天重建的是同一个逻辑"
                          "对象的新版本，由 supersedes 串链；换 ID 会让所有"
                          "引用固定 ID 的工具同时失效。")
+    ap.add_argument("--json-out", default=None,
+                    help="把本次留痕记录写成 JSON（供调度 worker 落库成运行摘要）。"
+                         "留痕文件仍是权威，这份只是同一份事实的机器可读副本。")
     args = ap.parse_args()
 
     alerts = AlertLog(ALERTS)
@@ -161,7 +168,8 @@ def main() -> int:
     snapshot_id = args.snapshot_id
     run_log = RunLog(RUNS)
     record = RunRecord(trading_day=day, snapshot_id=snapshot_id, outcome="FAILED",
-                       started_at=datetime.now(timezone.utc).isoformat())
+                       started_at=datetime.now(timezone.utc).isoformat(),
+                       source=args.source)
 
     if args.skip_if_done and run_log.last_successful_day() == day:
         record.outcome = "SKIPPED"
@@ -197,7 +205,7 @@ def main() -> int:
                 record.reason = "采集失败"
                 alert("采集失败", tradingDay=day, step="采集行情",
                       exitCode=step["exitCode"], tail=step["tail"])
-                return _finish(run_log, record, started, 1)
+                return _finish(run_log, record, started, 1, json_out=args.json_out)
 
             # 采集之后**核对实际拿到了哪一天**，再决定 ID。
             actual_last = _cache_last_day()
@@ -205,14 +213,14 @@ def main() -> int:
             if actual_last is None:
                 record.reason = "缓存的行情窗口为空"
                 alert("采集缓存里没有任何行情", tradingDay=day)
-                return _finish(run_log, record, started, 1)
+                return _finish(run_log, record, started, 1, json_out=args.json_out)
             if actual_last != day:
                 record.outcome = "SKIPPED"
                 record.reason = (f"目标日 {day} 没有新行情（休市或数据未更新），"
                                  f"缓存实际末日 {actual_last}")
                 # 按计划跳过而不是失败：休市不是错误。
                 # 报失败会让定时任务重试到天亮，而结果不会变。
-                return _finish(run_log, record, started, 0)
+                return _finish(run_log, record, started, 0, json_out=args.json_out)
             record.snapshot_id = snapshot_id
 
             # 2. 建快照。窗口收窄到固定的起点。
@@ -243,7 +251,7 @@ def main() -> int:
                 record.reason = "快照构建未通过校验（可能是休市或数据未更新）"
                 alert("快照构建未通过校验", tradingDay=day,
                       exitCode=step["exitCode"], tail=step["tail"])
-                return _finish(run_log, record, started, 1)
+                return _finish(run_log, record, started, 1, json_out=args.json_out)
 
             # 3. 算因子并**落库**（在新快照上）。
             #
@@ -276,20 +284,30 @@ def main() -> int:
                       exitCode=step["exitCode"], tail=step["tail"])
 
             record.outcome = "PUBLISHED"
-            return _finish(run_log, record, started, 0)
+            return _finish(run_log, record, started, 0, json_out=args.json_out)
 
     except PipelineBusy as exc:
         record.reason = str(exc)
         record.outcome = "SKIPPED"
-        return _finish(run_log, record, started, 0,
+        return _finish(run_log, record, started, 0, json_out=args.json_out,
                        message="上一次运行还在进行，本次跳过（不算失败）")
 
 
 def _finish(run_log: RunLog, record: RunRecord, started: float,
-            code: int, *, message: str | None = None) -> int:
+            code: int, *, message: str | None = None,
+            json_out: str | None = None) -> int:
     record.finished_at = datetime.now(timezone.utc).isoformat()
     record.duration_seconds = round(time.time() - started, 1)
     run_log.append(record)
+    if json_out:
+        # 先落盘再说话：工人进程靠这个文件回填运行摘要，
+        # 而"留痕写成功了、摘要没拿到"是可以接受的降级（摘要能重建）。
+        import json as _json
+
+        path = Path(json_out)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(_json.dumps(record.as_dict(), ensure_ascii=False,
+                                     indent=2).encode("utf-8"))
     log(message or ("结果 " + record.outcome
                     + ("：" + record.reason if record.reason else "")))
     log("留痕 " + str(RUNS))

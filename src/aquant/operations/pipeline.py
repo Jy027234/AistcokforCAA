@@ -90,6 +90,10 @@ class RunRecord:
     #: 光看"上次跑成功是什么时候"不够——天天跑成功但数据源没更新，
     #: 快照照样停在几天前，而界面上一切正常。
     data_last_day: str | None = None
+    #: 谁发起的一次运行：manual（命令行/界面按钮）或 scheduler（到点）。
+    #: 两者都合法，但**排查时的下一步不一样**：前者要问"为什么点了"，
+    #: 后者要问"为什么到点没跑/跑了没成"。
+    source: str = "manual"
 
     def as_dict(self) -> dict:
         return asdict(self)

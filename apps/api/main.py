@@ -61,6 +61,12 @@ from aquant.domain.research.strategies import (  # noqa: E402
     seed_known_versions, strategy_versions,
 )
 from aquant.domain.research.runs import factor_values, factor_values_for_snapshot
+from aquant.operations.scheduler import (
+    ScheduleError,
+    request_run,
+    save_schedule,
+)
+from aquant.operations.scheduler import status as scheduler_status
 from aquant.domain.simulation.corporate_actions import CashDividend
 from aquant.domain.simulation.fees import synthetic_fee_table
 from aquant.operations.jobs import Job, JobError, JobStore
@@ -474,6 +480,30 @@ class TestSetAccessRequest(BaseModel):
 class ResearchRunRequest(BaseModel):
     #: 限制参与计算的标的数（调试用）；0 = 不限。
     limit: int = Field(default=0, ge=0, le=10_000)
+
+
+class ScheduleRequest(BaseModel):
+    """每日任务的配置（§14.2）。
+
+    `interpreter` 是**必填项而不是可选项**：这条流水线依赖 baostock 与
+    pytest，而 API 进程自己的解释器未必装了它们。留空并启用会被拒绝
+    （见 `save_schedule`），因为"用错解释器"每天都会失败，
+    而失败信息看起来像数据源问题。
+    """
+
+    enabled: bool
+    run_at_local: str = Field(default="20:30", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+    weekdays_only: bool = True
+    interpreter: str = Field(default="", max_length=400)
+    data_dir: str = Field(default="", max_length=400,
+                          description="快照数据目录。留空 = 用 worker 的默认目录")
+    window_start: str = Field(default="2026-06-22", pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
+class RunNowRequest(BaseModel):
+    """请求立刻运行一次。**只是请求**：执行由独立 worker 负责。"""
+
+    reason: str | None = Field(default=None, max_length=200)
 
 
 class ResearchJobRequest(BaseModel):
@@ -1098,6 +1128,57 @@ def create_app(state: AppState | None = None) -> FastAPI:
             return portfolio_ledger(s.con, portfolio_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    # ---------------------------------------------------------------- 调度
+    @app.get("/api/v1/schedule")
+    def get_schedule(s: AppState = Depends(svc)) -> dict:
+        """每日任务的配置与运行状态（§14.2 的调度由独立 worker 执行）。
+
+        这里只回答"配了什么、下次什么时候、上次跑成什么样"。
+        **不在 API 里执行采集**：那要跑几十秒到几分钟，会与请求争用同一个
+        数据库连接，而且 API 一重启当天那次就没了（见 scheduler.py 的说明）。
+        """
+
+        return scheduler_status(s.con)
+
+    @app.post("/api/v1/schedule")
+    def put_schedule(body: ScheduleRequest,
+                     subject: str = Depends(current_subject),
+                     s: AppState = Depends(svc)) -> dict:
+        try:
+            save_schedule(
+                s.con, enabled=body.enabled, run_at_local=body.run_at_local,
+                weekdays_only=body.weekdays_only, interpreter=body.interpreter,
+                data_dir=body.data_dir or "", window_start=body.window_start,
+                actor=subject)
+        except ScheduleError as exc:
+            raise HTTPException(status_code=422, detail={
+                "error": {"code": "SCHEDULE_INVALID", "message": exc.message,
+                          "object_id": "run_schedule", "retryable": False,
+                          "repair_action": exc.repair}}) from exc
+        return scheduler_status(s.con)
+
+    @app.post("/api/v1/schedule/run")
+    def trigger_run(body: RunNowRequest,
+                    subject: str = Depends(current_subject),
+                    s: AppState = Depends(svc)) -> dict:
+        """请求**立刻运行一次**流水线。
+
+        只登记请求、不执行：执行由 worker 负责，因此"点按钮"与"到点自动跑"
+        走同一条路径。重复点击不会排队成一串运行——同一时刻至多一条未完成
+        的请求，第二次点击返回同一个 request_id。
+        """
+
+        request_id = request_run(
+            s.con, source="manual", requested_by=subject,
+            reason=(body.reason or "界面请求立刻运行"))
+        return {
+            "requestId": request_id,
+            "note": ("已登记运行请求。执行者是独立 worker"
+                     "（python tools/scheduler_worker.py）；"
+                     "它会先做预检（解释器、采集缓存、数据目录）再跑流水线。"),
+            **scheduler_status(s.con),
+        }
 
     @app.get("/api/v1/events")
     def list_events(request: Request, instrument_id: str | None = None,
