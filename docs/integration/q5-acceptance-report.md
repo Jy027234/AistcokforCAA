@@ -1,6 +1,6 @@
 # Q5 接入侧验收报告
 
-> 生成时间：2026-09-19T10:54:12.586883+00:00
+> 生成时间：2026-09-19T11:45:18.223101+00:00
 > 本报告只引用本次 runner 新启动的 server 与新生成的去敏证据；历史 Q0/Q5 文件不作为本次结论输入。
 
 ## 实测范围
@@ -28,14 +28,14 @@
 | A08 | passed | live_topology | 预览通过真实 agentctl HTTP 入口且产品元数据库全部用户表指纹不变 |
 | A09 | uncovered | not_executed | 未执行：真实 agentctl 入口被结构性阻断 |
 | A10 | passed | live_topology | 模型失败分支保留真实失败语义 |
-| A11 | uncovered | not_executed | 未执行 |
-| A12 | uncovered | not_executed | 未执行 |
+| A11 | passed | live_topology | 当前事件被旧快照 PIT 门禁拦截，旧实验读取与产品状态均未污染 |
+| A12 | passed | offline_contract | 真实产品 assistant 入口按固定输入回放归档输出，受信任主体隔离、结构化量化产物哈希一致且回放单独登记 |
 | A13 | passed | live_topology | 跨进程取消、迟到、重复与乱序回调均被状态机拒绝，非作业表未变化 |
-| A14 | uncovered | not_executed | 未执行 |
+| A14 | uncovered | live_topology | 真实 agentctl turn_projection 已 fail closed；缺少 Core replay 传输，A14 未覆盖 |
 | A15 | passed | offline_contract | 运行日志、构建产物、最终 evidence 与 report 均无已知密钥模式 |
 | A16 | passed | live_topology | 崩溃租约由新进程接管并完成真实因子写入；重复提交与执行未改变产品库 |
 
-真实拓扑覆盖：8/10 通过；未覆盖：A01, A06, A09, A11, A12, A14；已执行失败：A02。
+真实拓扑覆盖：9/12 通过；未覆盖：A01, A06, A09, A14；已执行失败：A02。
 
 ## 证据与限制
 
@@ -44,6 +44,7 @@
 - A04 通过真实 `/frontdesk/capabilities/invoke` 调用研究 handler；只有返回真实 snapshot、数据和 invocation/trace/idempotency 关联时才算覆盖。
 - A05–A09 的真实拓扑结论按上方覆盖矩阵记录；仅未覆盖项依据实际 manifest 与 onboarding 事实记录阻断，离线领域测试或样例数据不能冒充 agentctl 真实拓扑通过。
 - A10–A16 仅按各行本次证据计级；其中跨进程状态演练必须同时经过持久 JobStore 与 live job.status，离线领域测试不会被自动升级。
+- A12 的主体隔离只验证产品的受信任主体映射合同；当前演示 X-Aquant-Subject 头不是生产认证，本项也未声明为 agentctl live capability。
 - 本报告与量化领域回归报告分开，不能互相替代。
 
 ## A05–A09 真实拓扑阻断
@@ -51,6 +52,12 @@
 - **A09**：当前 onboarding 只绑定 frontdesk.message，清单也明确不声明计划冻结；没有可供 agentctl 调用的确认/冻结入口，无法在真实拓扑中提交陈旧确认。
   - blocker：`product_entrypoint_not_bound`；所需能力：`aquant.simulation_plan.preview`；当前缺失：无（需核对产品入口）。
   - 需要的真实入口：product-owned confirmation/freeze HTTP entrypoint bound to agentctl。
+
+## A14 会话重开边界
+
+- **A14**：当前 agentctl server 只返回 turn_projection；未配置真实 Core conversation_replay 传输，A14 必须 fail closed。
+  - blocker：`conversation_replay_transport_unconfigured`；真实入口：Platform Core application-conversation publish + paginated GET。
+  - `turn_projection` 只能用于当前响应；只有 Core 返回 `conversation_replay` 且独立分页读取成功，才可记为通过。
 
 ## 凭证清理
 

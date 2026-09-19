@@ -38,6 +38,7 @@ from aquant.adapters.models.deepseek import DeepSeekProvider  # noqa: E402
 from aquant.application.assistant import (  # noqa: E402
     AssistantError, Material, ask_assistant, model_calls,
 )
+from aquant.domain.ai.archive import ArchivedModelProvider, ModelArchiveError  # noqa: E402
 from aquant.application.research_cards import (
     get_card_payload, persist_card, research_cards,
 )
@@ -601,6 +602,20 @@ class AssistantMessageRequest(BaseModel):
     max_output_tokens: int = Field(default=8192, ge=64, le=8192)
     #: 可选：顺带算一份草稿与差异预览。算完即弃，不落库。
     draft: AssistantDraftRequest | None = None
+
+
+class AssistantReplayRequest(BaseModel):
+    """Replay one saved model response through the normal assistant path.
+
+    The fixed input fields are intentionally repeated in the request.  The
+    archived provider hashes the resulting prompt/context and fails closed if
+    any of them differs from the original call.
+    """
+
+    archive_id: str = Field(min_length=1, max_length=128)
+    purpose: str = Field(min_length=1, max_length=200)
+    materials: list[AssistantMaterial] = Field(min_length=1, max_length=50)
+    max_output_tokens: int = Field(default=8192, ge=64, le=8192)
 
 
 class WatchRequest(BaseModel):
@@ -1633,7 +1648,9 @@ def create_app(state: AppState | None = None) -> FastAPI:
                     "snapshotId": snapshot_id,
                     "dataMode": ref.data_mode,
                     "asOfTime": ref.as_of_time.isoformat(),
-                })
+                },
+                subject_id=subject,
+            )
             if draft is not None:
                 answer["draft"] = draft
                 answer["draftNote"] = (
@@ -1643,9 +1660,89 @@ def create_app(state: AppState | None = None) -> FastAPI:
         except AssistantError as exc:
             # 模型不可用是**上游依赖不可用**，不是客户端的错，也不是服务端 bug：
             # 用 503 让调用方知道"稍后重试可能有用"，而不是 500。
-            status = 503 if exc.code == "DATA_NOT_READY" else 403
+            status = (
+                503
+                if exc.code in {"DATA_NOT_READY", "ARCHIVE_CORRUPT"}
+                else 409
+                if exc.code == "REPLAY_INPUT_MISMATCH"
+                else 403
+            )
             detail = {"code": exc.code, "message": exc.message,
                       "repair_action": exc.repair_action}
+            if exc.blockers:
+                detail["blockers"] = exc.blockers
+            raise HTTPException(status_code=status, detail=detail) from exc
+
+    @app.post("/api/v1/assistant/replay")
+    def assistant_replay(body: AssistantReplayRequest,
+                         subject: str = Depends(current_subject),
+                         s: AppState = Depends(svc)) -> dict:
+        """Replay an immutable model output with the exact fixed input.
+
+        This is a product operation, rather than a test-only provider hook:
+        the archive is loaded from the product metadata store and the request
+        then traverses the same egress, model-call and audit path as a normal
+        assistant message.  ``ArchivedModelProvider`` rejects changed input
+        before returning any old response.
+        """
+
+        snapshot_id = s.current_snapshot()
+        ref = s.reader.ref(snapshot_id)
+        try:
+            provider = ArchivedModelProvider(
+                s.con, body.archive_id, subject_id=subject
+            )
+            answer = ask_assistant(
+                s.con,
+                provider,
+                materials=[Material(
+                    source_id=m.source_id,
+                    text=m.text,
+                    contains_personal_data=m.contains_personal_data,
+                ) for m in body.materials],
+                purpose=body.purpose,
+                data_mode=ref.data_mode,
+                max_output_tokens=body.max_output_tokens,
+                snapshot_context={
+                    "snapshotId": snapshot_id,
+                    "dataMode": ref.data_mode,
+                    "asOfTime": ref.as_of_time.isoformat(),
+                },
+                subject_id=subject,
+            )
+            return answer
+        except ModelArchiveError as exc:
+            # A missing archive and an archive owned by another subject are
+            # intentionally indistinguishable.  Do not let an archive ID
+            # become a cross-subject read oracle.
+            missing = str(exc).startswith("unknown model output archive")
+            raise HTTPException(
+                status_code=404 if missing else 503,
+                detail={
+                    "code": "ARCHIVE_NOT_FOUND" if missing else "ARCHIVE_CORRUPT",
+                    "message": (
+                        "model output archive is not available for this subject"
+                        if missing else str(exc)
+                    ),
+                    "repair_action": (
+                        "use an archive created by the authenticated subject"
+                        if missing else "restore the immutable model output archive"
+                    ),
+                },
+            ) from exc
+        except AssistantError as exc:
+            status = (
+                503
+                if exc.code in {"DATA_NOT_READY", "ARCHIVE_CORRUPT"}
+                else 409
+                if exc.code == "REPLAY_INPUT_MISMATCH"
+                else 403
+            )
+            detail = {
+                "code": exc.code,
+                "message": exc.message,
+                "repair_action": exc.repair_action,
+            }
             if exc.blockers:
                 detail["blockers"] = exc.blockers
             raise HTTPException(status_code=status, detail=detail) from exc
@@ -1697,10 +1794,14 @@ def create_app(state: AppState | None = None) -> FastAPI:
                          "locator_kind 区分逐字命中与只差空白两档。")}
 
     @app.get("/api/v1/assistant/calls")
-    def list_model_calls(limit: int = 100, s: AppState = Depends(svc)) -> dict:
+    def list_model_calls(limit: int = 100,
+                         subject: str = Depends(current_subject),
+                         s: AppState = Depends(svc)) -> dict:
         """模型调用留档。**失败的也在里面**——否则预算与责任都无从核对。"""
 
-        rows = model_calls(s.con, limit=max(1, min(limit, 500)))
+        rows = model_calls(
+            s.con, limit=max(1, min(limit, 500)), subject_id=subject
+        )
         return {"count": len(rows), "calls": rows,
                 "note": ("被拒（REJECTED）与出错（ERROR）同样留档；"
                          "contract_version 列存的是本次判定细节")}

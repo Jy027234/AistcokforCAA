@@ -127,6 +127,15 @@ capabilities:
         type: string
       snapshot_id:
         type: string
+      event_id:
+        type: string
+        description: 可选；点名一个事件时，必须在 snapshot_id 的时点已可用
+      event_ids:
+        type: array
+        maxItems: 100
+        items:
+          type: string
+        description: 可选；点名事件时逐一经过目标快照的 PIT 门禁
       located_only:
         type: boolean
       limit:

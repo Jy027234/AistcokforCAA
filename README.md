@@ -296,6 +296,8 @@ python tools\fetch_fee_sources.py    # 抓取并留证（URL + 时间 + 内容�
 | 研究卡 | `GET /api/v1/instruments/{id}/research`（按标的/快照/交易日**留档**，重复打开不刷新） |
 | 证据 | `GET /api/v1/instruments/{id}/evidence`（引用带字符偏移，可定位） |
 | 助手 | `POST /api/v1/assistant/messages`（材料先过外发闸门；只给草稿，不执行） |
+| 助手回放 | `POST /api/v1/assistant/replay`（仅同一受信任主体映射、同一固定输入可读取已归档输出；回放单独登记） |
+| 模型审计 | `GET /api/v1/assistant/calls`（按受信任主体映射返回成功、拒绝与失败调用） |
 | 费率口径 | `GET /api/v1/fees`（当前费率与出处） |
 
 **安全边界**：确认主体由服务端从受信任凭证取得，**不接受请求体自报**；

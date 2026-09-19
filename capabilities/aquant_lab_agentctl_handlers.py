@@ -388,6 +388,40 @@ async def event_evidence_read(invocation: dict[str, Any], *,
     args = _invocation_arguments(invocation)
     instrument_id = str(args.get("instrument_id") or "").strip()
     snapshot_id = str(args.get("snapshot_id") or "").strip()
+    requested_event_ids: list[str] = []
+    raw_event_ids = args.get("event_ids")
+    if raw_event_ids is None and args.get("event_id") is not None:
+        raw_event_ids = [args.get("event_id")]
+    if raw_event_ids is not None:
+        if not isinstance(raw_event_ids, list):
+            return _error(
+                "DATA_NOT_READY",
+                "event_ids must be an array of event ids",
+                instrument_id or snapshot_id or "<empty>",
+                False,
+                "provide one or more event ids in event_ids",
+            )
+        requested_event_ids = []
+        for value in raw_event_ids:
+            event_id = str(value or "").strip()
+            if not event_id:
+                return _error(
+                    "DATA_NOT_READY",
+                    "event_ids must contain non-empty event ids",
+                    instrument_id or snapshot_id or "<empty>",
+                    False,
+                    "remove empty event ids and retry",
+                )
+            if event_id not in requested_event_ids:
+                requested_event_ids.append(event_id)
+        if len(requested_event_ids) > 100:
+            return _error(
+                "DATA_NOT_READY",
+                "event_ids may contain at most 100 event ids",
+                instrument_id or snapshot_id or "<empty>",
+                False,
+                "split the request into at most 100 event ids",
+            )
     object_id = instrument_id or snapshot_id or "<empty>"
     if not instrument_id or not snapshot_id:
         return _error(
@@ -449,6 +483,49 @@ async def event_evidence_read(invocation: dict[str, Any], *,
             located_only=bool(args.get("located_only", False)),
             as_of=as_of,
         )
+        if requested_event_ids:
+            marks = ",".join("?" for _ in requested_event_ids)
+            event_rows = con.execute(
+                f"SELECT e.event_id,e.available_at "
+                f"FROM event e "
+                f"JOIN event_subject s ON s.event_id=e.event_id "
+                f"AND s.subject_type='INSTRUMENT' AND s.subject_id=? "
+                f"WHERE e.event_id IN ({marks})",
+                [instrument_id, *requested_event_ids],
+            ).fetchall()
+            found = {str(row["event_id"]): row for row in event_rows}
+            missing = [event_id for event_id in requested_event_ids if event_id not in found]
+            if missing:
+                return _error(
+                    "DATA_NOT_READY",
+                    f"event {missing[0]!r} does not exist in the product evidence store",
+                    missing[0],
+                    False,
+                    "use an event id returned by the product evidence index",
+                )
+            unavailable: list[str] = []
+            for event_id in requested_event_ids:
+                raw_available_at = found[event_id]["available_at"]
+                try:
+                    available_at = _as_datetime(raw_available_at, name="event.available_at")
+                except (TypeError, ValueError):
+                    unavailable.append(event_id)
+                    continue
+                if available_at > as_of:
+                    unavailable.append(event_id)
+            if unavailable:
+                event_id = unavailable[0]
+                return _error(
+                    "PIT_UNVERIFIED",
+                    f"event {event_id!r} was not available at snapshot {snapshot_id!r} "
+                    f"as_of_time {as_of.isoformat()}; current evidence cannot be mixed "
+                    "into an older experiment",
+                    event_id,
+                    False,
+                    "use an event id whose available_at is no later than the experiment snapshot",
+                )
+            requested = set(requested_event_ids)
+            rows = [row for row in rows if str(row.get("eventId") or "") in requested]
         requested_limit = args.get("limit", 100)
         try:
             limit = max(1, min(int(requested_limit), 100))

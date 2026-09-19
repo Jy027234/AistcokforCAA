@@ -244,7 +244,8 @@ def evidence_for(con: sqlite3.Connection, *, instrument_id: str,
         "c.citation_id,c.quote,c.locator_kind,c.locator_start,c.locator_end,c.located,"
         "d.document_id,d.url,d.content_hash "
         "FROM event e "
-        "JOIN event_subject s ON s.event_id=e.event_id AND s.subject_id=? "
+        "JOIN event_subject s ON s.event_id=e.event_id "
+        "AND s.subject_type='INSTRUMENT' AND s.subject_id=? "
         "LEFT JOIN citation c ON c.event_id=e.event_id "
         "LEFT JOIN document d ON d.document_id=c.document_id "
         "ORDER BY e.available_at DESC, c.citation_id",

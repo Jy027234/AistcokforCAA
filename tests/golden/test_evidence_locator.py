@@ -118,6 +118,21 @@ def test_evidence_is_readable_back_with_locators(con):
     assert rows[0]["documentId"]
 
 
+def test_evidence_for_ignores_non_instrument_subject_with_same_id(con):
+    """同 ID 的 INDUSTRY 事件不能混入标的证据。"""
+
+    instrument = _record(con, source_title="标的事件")
+    other = _record(con, source_title="行业事件")
+    con.execute(
+        "UPDATE event_subject SET subject_type='INDUSTRY' WHERE event_id=?",
+        (other.event_id,),
+    )
+    rows = evidence_for(con, instrument_id="SH.600519")
+
+    assert len(rows) == 2
+    assert {row["eventId"] for row in rows} == {instrument.event_id}
+
+
 def test_document_references_a_registered_source(con):
     """来源未登记时外键必须失败——这是我们在真实快照里踩过的坑。"""
 

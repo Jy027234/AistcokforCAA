@@ -71,6 +71,15 @@ from agentctl.platform_context_guard import (
     sign_platform_tool_context,
 )
 from agentctl.sdk.client import AgentctlHTTPError
+from aquant.adapters.agentctl.conversation_replay import (
+    ConversationReplayReadConfig,
+    ConversationReplayTransportConfig,
+    ConversationReplayUnavailable,
+    parse_turn_projection,
+    publish_turn_projection,
+    read_conversation_replay,
+    require_conversation_replay,
+)
 
 
 ROOT = _APP_ROOT
@@ -128,6 +137,20 @@ A08_INSTRUMENT_ID = "SH.600519"
 A08_MIN_ADJUSTED_BARS = 61
 SERVER_READY_TIMEOUT = 20.0
 PROBE_TIMEOUT = 45.0
+A14_REPLAY_BASE_URL_ENV = "AQUANT_CONVERSATION_REPLAY_BASE_URL"
+A14_REPLAY_SERVICE_TOKEN_ENV = "AQUANT_CONVERSATION_REPLAY_SERVICE_TOKEN"
+A14_REPLAY_READ_TOKEN_ENV = "AQUANT_CONVERSATION_REPLAY_READ_TOKEN"
+A14_REPLAY_READ_HEADER_ENV = "AQUANT_CONVERSATION_REPLAY_READ_AUTH_HEADER"
+A14_REPLAY_READ_PREFIX_ENV = "AQUANT_CONVERSATION_REPLAY_READ_AUTH_PREFIX"
+# A14 may be reported as uncovered only when the external Core boundary is
+# structurally absent.  Once either configured boundary is exercised, every
+# publish/read/page/evidence failure is an executed failure.
+A14_STRUCTURAL_UNCOVERED_BLOCKER_CODES = frozenset(
+    {
+        "conversation_replay_transport_unconfigured",
+        "conversation_replay_reader_unconfigured",
+    }
+)
 
 EXIT_OK = 0
 EXIT_FAILED = 1
@@ -1758,6 +1781,395 @@ def _a07_live_probe(
     }
 
 
+def _a11_point_in_time_probe(
+    base_url: str,
+    token: str,
+    capabilities: Path,
+    product_data: dict[str, Any],
+) -> dict[str, Any]:
+    """Prove a late event cannot enter an older product snapshot.
+
+    The old snapshot and evidence query both use the product's durable reader.
+    A current event is inserted through the normal evidence store only to make
+    the test input realistic; the live capability must reject an explicit
+    request for that event at the old snapshot's time point and leave the
+    original evidence view and every product table unchanged.
+    """
+
+    meta_path = Path(product_data["meta_path"])
+    instrument_id = str(product_data["instrument_id"])
+    snapshot_id = str(product_data["snapshot_id"])
+    from aquant.domain.data.db import connect as product_connect
+    from aquant.domain.evidence.store import record_evidence
+
+    con = product_connect(meta_path)
+    try:
+        source_row = con.execute(
+            "SELECT source_id FROM source_registry ORDER BY source_id LIMIT 1"
+        ).fetchone()
+        if source_row is None:
+            raise RuntimeError("product store has no source registry")
+        late = record_evidence(
+            con,
+            instrument_id=instrument_id,
+            source_id=str(source_row["source_id"]),
+            source_url="https://example.invalid/q5-a11-current-event",
+            source_title="Q5 A11 current event",
+            source_text="Q5 A11 current event is available only after the old snapshot.",
+            available_at=datetime.fromisoformat("2026-09-18T07:00:00+00:00"),
+            fact_summary="Q5 A11 current event must stay outside the old experiment.",
+            verification_status="VERIFIED",
+            extra={
+                "announced_on": "2026-09-18",
+                "citations": ["Q5 A11 current event is available only after the old snapshot."],
+            },
+        )
+        late_event_id = late.event_id
+    finally:
+        con.close()
+
+    before = _product_state_fingerprint(meta_path)
+    old_arguments = {
+        **EVENT_EVIDENCE_DEFAULT_ARGUMENTS,
+        "snapshot_id": snapshot_id,
+        "instrument_id": instrument_id,
+    }
+    old_before = _capability_http_probe(
+        base_url,
+        token,
+        capabilities,
+        EVENT_EVIDENCE_CAPABILITY_ID,
+        arguments=old_arguments,
+        request_prefix="q5-a11-old-before",
+    )
+    if old_before.get("available") is False:
+        return {
+            "available": False,
+            "reason": old_before.get("reason") or "event evidence capability is absent",
+            "old_before_probe": old_before,
+            "passed": False,
+        }
+    old_before_output = (
+        old_before.get("response", {}).get("output", {})
+        if isinstance(old_before.get("response"), dict)
+        else {}
+    )
+    old_before_rows = (
+        old_before_output.get("evidence", [])
+        if isinstance(old_before_output.get("evidence"), list)
+        else []
+    )
+    old_before_ids = sorted({
+        str(item.get("eventId") or "")
+        for item in old_before_rows
+        if isinstance(item, dict) and item.get("eventId")
+    })
+
+    late_probe = _capability_http_probe(
+        base_url,
+        token,
+        capabilities,
+        EVENT_EVIDENCE_CAPABILITY_ID,
+        arguments={
+            **old_arguments,
+            "event_ids": [late_event_id],
+        },
+        request_prefix="q5-a11-current",
+    )
+    late_response = late_probe.get("response")
+    late_response = late_response if isinstance(late_response, dict) else {}
+    late_output = late_response.get("output")
+    late_output = late_output if isinstance(late_output, dict) else {}
+    late_error = late_output.get("error")
+    late_error = late_error if isinstance(late_error, dict) else {}
+
+    old_after = _capability_http_probe(
+        base_url,
+        token,
+        capabilities,
+        EVENT_EVIDENCE_CAPABILITY_ID,
+        arguments=old_arguments,
+        request_prefix="q5-a11-old-after",
+    )
+    old_after_output = (
+        old_after.get("response", {}).get("output", {})
+        if isinstance(old_after.get("response"), dict)
+        else {}
+    )
+    old_after_rows = (
+        old_after_output.get("evidence", [])
+        if isinstance(old_after_output.get("evidence"), list)
+        else []
+    )
+    old_after_ids = sorted({
+        str(item.get("eventId") or "")
+        for item in old_after_rows
+        if isinstance(item, dict) and item.get("eventId")
+    })
+    after = _product_state_fingerprint(meta_path)
+    blocked = bool(
+        late_probe.get("accepted") is True
+        and late_output.get("ok") is False
+        and late_error.get("code") == "PIT_UNVERIFIED"
+        and late_error.get("object_id") == late_event_id
+    )
+    old_view_unchanged = bool(
+        old_before.get("accepted") is True
+        and old_before_output.get("ok") is True
+        and old_after.get("accepted") is True
+        and old_after_output.get("ok") is True
+        and old_before_ids == old_after_ids
+        and late_event_id not in old_before_ids
+        and late_event_id not in old_after_ids
+    )
+    passed = bool(blocked and old_view_unchanged and before == after)
+    return {
+        "available": all(
+            probe.get("available") is not False
+            for probe in (old_before, late_probe, old_after)
+        ),
+        "late_event_id": late_event_id,
+        "old_snapshot_id": snapshot_id,
+        "old_snapshot_view_before": old_before_ids,
+        "old_snapshot_view_after": old_after_ids,
+        "late_event_blocked": blocked,
+        "old_experiment_view_unchanged": old_view_unchanged,
+        "no_product_writes": before == after,
+        "state_sha256_before": before["sha256"],
+        "state_sha256_after": after["sha256"],
+        "old_before_probe": old_before,
+        "late_probe": late_probe,
+        "old_after_probe": old_after,
+        "passed": passed,
+    }
+
+
+def _a12_replay_probe(product_data: dict[str, Any]) -> dict[str, Any]:
+    """Replay a saved model output through the product HTTP assistant path.
+
+    The first response uses a deterministic provider only to make the initial
+    model result stable and offline.  Both the original call and the replay
+    then run through ``apps/api``'s ordinary assistant endpoint; the replay
+    endpoint loads the immutable archive from the product metadata store and
+    checks the fixed input hash before returning it.  This probe therefore
+    exercises the real product persistence and request path instead of a
+    test-only replay function.
+    """
+
+    from fastapi.testclient import TestClient
+
+    from aquant.application.assistant import model_calls
+    from aquant.domain.ai.archive import (
+        list_model_runs,
+        load_archive,
+        output_hash,
+        structured_artifact_hash,
+    )
+    from aquant.domain.ai.model import ModelResponse
+
+    api_root = ROOT / "apps" / "api"
+    if str(api_root) not in sys.path:
+        sys.path.insert(0, str(api_root))
+    from main import build_state, create_app
+
+    class _A12FixedProvider:
+        provider_name = "q5-a12-fixture"
+        model_name = "research-model-v1"
+
+        def complete(self, request: Any) -> ModelResponse:
+            # A structured result makes the archived bytes a quantitative
+            # research artifact, while the actual product path remains the
+            # source of its audit and persistence semantics.
+            return ModelResponse(
+                text='{"factor":"F10","value":42,"source":"fixed-input"}',
+                provider=self.provider_name,
+                model=self.model_name,
+                # Deliberately malformed provider metadata: the product must
+                # hash the exact response bytes it receives.
+                content_hash="sha256:" + "0" * 64,
+                input_tokens=17,
+                output_tokens=9,
+            )
+
+    data_dir = Path(product_data["data_dir"])
+    snapshot_id = str(product_data["snapshot_id"])
+    meta_path = Path(product_data["meta_path"])
+    fixed_body = {
+        "purpose": "Q5 A12 固定输入研究",
+        "materials": [{
+            "source_id": "cninfo",
+            "text": "Q5 A12 fixed input: F10=42",
+            "contains_personal_data": False,
+        }],
+    }
+    old_snapshot = os.environ.get("AQUANT_SNAPSHOT_ID")
+    state = None
+    try:
+        # The copied product store is a published real snapshot.  Select it
+        # explicitly so the API cannot silently seed or switch to synthetic
+        # data while this probe is running.
+        os.environ["AQUANT_SNAPSHOT_ID"] = snapshot_id
+        state = build_state(data_dir)
+        state.model_provider = _A12FixedProvider()
+        app = create_app(state=state)
+        with TestClient(app) as client:
+            first_response = client.post(
+                "/api/v1/assistant/messages",
+                json=fixed_body,
+                headers={"X-Aquant-Subject": "user:q5-a12"},
+            )
+            if first_response.status_code != 200:
+                return {
+                    "available": True,
+                    "passed": False,
+                    "reason": "initial product assistant call failed",
+                    "initial_status": first_response.status_code,
+                    "initial_body": _json_safe(first_response.json()),
+                }
+            first = first_response.json()
+            calls = model_calls(state.con)
+            original = next(
+                (item for item in calls
+                 if item.get("model_call_id") == first.get("modelCallId")),
+                None,
+            )
+            archive_id = str((original or {}).get("archive_id") or first.get("archiveId") or "")
+            if not archive_id or original is None:
+                return {
+                    "available": True,
+                    "passed": False,
+                    "reason": "product call did not register an output archive",
+                    "first": _json_safe(first),
+                    "calls": _json_safe(calls),
+                }
+            archive = load_archive(state.con, archive_id)
+
+            replay_response = client.post(
+                "/api/v1/assistant/replay",
+                json={**fixed_body, "archive_id": archive_id},
+                headers={"X-Aquant-Subject": "user:q5-a12"},
+            )
+            replay = replay_response.json()
+
+            changed_response = client.post(
+                "/api/v1/assistant/replay",
+                json={
+                    **fixed_body,
+                    "archive_id": archive_id,
+                    "purpose": "Q5 A12 changed input must fail closed",
+                },
+                headers={"X-Aquant-Subject": "user:q5-a12"},
+            )
+            changed = changed_response.json()
+
+            foreign_response = client.post(
+                "/api/v1/assistant/replay",
+                json={**fixed_body, "archive_id": archive_id},
+                headers={"X-Aquant-Subject": "user:q5-a12-other"},
+            )
+
+            registrations = list_model_runs(state.con)
+            relevant = [
+                item for item in registrations
+                if item.get("model_call_id") in {
+                    first.get("modelCallId"), replay.get("modelCallId")
+                }
+            ]
+            original_run = next(
+                (item for item in relevant if item.get("run_kind") == "ORIGINAL"),
+                None,
+            )
+            replay_run = next(
+                (item for item in relevant if item.get("run_kind") == "REPLAY"),
+                None,
+            )
+            actual_hash = output_hash(archive.output_text)
+            quantitative_artifact_hash = structured_artifact_hash(archive.output_text)
+            output_hash_same = bool(
+                actual_hash == archive.output_hash
+                == str(original_run.get("output_hash") if original_run else "")
+                == str(replay_run.get("output_hash") if replay_run else "")
+                == str(first.get("contentHash") or "")
+                == str(replay.get("contentHash") or "")
+            )
+            artifact_hash_same = bool(
+                quantitative_artifact_hash
+                and quantitative_artifact_hash == archive.artifact_hash
+                == str(original_run.get("artifact_hash") if original_run else "")
+                == str(replay_run.get("artifact_hash") if replay_run else "")
+                == str(first.get("artifactHash") or "")
+                == str(replay.get("artifactHash") or "")
+            )
+            input_hash_same = bool(
+                original_run
+                and replay_run
+                and original_run.get("input_hash") == replay_run.get("input_hash")
+            )
+            separate_registration = bool(
+                original_run
+                and replay_run
+                and original_run.get("model_run_id") != replay_run.get("model_run_id")
+                and original_run.get("model_call_id") != replay_run.get("model_call_id")
+                and original_run.get("archive_id") == replay_run.get("archive_id") == archive_id
+                and original_run.get("subject_id") == replay_run.get("subject_id") == "user:q5-a12"
+                and original_run.get("run_kind") == "ORIGINAL"
+                and replay_run.get("run_kind") == "REPLAY"
+            )
+            changed_input_blocked = bool(
+                changed_response.status_code == 409
+                and changed.get("detail", {}).get("code") == "REPLAY_INPUT_MISMATCH"
+            )
+            foreign_archive_blocked = bool(
+                foreign_response.status_code == 404
+                and foreign_response.json().get("detail", {}).get("code")
+                == "ARCHIVE_NOT_FOUND"
+            )
+            passed = bool(
+                replay_response.status_code == 200
+                and replay.get("text") == archive.output_text
+                and output_hash_same
+                and artifact_hash_same
+                and input_hash_same
+                and separate_registration
+                and changed_input_blocked
+                and foreign_archive_blocked
+            )
+            return {
+                "available": True,
+                "passed": passed,
+                "snapshot_id": snapshot_id,
+                "archive_id": archive_id,
+                "archive_output_hash": archive.output_hash,
+                "computed_output_hash": actual_hash,
+                "output_hash_same": output_hash_same,
+                "quantitative_artifact_hash": quantitative_artifact_hash,
+                "archive_artifact_hash": archive.artifact_hash,
+                "artifact_hash_same": artifact_hash_same,
+                "input_hash_same": input_hash_same,
+                "separate_model_run_registration": separate_registration,
+                "changed_input_blocked": changed_input_blocked,
+                "foreign_archive_blocked": foreign_archive_blocked,
+                "archive_subject_id": archive.subject_id,
+                "subject_binding_assurance": "trusted_header_contract_only",
+                "production_authentication_proven": False,
+                "initial_model_call_id": first.get("modelCallId"),
+                "replay_model_call_id": replay.get("modelCallId"),
+                "initial_model_run_id": (original_run or {}).get("model_run_id"),
+                "replay_model_run_id": (replay_run or {}).get("model_run_id"),
+                "replay_status": replay_response.status_code,
+                "changed_input_status": changed_response.status_code,
+                "model_call_count": len(calls),
+                "model_run_count": len(registrations),
+            }
+    finally:
+        if state is not None:
+            state.con.close()
+        if old_snapshot is None:
+            os.environ.pop("AQUANT_SNAPSHOT_ID", None)
+        else:
+            os.environ["AQUANT_SNAPSHOT_ID"] = old_snapshot
+
+
 def _run_job_process(
     meta_path: Path,
     job_id: str,
@@ -1855,6 +2267,311 @@ def _job_id_from_probe(probe: dict[str, Any]) -> str:
 def _process_payload(step: dict[str, Any]) -> dict[str, Any]:
     payload = step.get("payload")
     return payload if isinstance(payload, dict) else {}
+
+
+def _a14_is_structural_uncovered(probe: dict[str, Any]) -> bool:
+    """Return whether an A14 result is missing only a Core boundary."""
+
+    if probe.get("passed") is True:
+        return False
+    blocker = probe.get("blocker")
+    return bool(
+        isinstance(blocker, dict)
+        and blocker.get("blocker") is True
+        and blocker.get("blocker_code") in A14_STRUCTURAL_UNCOVERED_BLOCKER_CODES
+    )
+
+
+def _a14_event_matches(
+    event: Any,
+    *,
+    request_id: str,
+    conversation_id: str,
+) -> bool:
+    """Require replay evidence to identify this exact assistant turn."""
+
+    if isinstance(event, dict):
+        event_request_id = event.get("request_id")
+        event_conversation_id = event.get("conversation_id")
+    else:
+        event_request_id = getattr(event, "request_id", "")
+        event_conversation_id = getattr(event, "conversation_id", "")
+    return bool(
+        str(event_request_id or "") == request_id
+        and str(event_conversation_id or "") == conversation_id
+    )
+
+
+def _a14_session_recovery_probe(
+    base_url: str,
+    token: str,
+    hmac_key: str,
+) -> dict[str, Any]:
+    """Exercise the real assistant event path and require durable replay.
+
+    Frontdesk's ``application_events_v1`` response is intentionally accepted
+    only as a current-turn projection. A14 becomes live only after a real
+    Platform Core replay transport accepts that page and an independent read
+    of the paginated Core endpoint returns ``conversation_replay`` events
+    after the assistant client has been closed. No in-memory page or local
+    fixture is promoted to replay evidence.
+    """
+
+    request_id = "q5-a14-" + uuid.uuid4().hex[:12]
+    conversation_id = "q5-a14-conv-" + uuid.uuid4().hex[:10]
+    text = (
+        "A14 持久会话验收：请返回一条可在重开助手后从持久记录恢复的简短回答，"
+        "不要执行任何产品写操作。"
+    )
+    response: dict[str, Any] | None = None
+    invoke_error: dict[str, Any] | None = None
+    client = connect(
+        base_url,
+        mode="assist",
+        api_key=token,
+        tenant_resolver=static_tenant(TENANT),
+        source_product=PRODUCT,
+    )
+    try:
+        status = client.status()
+        response = client.invoke(
+            {"user_id": END_USER},
+            user_id=END_USER,
+            text=text,
+            permission_scope=list(FRONTDESK_SCOPE),
+            conversation_id=conversation_id,
+            request_id=request_id,
+            response_protocol="application_events_v1",
+            context_envelope=_signed_envelope(hmac_key, request_id, conversation_id),
+        )
+    except AgentctlHTTPError as exc:
+        invoke_error = {
+            "transport": "http",
+            "status_code": exc.status_code,
+            "payload": _json_safe(exc.payload),
+        }
+        status = {}
+    except Exception as exc:  # noqa: BLE001 - live assistant boundary
+        invoke_error = {
+            "transport": "client_or_network_error",
+            "exception": type(exc).__name__,
+        }
+        status = {}
+    finally:
+        # Reopen is represented by a fresh Core read after this client closes;
+        # retaining the SDK client or its response cannot count as persistence.
+        client.close()
+
+    result: dict[str, Any] = {
+        "conversation_id": conversation_id,
+        "request_id": request_id,
+        "client_mode": status.get("client_mode"),
+        "server_mode": status.get("server_mode"),
+        "invoke_accepted": response is not None,
+        "invoke_error": invoke_error,
+        "turn_projection_observed": False,
+        "turn_event_bound": False,
+        "strict_replay_rejected": False,
+        "strict_replay_reason": None,
+        "core_transport_configured": False,
+        "core_publish_observed": False,
+        "reopened_page_count": 0,
+        "reopened_event_count": 0,
+        "reopened_event_bound": False,
+        "reopened_replay_observed": False,
+    }
+    if response is None:
+        result["blocker"] = {
+            "blocker": True,
+            "blocker_code": "assistant_turn_projection_unavailable",
+            "reason": "真实 Frontdesk assistant turn 未返回 application event page",
+        }
+        result["passed"] = False
+        return result
+
+    try:
+        page = parse_turn_projection(response)
+        result["turn_projection_observed"] = bool(
+            page.stream_scope == "turn_projection"
+            and page.tenant_id == TENANT
+            and page.product_id == PRODUCT
+            and page.conversation_id == conversation_id
+            and page.events
+        )
+        result["turn_event_count"] = len(page.events)
+        result["turn_stream_scope"] = page.stream_scope
+        result["turn_event_bound"] = any(
+            _a14_event_matches(
+                event,
+                request_id=request_id,
+                conversation_id=conversation_id,
+            )
+            for event in page.events
+        )
+    except Exception as exc:  # noqa: BLE001 - typed parser boundary
+        result["projection_error"] = type(exc).__name__
+        result["blocker"] = {
+            "blocker": True,
+            "blocker_code": "application_event_projection_invalid",
+            "reason": "真实 Frontdesk 返回的 event page 未通过 agentctl native parser",
+        }
+        result["passed"] = False
+        return result
+
+    try:
+        require_conversation_replay(response)
+    except ConversationReplayUnavailable as exc:
+        result["strict_replay_reason"] = exc.reason
+        result["strict_replay_rejected"] = True
+    except Exception as exc:  # noqa: BLE001 - preserve fail-closed observation
+        result["strict_replay_reason"] = type(exc).__name__
+        result["strict_replay_rejected"] = True
+
+    core_base_url = os.environ.get(A14_REPLAY_BASE_URL_ENV, "").strip()
+    core_service_token = os.environ.get(A14_REPLAY_SERVICE_TOKEN_ENV, "").strip()
+    core_read_token = os.environ.get(A14_REPLAY_READ_TOKEN_ENV, "").strip()
+    result["core_transport_configured"] = bool(core_base_url and core_service_token)
+    if not result["core_transport_configured"]:
+        result["blocker"] = {
+            "blocker": True,
+            "blocker_code": "conversation_replay_transport_unconfigured",
+            "required_entrypoint": (
+                "Platform Core application-conversation publish + paginated GET"
+            ),
+            "reason": (
+                "当前 agentctl server 只返回 turn_projection；未配置真实 Core "
+                "conversation_replay 传输，A14 必须 fail closed。"
+            ),
+            "strict_parser_reason": result["strict_replay_reason"],
+        }
+        result["passed"] = False
+        return result
+
+    try:
+        published = publish_turn_projection(
+            response,
+            ConversationReplayTransportConfig(
+                base_url=core_base_url,
+                service_token=core_service_token,
+                subject_user_id=END_USER,
+            ),
+        )
+        result["core_publish_observed"] = (
+            getattr(published, "stream_scope", None) == "conversation_replay"
+        )
+        if not result["core_publish_observed"]:
+            result["publish_error"] = {"reason": "conversation_replay_response_invalid"}
+            result["blocker"] = {
+                "blocker": True,
+                "blocker_code": "conversation_replay_transport_failed",
+                "required_entrypoint": (
+                    "Platform Core application-conversation publish + paginated GET"
+                ),
+                "reason": "真实 Core conversation_replay publish 未返回权威 replay 页面",
+            }
+            result["passed"] = False
+            return result
+    except ConversationReplayUnavailable as exc:
+        result["publish_error"] = {"code": exc.code, "reason": exc.reason}
+        result["blocker"] = {
+            "blocker": True,
+            "blocker_code": "conversation_replay_transport_failed",
+            "required_entrypoint": (
+                "Platform Core application-conversation publish + paginated GET"
+            ),
+            "reason": "真实 Core conversation_replay publish 未完成",
+        }
+        result["passed"] = False
+        return result
+    except Exception as exc:  # noqa: BLE001 - configured Core boundary failure
+        result["publish_error"] = {"exception": type(exc).__name__}
+        result["blocker"] = {
+            "blocker": True,
+            "blocker_code": "conversation_replay_transport_failed",
+            "required_entrypoint": (
+                "Platform Core application-conversation publish + paginated GET"
+            ),
+            "reason": "真实 Core conversation_replay publish 未完成",
+        }
+        result["passed"] = False
+        return result
+
+    if not core_read_token:
+        result["blocker"] = {
+            "blocker": True,
+            "blocker_code": "conversation_replay_reader_unconfigured",
+            "required_entrypoint": "Platform Core paginated conversation replay GET",
+            "reason": "publish 成功后仍需独立认证 GET，证明重开来自持久记录",
+        }
+        result["passed"] = False
+        return result
+    try:
+        pages = read_conversation_replay(
+            ConversationReplayReadConfig(
+                base_url=core_base_url,
+                auth_token=core_read_token,
+                tenant_id=TENANT,
+                product_id=PRODUCT,
+                conversation_id=conversation_id,
+                auth_header=(
+                    os.environ.get(A14_REPLAY_READ_HEADER_ENV, "Authorization")
+                    or "Authorization"
+                ),
+                auth_prefix=os.environ.get(A14_REPLAY_READ_PREFIX_ENV, "Bearer "),
+            )
+        )
+        events = [event for item in pages for event in item.events]
+        result["reopened_page_count"] = len(pages)
+        result["reopened_event_count"] = len(events)
+        result["reopened_event_bound"] = any(
+            _a14_event_matches(
+                event,
+                request_id=request_id,
+                conversation_id=conversation_id,
+            )
+            for event in events
+        )
+        result["reopened_replay_observed"] = bool(
+            pages
+            and events
+            and all(item.stream_scope == "conversation_replay" for item in pages)
+            and result["reopened_event_bound"]
+        )
+    except ConversationReplayUnavailable as exc:
+        result["read_error"] = {"code": exc.code, "reason": exc.reason}
+        result["blocker"] = {
+            "blocker": True,
+            "blocker_code": "conversation_replay_reader_failed",
+            "required_entrypoint": "Platform Core paginated conversation replay GET",
+            "reason": "重开后的独立 replay 读取未完成",
+        }
+        result["passed"] = False
+        return result
+    except Exception as exc:  # noqa: BLE001 - configured Core boundary failure
+        result["read_error"] = {"exception": type(exc).__name__}
+        result["blocker"] = {
+            "blocker": True,
+            "blocker_code": "conversation_replay_reader_failed",
+            "required_entrypoint": "Platform Core paginated conversation replay GET",
+            "reason": "重开后的独立 replay 读取未完成",
+        }
+        result["passed"] = False
+        return result
+
+    result["passed"] = bool(
+        result["turn_projection_observed"]
+        and result["turn_event_bound"]
+        and result["core_publish_observed"]
+        and result["reopened_replay_observed"]
+    )
+    if not result["passed"]:
+        result["blocker"] = {
+            "blocker": True,
+            "blocker_code": "conversation_replay_evidence_incomplete",
+            "required_entrypoint": "Platform Core paginated conversation replay GET",
+            "reason": "重开后未观察到带 replay scope 的持久事件页",
+        }
+    return result
 
 
 def _a13_callback_chaos_probe(
@@ -2679,6 +3396,7 @@ def render_report(report: dict[str, Any]) -> str:
         "- A04 通过真实 `/frontdesk/capabilities/invoke` 调用研究 handler；只有返回真实 snapshot、数据和 invocation/trace/idempotency 关联时才算覆盖。",
         "- A05–A09 的真实拓扑结论按上方覆盖矩阵记录；仅未覆盖项依据实际 manifest 与 onboarding 事实记录阻断，离线领域测试或样例数据不能冒充 agentctl 真实拓扑通过。",
         "- A10–A16 仅按各行本次证据计级；其中跨进程状态演练必须同时经过持久 JobStore 与 live job.status，离线领域测试不会被自动升级。",
+        "- A12 的主体隔离只验证产品的受信任主体映射合同；当前演示 X-Aquant-Subject 头不是生产认证，本项也未声明为 agentctl live capability。",
         "- 本报告与量化领域回归报告分开，不能互相替代。",
         "",
         "## A05–A09 真实拓扑阻断",
@@ -2704,6 +3422,18 @@ def render_report(report: dict[str, Any]) -> str:
             )
     else:
         lines.append("- 本次未能读取 manifest，因此没有生成 A05–A09 的结构化阻断清单。")
+    a14_blocker = blockers.get("A14") if isinstance(blockers, dict) else None
+    lines.extend(["", "## A14 会话重开边界", ""])
+    if isinstance(a14_blocker, dict):
+        lines.extend(
+            [
+                f"- **A14**：{a14_blocker.get('reason', '未提供原因')}",
+                f"  - blocker：`{a14_blocker.get('blocker_code', 'unknown')}`；真实入口：{a14_blocker.get('required_entrypoint', '未提供')}。",
+                "  - `turn_projection` 只能用于当前响应；只有 Core 返回 `conversation_replay` 且独立分页读取成功，才可记为通过。",
+            ]
+        )
+    else:
+        lines.append("- A14 未生成结构化阻断；请核对覆盖矩阵中的 live 证据。")
     lines += [
         "",
         "## 凭证清理",
@@ -3024,6 +3754,43 @@ def run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             ),
             detail=a13_probe,
         )
+        a14_probe = _a14_session_recovery_probe(
+            base_url,
+            lease.product_token,
+            lease.hmac_key,
+        )
+        a14_blocker = a14_probe.get("blocker")
+        if _a14_is_structural_uncovered(a14_probe):
+            blockers["A14"] = {
+                **a14_blocker,
+                "required_capabilities": [],
+                "missing_capabilities": [],
+                "manifest_capabilities": [],
+            }
+        _set_check(
+            checks,
+            "A14",
+            status=(
+                "passed"
+                if a14_probe.get("passed")
+                else (
+                    "uncovered"
+                    if _a14_is_structural_uncovered(a14_probe)
+                    else "failed"
+                )
+            ),
+            evidence_kind="live_topology",
+            observed=(
+                "重开后从 Platform Core 持久 conversation_replay 分页恢复事件"
+                if a14_probe.get("passed")
+                else (
+                    "真实 agentctl turn_projection 已 fail closed；缺少 Core replay 传输，A14 未覆盖"
+                    if _a14_is_structural_uncovered(a14_probe)
+                    else "会话重开恢复验收失败"
+                )
+            ),
+            detail=a14_probe,
+        )
         a16_probe = _a16_crash_recovery_probe(
             base_url,
             lease.product_token,
@@ -3062,6 +3829,66 @@ def run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
                 observed="本次未观察到模型故障分支",
                 detail=positive_summary,
             )
+
+        a11_probe = _a11_point_in_time_probe(
+            base_url,
+            lease.product_token,
+            args.capabilities,
+            product_data,
+        )
+        _set_check(
+            checks,
+            "A11",
+            status=(
+                "passed"
+                if a11_probe.get("passed")
+                else (
+                    "uncovered"
+                    if a11_probe.get("available") is False
+                    else "failed"
+                )
+            ),
+            evidence_kind="live_topology",
+            observed=(
+                "当前事件被旧快照 PIT 门禁拦截，旧实验读取与产品状态均未污染"
+                if a11_probe.get("passed")
+                else (
+                    "事件证据能力未声明，未形成实时旧时点门禁入口"
+                    if a11_probe.get("available") is False
+                    else "旧时点事件门禁未形成完整的实时阻断与无污染证据"
+                )
+            ),
+            detail=a11_probe,
+        )
+
+        a12_probe = _a12_replay_probe(product_data)
+        _set_check(
+            checks,
+            "A12",
+            status=(
+                "passed"
+                if a12_probe.get("passed")
+                else (
+                    "uncovered"
+                    if a12_probe.get("available") is False
+                    else "failed"
+                )
+            ),
+            # This invokes the real product API and its persisted store, but
+            # no A12 replay capability is exposed through the running
+            # agentctl server yet; do not promote it to live_topology.
+            evidence_kind="offline_contract",
+            observed=(
+                "真实产品 assistant 入口按固定输入回放归档输出，受信任主体隔离、结构化量化产物哈希一致且回放单独登记"
+                if a12_probe.get("passed")
+                else (
+                    "产品模型归档/回放能力不可用"
+                    if a12_probe.get("available") is False
+                    else "固定输入、主体隔离、产物哈希或独立运行登记未形成完整证据"
+                )
+            ),
+            detail=a12_probe,
+        )
 
         # Manifest lifecycle checks run against the temporary store. They are
         # offline_contract: they do not prove the running HTTP process hot-reloaded.

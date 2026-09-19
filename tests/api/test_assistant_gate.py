@@ -191,7 +191,7 @@ def test_calls_endpoint_exposes_the_audit_trail(ctx):
     ask(client, [mat()])
     ask(client, [mat(source="some-unknown-site")])
 
-    r = client.get("/api/v1/assistant/calls")
+    r = client.get("/api/v1/assistant/calls", headers=USER)
     assert r.status_code == 200, r.text
     outcomes = {c["outcome"] for c in r.json()["calls"]}
     assert outcomes == {"OK", "REJECTED"}, outcomes

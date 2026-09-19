@@ -26,6 +26,12 @@ from typing import Callable
 
 from aquant.domain.ai.egress import EgressDenied, EgressItem, assert_egress_allowed, build_model_context
 from aquant.domain.ai.model import ModelRequest, ModelUnavailable, TextModelProvider
+from aquant.domain.ai.archive import (
+    _archive_output_in_tx,
+    input_hash as model_input_hash,
+    load_archive,
+    output_hash as model_output_hash,
+)
 from aquant.domain.data.db import write_tx
 
 #: 助手只做"读材料、给结构化结论"，因此指令里明确禁止三件事：
@@ -100,6 +106,7 @@ def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
                   instructions: str = ASSISTANT_INSTRUCTIONS_V1,
                   max_output_tokens: int = 8192,
                   snapshot_context: dict | None = None,
+                  subject_id: str | None = None,
                   write_guard: Callable[[], None] | None = None) -> dict:
     """把材料发给模型并留档。失败同样留档（outcome=ERROR/REJECTED）。
 
@@ -169,6 +176,7 @@ def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
                      error_code="SOURCE_PERMISSION_MISSING", content_hash=None,
                      input_tokens=None, output_tokens=None,
                      detail=json.dumps(exc.blockers, ensure_ascii=False),
+                     subject_id=subject_id,
                      write_guard=write_guard)
         raise AssistantError(
             "SOURCE_PERMISSION_MISSING", str(exc), exc.repair_action,
@@ -179,6 +187,7 @@ def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
                      prompt_version=prompt_version, outcome="REJECTED",
                      error_code="SOURCE_PERMISSION_MISSING", content_hash=None,
                      input_tokens=None, output_tokens=None, detail=unknown,
+                     subject_id=subject_id,
                      write_guard=write_guard)
         raise AssistantError(
             "SOURCE_PERMISSION_MISSING",
@@ -196,6 +205,7 @@ def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
     request = ModelRequest(instructions=instructions, context=context,
                            prompt_version=prompt_version,
                            max_output_tokens=max_output_tokens)
+    fixed_input_hash = model_input_hash(request)
 
     # ④ 调用
     try:
@@ -205,24 +215,38 @@ def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
                      prompt_version=prompt_version, outcome="ERROR",
                      error_code=exc.code, content_hash=None, input_tokens=None,
                      output_tokens=None, detail=str(exc),
+                     input_digest=fixed_input_hash, subject_id=subject_id,
                      write_guard=write_guard)
         raise AssistantError(exc.code, str(exc), exc.repair_action) from exc
 
     # ⑤ 留档
+    # Provider supplied hashes are useful metadata, but the product must hash
+    # the bytes it actually received.  This also makes malformed provider
+    # metadata visible instead of making the archive unverifiable.
+    actual_output_hash = model_output_hash(response.text)
     call_id = _record_call(
         con, provider, job_id=job_id, research_run_id=research_run_id,
         prompt_version=prompt_version, outcome="OK", error_code=None,
-        content_hash=response.content_hash,
+        content_hash=actual_output_hash,
         input_tokens=response.input_tokens, output_tokens=response.output_tokens,
-        detail=None, write_guard=write_guard)
+        detail=None, input_digest=fixed_input_hash, raw_output=response.text,
+        subject_id=subject_id,
+        write_guard=write_guard)
+    run_row = con.execute(
+        "SELECT model_run_id,archive_id,artifact_hash FROM model_run WHERE model_call_id=?",
+        (call_id,),
+    ).fetchone()
 
     return {
         "modelCallId": call_id,
+        "modelRunId": run_row["model_run_id"] if run_row else None,
+        "archiveId": run_row["archive_id"] if run_row else None,
+        "artifactHash": run_row["artifact_hash"] if run_row else None,
         "provider": response.provider,
         "model": response.model,
         "promptVersion": prompt_version,
         "text": response.text,
-        "contentHash": response.content_hash,
+        "contentHash": actual_output_hash,
         "inputTokens": response.input_tokens,
         "outputTokens": response.output_tokens,
         "sourcesUsed": [m.source_id for m in materials],
@@ -261,6 +285,9 @@ def _record_call(con: sqlite3.Connection, provider: TextModelProvider, *,
                  prompt_version: str, outcome: str, error_code: str | None,
                  content_hash: str | None, input_tokens: int | None,
                  output_tokens: int | None, detail: str | None,
+                 input_digest: str | None = None,
+                 raw_output: str | None = None,
+                 subject_id: str | None = None,
                  write_guard: Callable[[], None] | None = None) -> str:
     """留档一次模型调用。**失败的也留**——否则预算与责任都无法核对。"""
 
@@ -271,6 +298,33 @@ def _record_call(con: sqlite3.Connection, provider: TextModelProvider, *,
     with write_tx(con):
         if write_guard is not None:
             write_guard()
+        archive = None
+        owner = str(subject_id or "").strip() or "system"
+        if raw_output is not None:
+            if input_digest is None:
+                raise ValueError("an archived model output requires its input hash")
+            source_archive_id = getattr(provider, "archive_id", None)
+            if source_archive_id:
+                # A replay consumes the immutable source archive.  Do not
+                # create a second archive under the synthetic
+                # ``archive-replay`` provider name; the independent model_run
+                # row below is the replay registration.
+                archive = load_archive(
+                    con, str(source_archive_id), subject_id=owner
+                )
+                if archive.input_hash != input_digest or archive.output_text != raw_output:
+                    raise ValueError("replayed output does not match its source archive")
+            else:
+                archive = _archive_output_in_tx(
+                    con,
+                    input_digest=input_digest,
+                    output_text=raw_output,
+                    provider=provider.provider_name,
+                    model=provider.model_name,
+                    prompt_version=prompt_version,
+                    source_model_call_id=call_id,
+                    subject_id=owner,
+                )
         con.execute(
             "INSERT OR REPLACE INTO model_call (model_call_id,job_id,research_run_id,"
             "provider,model,prompt_version,contract_version,content_hash,input_tokens,"
@@ -283,12 +337,62 @@ def _record_call(con: sqlite3.Connection, provider: TextModelProvider, *,
              content_hash, input_tokens, output_tokens, None, outcome,
              error_code, called_at.isoformat()),
         )
+        con.execute(
+            "INSERT OR REPLACE INTO model_call_owner "
+            "(model_call_id,subject_id,bound_at) VALUES (?,?,?)",
+            (call_id, owner, called_at.isoformat()),
+        )
+        # model_call is the historical call index.  model_run is the explicit
+        # run registration used by A12: replaying the same archive still gets
+        # a new model_run_id and model_call_id.
+        if input_digest is not None:
+            run_id = "mr-" + hashlib.sha256(call_id.encode()).hexdigest()[:24]
+            con.execute(
+                "INSERT OR REPLACE INTO model_run "
+                "(model_run_id,model_call_id,research_run_id,archive_id,"
+                "subject_id,input_hash,output_hash,artifact_hash,provider,model,"
+                "prompt_version,run_kind,registered_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    run_id,
+                    call_id,
+                    research_run_id,
+                    archive.archive_id if archive is not None else None,
+                    owner,
+                    input_digest,
+                    content_hash,
+                    archive.artifact_hash if archive is not None else None,
+                    provider.provider_name,
+                    provider.model_name,
+                    prompt_version,
+                    "REPLAY" if hasattr(provider, "archive_id") else "ORIGINAL",
+                    called_at.isoformat(),
+                ),
+            )
     return call_id
 
 
-def model_calls(con: sqlite3.Connection, *, limit: int = 100) -> list[dict]:
+def model_calls(
+    con: sqlite3.Connection,
+    *,
+    limit: int = 100,
+    subject_id: str | None = None,
+) -> list[dict]:
+    owner_filter = ""
+    params: list[object] = []
+    if subject_id is not None:
+        owner_filter = "WHERE mco.subject_id=?"
+        params.append(str(subject_id).strip() or "system")
+    params.append(int(limit))
     rows = con.execute(
-        "SELECT model_call_id,provider,model,prompt_version,content_hash,outcome,"
-        "error_code,input_tokens,output_tokens,called_at,contract_version "
-        "FROM model_call ORDER BY called_at DESC LIMIT ?", (int(limit),)).fetchall()
+        "SELECT model_call.model_call_id,model_call.provider,model_call.model,"
+        "model_call.prompt_version,model_call.content_hash,model_call.outcome,"
+        "model_call.error_code,model_call.input_tokens,model_call.output_tokens,"
+        "model_call.called_at,model_call.contract_version,"
+        "mco.subject_id,mr.model_run_id,mr.archive_id,mr.input_hash,"
+        "mr.artifact_hash,mr.run_kind "
+        "FROM model_call LEFT JOIN model_run mr "
+        "ON mr.model_call_id=model_call.model_call_id "
+        "LEFT JOIN model_call_owner mco "
+        "ON mco.model_call_id=model_call.model_call_id "
+        + owner_filter + " ORDER BY model_call.called_at DESC LIMIT ?", params).fetchall()
     return [dict(r) for r in rows]

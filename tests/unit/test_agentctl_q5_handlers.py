@@ -83,6 +83,48 @@ def test_event_evidence_reads_pit_data_and_never_submits_a_job(world):
     assert con.execute("SELECT COUNT(*) FROM job").fetchone()[0] == before
 
 
+def test_event_evidence_rejects_a_current_event_for_an_old_snapshot(world):
+    """A11：点名的晚到事件不得污染旧时点读取。"""
+
+    con, reader, _cards = world
+    handlers = _handlers()
+    from datetime import datetime, timezone
+
+    from aquant.domain.evidence.store import record_evidence
+
+    late = record_evidence(
+        con,
+        instrument_id="SYN.A.600519",
+        source_id="synthetic-fixture",
+        source_url="https://example.invalid/a11-current-event",
+        source_title="A11 current event",
+        source_text="A11 current event is published after the old snapshot.",
+        available_at=datetime(2026, 9, 12, tzinfo=timezone.utc),
+        fact_summary="A11 current event",
+        verification_status="VERIFIED",
+        extra={
+            "announced_on": "2026-09-12",
+            "citations": ["A11 current event is published after the old snapshot."],
+        },
+    )
+    before = con.execute("SELECT COUNT(*) FROM event").fetchone()[0]
+
+    out = _invoke(
+        handlers.event_evidence_read,
+        {
+            "instrument_id": "SYN.A.600519",
+            "snapshot_id": "snap-syn-001",
+            "event_ids": [late.event_id],
+        },
+        reader=reader,
+    )
+
+    assert out["ok"] is False, out
+    assert out["error"]["code"] == "PIT_UNVERIFIED", out
+    assert out["error"]["object_id"] == late.event_id
+    assert con.execute("SELECT COUNT(*) FROM event").fetchone()[0] == before
+
+
 def test_portfolio_read_uses_product_ledger_and_actor_context(world):
     con, _reader, _cards = world
     handlers = _handlers()
