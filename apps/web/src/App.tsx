@@ -10,10 +10,12 @@ import { ResearchView } from "./views/ResearchView";
 import { PortfolioView } from "./views/PortfolioView";
 import { ExperimentsView } from "./views/ExperimentsView";
 import { WorkspaceView } from "./views/WorkspaceView";
+import { SettingsView } from "./views/SettingsView";
 
 const WS_URL = "/workspace.json";
 
-const TAB_IDS: Tab[] = ["today", "research", "portfolio", "workspace", "experiments"];
+const TAB_IDS: Tab[] = ["today", "research", "portfolio", "workspace",
+                        "experiments", "settings"];
 
 function tabFromHash(): Tab {
   const h = window.location.hash.replace(/^#\/?/, "").split("?")[0] ?? "";
@@ -212,9 +214,15 @@ export default function App() {
       />
 
       <main className="page">
-        {state.kind === "loading" && <Loading />}
-        {state.kind === "error" && <ErrorState message={state.message} onRetry={load} />}
-        {data && (
+        {state.kind === "loading" && tab !== "settings" && <Loading />}
+        {state.kind === "error" && tab !== "settings" && (
+          <ErrorState message={state.message} onRetry={load} />
+        )}
+        {/* 设置页不依赖 /workspace.json：它自己在挂载时读 /api/v1/schedule。
+            挂在 workspace 数据上会让"工作台数据读不出来"顺带把设置页也弄没
+            ——而"数据读不出来"恰恰是最需要去设置页看看调度是不是停了的时候。 */}
+        {tab === "settings" && <SettingsView />}
+        {data && tab !== "settings" && (
           <>
             {data.status.dataMode === "SYNTHETIC" && (
               <div className="section">

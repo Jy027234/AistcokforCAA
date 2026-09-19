@@ -306,6 +306,44 @@ export interface ExperimentRow {
   outcome_notes: string | null;
 }
 
+/** 每日任务的调度状态（§14.2）。
+ *
+ * 注意 `lastRun` 为 null 表示**没有任何运行记录**，而不是"跑了但结果是 0"：
+ * 两者在界面上必须区分开。 */
+export interface ScheduleStatus {
+  schedule: {
+    enabled: boolean;
+    runAtLocal: string;
+    weekdaysOnly: boolean;
+    interpreter: string;
+    dataDir: string;
+    windowStart: string;
+    updatedAt: string | null;
+    updatedBy: string | null;
+  };
+  /** 下一次触发时刻（ISO）。停用时为 null——不显示一个假的下一次。 */
+  nextFireAt: string | null;
+  lastRun: {
+    requestId: string | null;
+    source: string | null;
+    tradingDay: string | null;
+    snapshotId: string | null;
+    outcome: string | null;
+    reason: string | null;
+    exitCode: number | null;
+    startedAt: string | null;
+    finishedAt: string | null;
+    durationSeconds: number | null;
+    steps: { step: string; ok: boolean; seconds: number | null }[];
+  } | null;
+  /** 已登记但尚未执行完的请求（界面按钮与到点触发共用这一条通道）。 */
+  pending: {
+    requestId: string; source: string; status: string;
+    requestedAt: string; requestedBy: string | null; reason: string | null;
+  } | null;
+  checkedAt: string;
+}
+
 
 export const api = {
   health: () => request<{ status: string }>("/api/v1/health"),
@@ -399,4 +437,21 @@ export const api = {
 
   experiments: () =>
     request<{ count: number; experiments: ExperimentRow[]; note: string }>("/api/v1/experiments"),
+
+  /** 每日任务的调度配置与运行状态（§14.2）。 */
+  schedule: () => request<ScheduleStatus>("/api/v1/schedule"),
+
+  saveSchedule: (body: {
+    enabled: boolean; runAtLocal: string; weekdaysOnly: boolean;
+    interpreter: string; dataDir: string; windowStart: string;
+  }) => request<ScheduleStatus>("/api/v1/schedule", {
+    method: "POST", body: JSON.stringify(body),
+  }),
+
+  /** 登记一次立刻运行。**只登记**：执行由独立 worker 负责。 */
+  runPipelineNow: (reason?: string) =>
+    request<ScheduleStatus & { requestId: string; note: string }>(
+      "/api/v1/schedule/run",
+      { method: "POST", body: JSON.stringify({ reason: reason ?? null }) },
+    ),
 };

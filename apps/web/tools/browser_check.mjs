@@ -458,6 +458,75 @@ async function main() {
       check("页签可渲染: " + hash, text.length > 80 && text.includes(marker),
             text.slice(0, 40).replace(/\n/g, " "));
     }
+
+    console.log("\n[11] 设置页：每日任务必须能真的保存到服务端");
+    await cdp.evaluate("location.hash = 'settings'");
+    await sleep(900);
+    const setText = await cdp.evaluate("document.body.innerText");
+    check("设置页渲染", setText.includes("每日任务") && setText.includes("解释器"),
+          setText.slice(0, 60).replace(/\n/g, " "));
+    check("设置页说明执行者是独立 worker",
+          setText.includes("scheduler_worker.py"));
+    check("默认停用（不替使用者做决定）", setText.includes("已停用"),
+          setText.slice(0, 200).replace(/\n/g, " "));
+
+    // 填解释器 + 勾选启用 + 保存。判据落在**服务端回应**上，不是界面文案：
+    // 界面显示"已保存"而服务端没变，正是这一层要抓的事。
+    const saved = await cdp.evaluate(`(async () => {
+      const base = window.__AQUANT_API_BASE__ || "";
+      const inputs = [...document.querySelectorAll('input')];
+      const text = inputs.find(i => i.type === "text" && i.placeholder &&
+                                    i.placeholder.includes("python"));
+      if (!text) return { error: "no-interpreter-input" };
+      const setter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype, "value").set;
+      // 解释器路径对这条断言不重要（服务端只要求非空），但**必须是个确定值**：
+      // 从环境变量取会让同一份产物在不同机器上验出不同结果。
+      setter.call(text, "python");
+      text.dispatchEvent(new Event("input", { bubbles: true }));
+      const enable = inputs.find(i => i.type === "checkbox");
+      if (enable && !enable.checked) enable.click();
+      const save = [...document.querySelectorAll("button")]
+        .find(b => b.textContent.trim() === "保存设置");
+      if (!save) return { error: "no-save-button" };
+      save.click();
+      // 等服务端回读：状态面板里的"下一次"在启用后必须出现
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 300));
+        const r2 = await fetch(base + "/api/v1/schedule",
+          { headers: { "X-Aquant-Subject": "user:demo" } });
+        if (r2.ok) {
+          const body = await r2.json();
+          if (body.schedule.enabled) return { enabled: true, next: body.nextFireAt };
+        }
+      }
+      return { enabled: false };
+    })()`);
+    check("保存设置后服务端真的启用了", saved?.enabled === true, JSON.stringify(saved));
+    check("启用后给出了下一次触发时刻", Boolean(saved?.next), JSON.stringify(saved));
+
+    // 收尾：停用。**必须做**——浏览器检查跑在一个隔离数据目录上，
+    // 但留下一个启用的调度会让后续手工验证误以为"到点会自动跑"。
+    const restored = await cdp.evaluate(`(async () => {
+      const base = window.__AQUANT_API_BASE__ || "";
+      const enable = [...document.querySelectorAll('input')]
+        .find(i => i.type === "checkbox");
+      if (enable && enable.checked) enable.click();
+      const save = [...document.querySelectorAll("button")]
+        .find(b => b.textContent.trim() === "保存设置");
+      save && save.click();
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 300));
+        const r2 = await fetch(base + "/api/v1/schedule",
+          { headers: { "X-Aquant-Subject": "user:demo" } });
+        if (r2.ok) {
+          const body = await r2.json();
+          if (!body.schedule.enabled) return { disabled: true };
+        }
+      }
+      return { disabled: false };
+    })()`);
+    check("停用后服务端不再排期", restored?.disabled === true, JSON.stringify(restored));
   } finally {
     try { ws?.close(); } catch { /* ignore */ }
     child.kill();

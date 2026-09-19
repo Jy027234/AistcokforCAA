@@ -2,7 +2,7 @@ import type { DataStatus } from "../lib/types";
 import { formatAsOf, readinessTone } from "../lib/format";
 import { Badge } from "./ui";
 
-export type Tab = "today" | "research" | "portfolio" | "workspace" | "experiments";
+export type Tab = "today" | "research" | "portfolio" | "workspace" | "experiments" | "settings";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "today", label: "今日" },
@@ -10,6 +10,10 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "portfolio", label: "组合" },
   { id: "workspace", label: "工作区" },
   { id: "experiments", label: "实验" },
+  // 设置放在最后：它不是研究工作流的一步，而是"这台机器怎么跑"。
+  // 单独一页而不是塞进工作区：调度一旦被误当成研究功能，
+  // "任务没跑"就会被当成"研究没结果"。
+  { id: "settings", label: "设置" },
 ];
 
 /** 顶栏 + 四项顶层导航（主文档 §5.2、§5.4）。

@@ -37,7 +37,7 @@ const flag = (name, dflt) => {
 };
 const URL_BASE = flag("url", "http://127.0.0.1:8080");
 const PORT = Number(flag("port", "9666"));
-const TABS = (flag("tabs", "today,research,portfolio,workspace,experiments")).split(",");
+const TABS = (flag("tabs", "today,research,portfolio,workspace,experiments,settings")).split(",");
 /** 在组合页点一次「请求服务端预览」后再检查（用于验证"拿预览后表格必须换"）。 */
 const CLICK_PREVIEW = args.includes("--click-preview");
 const OUT = flag("out", "");
