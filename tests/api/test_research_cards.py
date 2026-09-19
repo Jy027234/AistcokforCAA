@@ -97,6 +97,15 @@ def test_card_history_is_queryable(ctx):
     ids = [c["card_id"] for c in r.json()["cards"]]
     assert a["cardId"] in ids and b["cardId"] in ids
 
+    # 历史列表必须返回首次展示时冻结的完整响应，而不是旧摘要表里能拼出的
+    # 少数字段；否则 actions、名称和时点等证据会在历史视图中消失。
+    stored = next(c for c in r.json()["cards"] if c["card_id"] == a["cardId"])
+    assert stored["cardId"] == a["cardId"]
+    assert stored["instrumentId"] == a["instrumentId"]
+    assert stored["displayName"] == a["displayName"]
+    assert stored["actions"] == a["actions"]
+    assert stored["asOfTime"] == a["asOfTime"]
+
     # 未覆盖的标的应当返回空表，而不是报错或返回别人的卡片
     other = client.get("/api/v1/research/cards",
                        params={"instrument_id": "SYN.A.999999"})

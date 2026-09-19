@@ -124,6 +124,38 @@ def test_unknown_snapshot_is_404(client):
     assert r.status_code == 404
 
 
+def test_real_candidate_generation_rejects_missing_adjusted_prices():
+    """完整原始窗口缺前复权价时必须阻断，不能返回“成功但空候选”。"""
+
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    import main
+    from aquant.domain.portfolio.plan import PlanError
+
+    start = date(2026, 1, 1)
+    rows = [SimpleNamespace(adjusted_close_cents=None,
+                            trading_day=start + timedelta(days=i))
+            for i in range(main.S1_MIN_CLOSES)]
+
+    class MissingAdjustedReader:
+        def ref(self, _snapshot_id):
+            return SimpleNamespace(as_of_time=datetime(2026, 9, 8, tzinfo=timezone.utc))
+
+        def instruments(self, _snapshot_id, **_kwargs):
+            return [{"instrument_id": "CN.A.600000", "industry_code": "J66",
+                     "board": "MAIN"}]
+
+        def daily_quotes(self, _snapshot_id, **_kwargs):
+            return rows
+
+    with pytest.raises(PlanError) as exc:
+        main._s1_candidates(SimpleNamespace(reader=MissingAdjustedReader()),
+                            "snap-real-missing-qfq")
+    assert exc.value.code == "DATA_NOT_READY"
+    assert "前复权" in exc.value.message
+
+
 # ================================================================== 身份
 def test_missing_subject_is_401(client):
     pid = preview(client).json()["planId"]

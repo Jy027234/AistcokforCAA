@@ -149,7 +149,12 @@ def get_card_payload(con: sqlite3.Connection, card_id: str) -> dict | None:
 
 def research_cards(con: sqlite3.Connection, *, instrument_id: str | None = None,
                    snapshot_id: str | None = None, limit: int = 50) -> list[dict]:
-    """已留存的研究卡片，最近生成的在前面。"""
+    """已留存的研究卡片，最近生成的在前面。
+
+    新版卡片优先返回首次展示时冻结的完整 API payload；同时保留旧列表
+    使用的 snake_case 审计字段，避免历史调用方失去快照和数据模式信息。
+    迁移前没有完整 payload 的记录仍按旧摘要返回，不能臆造当时未保存的字段。
+    """
 
     sql = "SELECT * FROM research_card WHERE 1=1"
     args: list[object] = []
@@ -161,7 +166,24 @@ def research_cards(con: sqlite3.Connection, *, instrument_id: str | None = None,
         args.append(snapshot_id)
     sql += " ORDER BY generated_at DESC, card_id LIMIT ?"
     args.append(int(limit))
-    return [_to_dict(r) for r in con.execute(sql, args)]
+    cards: list[dict] = []
+    for row in con.execute(sql, args):
+        summary = _to_dict(row)
+        payload = get_card_payload(con, row["card_id"])
+        if payload is None:
+            cards.append(summary)
+            continue
+        complete = dict(payload)
+        complete.update({
+            "card_id": summary["card_id"],
+            "research_run_id": summary["research_run_id"],
+            "snapshot_id": summary["snapshot_id"],
+            "instrument_id": summary["instrument_id"],
+            "generated_at": summary["generated_at"],
+            "data_mode": summary["data_mode"],
+        })
+        cards.append(complete)
+    return cards
 
 
 def _to_dict(row: sqlite3.Row) -> dict:

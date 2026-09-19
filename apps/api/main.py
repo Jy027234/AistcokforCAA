@@ -885,6 +885,7 @@ def _s1_candidates(state: "AppState", snapshot_id: str
     closes: dict[str, list[int]] = {}
     industry: dict[str, str] = {}
     boards: dict[str, str] = {}
+    missing_adjusted: list[str] = []
     for inst in state.reader.instruments(snapshot_id, as_of=ref.as_of_time):
         iid = inst.get("instrument_id")
         code = inst.get("industry_code")
@@ -898,15 +899,35 @@ def _s1_candidates(state: "AppState", snapshot_id: str
         # 涨跌停和账本。缺失复权价就排除该证券，不能把原始价冒充研究价。
         prices = [r.adjusted_close_cents for r in rows
                   if r.adjusted_close_cents is not None]
+        # 新上市证券不足完整窗口可以正常排除；已经具备完整原始行情窗口、
+        # 却缺少前复权价则是数据缺口。后者不能伪装成“没有候选”。
+        if len(rows) >= S1_MIN_CLOSES and any(
+                r.adjusted_close_cents is None for r in rows):
+            missing_adjusted.append(iid)
+            continue
         if len(prices) < S1_MIN_CLOSES:
             continue
         closes[iid] = prices
         industry[iid] = code
         boards[iid] = (inst.get("board") or "").upper()
 
+    if missing_adjusted:
+        sample = ", ".join(missing_adjusted[:5])
+        raise PlanError(
+            "DATA_NOT_READY",
+            f"快照有 {len(missing_adjusted)} 只证券具备原始行情窗口但缺少完整前复权价"
+            f"（示例：{sample}）",
+            snapshot_id,
+            "重新采集并发布包含 adjusted_close_cents 的快照后再计算 S1",
+        )
+
     if not closes:
-        return [], (f"快照内没有任何证券同时具备行业分类与 {S1_MIN_CLOSES} 根前复权收盘价，"
-                    "因此不产出候选")
+        raise PlanError(
+            "DATA_NOT_READY",
+            f"快照内没有证券同时具备行业分类与 {S1_MIN_CLOSES} 根前复权收盘价",
+            snapshot_id,
+            "补齐行业分类和前复权历史窗口后再计算 S1",
+        )
 
     try:
         signals = build_s1_signals(adjusted_closes_by_instrument=closes,

@@ -35,3 +35,7 @@ BEFORE DELETE ON plan_snapshot_binding
 BEGIN
     SELECT RAISE(ABORT, 'plan snapshot binding cannot be deleted');
 END;
+
+INSERT OR IGNORE INTO schema_migration (version, applied_at, note)
+VALUES ('005_plan_snapshot_binding', strftime('%Y-%m-%dT%H:%M:%SZ','now'),
+        '冻结计划绑定独立的决策与执行快照及截止时点');

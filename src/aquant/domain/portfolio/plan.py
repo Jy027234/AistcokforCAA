@@ -1893,6 +1893,10 @@ class PlanService:
 
         from .construction import compute_valuation, value_positions
 
+        # 估值会发布净值和损益；领域入口本身必须执行费率闸门，避免非 API
+        # 调用方用合成费率在真实快照上生成一份看似正式的结果。
+        self._assert_fee_table_allowed(snapshot_id, trading_day)
+
         if self.con.execute("SELECT 1 FROM portfolio WHERE portfolio_id=?",
                             (portfolio_id,)).fetchone() is None:
             self._ensure_account(portfolio_id, initial_cash_cents=cash_available_cents,
