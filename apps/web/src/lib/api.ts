@@ -22,7 +22,8 @@ export interface FeeStatus {
   snapshotId: string;
   feeVersion: string;
   syntheticTestRate: boolean;
-  commissionSource: "USER_CONFIGURED" | "UNCONFIGURED_DEFAULT" | string;
+  commissionSource: "USER_CONFIGURED" | "USER_APPROVED_ASSUMPTION" |
+    "UNCONFIGURED_DEFAULT" | string;
   commissionRate: string;
   commissionMinCents: number;
   stampDutyRateSell: string;

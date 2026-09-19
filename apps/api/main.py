@@ -1000,7 +1000,9 @@ def _manual_trial_readiness(state: "AppState", data_status: dict,
                 "message": "没有在当前执行日开盘前发布且具备 S1 决策能力的更早快照",
                 "repairAction": "保留当前合格快照，并在下一交易日收盘后发布新的 EOD 快照",
             })
-    if state.fees.commission_source != "USER_CONFIGURED":
+    if state.fees.commission_source not in (
+        "USER_CONFIGURED", "USER_APPROVED_ASSUMPTION",
+    ):
         issues.append({
             "code": "FEE_VERSION_UNVERIFIED",
             "message": "尚未配置用户确认的券商佣金",
@@ -1997,9 +1999,12 @@ def create_app(state: AppState | None = None) -> FastAPI:
             "stampDutyRateSell": str(sched.stamp_duty_rate_sell),
             "transferFeeRate": str(sched.transfer_fee_rate),
             "provenance": s.fee_provenance,
-            "note": ("syntheticTestRate=true 表示这张表**不得**用于真实数据；"
-                     "commissionSource=UNCONFIGURED_DEFAULT 表示佣金是示例值，"
-                     "是一个假设而不是你的券商费率。"),
+            "note": (
+                "syntheticTestRate=true 表示这张表**不得**用于真实数据；"
+                "commissionSource=UNCONFIGURED_DEFAULT 表示未配置；"
+                "USER_APPROVED_ASSUMPTION 表示使用者批准行业假设用于试运行，"
+                "不代表实际券商合同费率。"
+            ),
         }
 
     @app.get("/api/v1/instruments/{instrument_id}/evidence")

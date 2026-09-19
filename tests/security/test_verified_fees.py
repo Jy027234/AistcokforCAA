@@ -176,6 +176,18 @@ def test_verified_table_passes_on_production_data():
     table().assert_usable_for_data_mode("PRODUCTION", trading_day=DAY)
 
 
+def test_user_approved_industry_assumption_is_explicit_and_trial_usable(monkeypatch):
+    """使用者批准的行业假设可用于试运行，但来源不能伪装成合同费率。"""
+
+    monkeypatch.setenv("AQUANT_COMMISSION_RATE", "0.00025")
+    monkeypatch.setenv("AQUANT_COMMISSION_MIN_CENTS", "500")
+    monkeypatch.setenv("AQUANT_COMMISSION_SOURCE", "USER_APPROVED_ASSUMPTION")
+    fees, note = fee_table_from_env()
+    assert fees.commission_source == "USER_APPROVED_ASSUMPTION"
+    assert "USER_APPROVED_ASSUMPTION" in note
+    fees.assert_usable_for_data_mode("PRODUCTION", trading_day=DAY)
+
+
 def test_unconfigured_non_synthetic_table_is_blocked_on_production_data(monkeypatch):
     """未配置表即使没有 synthetic 标记，也不能绕过真实数据闸门。"""
 

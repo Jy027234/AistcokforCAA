@@ -1,5 +1,5 @@
 {
-  "ran_at": "2026-09-19T13:59:42.8350553Z",
+  "ran_at": "2026-09-19T14:10:49.2465227Z",
   "topology": "docker-compose-real",
   "current_snapshot": "snap-eod-2026-09-18-longcal-20260919",
   "data_ready": true,
@@ -18,10 +18,10 @@
       "workerId": "scheduler-4d1b1c8d",
       "pid": 1,
       "startedAt": "2026-09-19T21:58:51.085777+08:00",
-      "heartbeatAt": "2026-09-19T21:59:31.106448+08:00",
-      "ageSeconds": 9.7,
+      "heartbeatAt": "2026-09-19T22:10:31.585993+08:00",
+      "ageSeconds": 17.6,
       "staleAfterSeconds": 90.0,
-      "detail": "worker 心跳正常（9.7 秒前）"
+      "detail": "worker 心跳正常（17.6 秒前）"
     },
     "timezone": "Asia/Shanghai",
     "next_fire_at": "2026-09-21T20:30:00+08:00",
@@ -52,10 +52,16 @@
   },
   "sqlite_integrity": "ok",
   "blocking_codes": [
-    "DECISION_EXECUTION_PAIR_MISSING",
-    "FEE_VERSION_UNVERIFIED"
+    "DECISION_EXECUTION_PAIR_MISSING"
   ],
   "warning_codes": [
     "ALERT_WEBHOOK_UNCONFIGURED"
-  ]
+  ],
+  "fee_assumption": {
+    "commission_source": "USER_APPROVED_ASSUMPTION",
+    "commission_rate": "0.00025",
+    "commission_min_cents": 500,
+    "synthetic_test_rate": false,
+    "basis": "user-approved industry assumption for local trial; not broker contract"
+  }
 }

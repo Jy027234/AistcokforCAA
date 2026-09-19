@@ -113,7 +113,8 @@ class FeeTable:
     commission_source：佣金那一项是怎么来的。**必须显式给出**——
     佣金是券商约定、没有权威值，所以"它从哪来"本身就是结论的一部分：
 
-      * USER_CONFIGURED —— 使用者按自己的费率填的；
+      * USER_CONFIGURED —— 使用者按自己的券商合同费率填的；
+      * USER_APPROVED_ASSUMPTION —— 使用者明确批准用于试运行的行业假设；
       * UNCONFIGURED_DEFAULT —— 未配置，用了示例值（**这是一个假设**）。
 
     有了这个标注，界面与报告才可能说清"盈亏基于谁的费率"。
@@ -126,10 +127,14 @@ class FeeTable:
         if not schedules:
             raise FeeError("FEE_VERSION_UNVERIFIED", "fee table is empty",
                            "provide at least one fee schedule")
-        if commission_source not in ("USER_CONFIGURED", "UNCONFIGURED_DEFAULT"):
+        if commission_source not in (
+            "USER_CONFIGURED", "USER_APPROVED_ASSUMPTION",
+            "UNCONFIGURED_DEFAULT",
+        ):
             raise FeeError("FEE_VERSION_UNVERIFIED",
                            f"unknown commission source {commission_source!r}",
-                           "use USER_CONFIGURED or UNCONFIGURED_DEFAULT")
+                           "use USER_CONFIGURED, USER_APPROVED_ASSUMPTION "
+                           "or UNCONFIGURED_DEFAULT")
         self.commission_source = commission_source
         self._schedules = sorted(schedules, key=lambda s: s.effective_from)
 
@@ -157,7 +162,9 @@ class FeeTable:
         if (data_mode or "").upper() != "PRODUCTION":
             return
         if not self.is_synthetic:
-            if self.commission_source != "USER_CONFIGURED":
+            if self.commission_source not in (
+                "USER_CONFIGURED", "USER_APPROVED_ASSUMPTION",
+            ):
                 raise FeeError(
                     "FEE_VERSION_UNVERIFIED",
                     ("快照是真实数据（PRODUCTION），但券商佣金来源仍是"

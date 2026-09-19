@@ -136,15 +136,17 @@ def fee_table_from_env(*, commission_rate: Decimal | None = None,
                 else os.environ.get("AQUANT_COMMISSION_RATE", "").strip())
     raw_min = (str(commission_min_cents) if commission_min_cents is not None
                else os.environ.get("AQUANT_COMMISSION_MIN_CENTS", "").strip())
+    raw_source = os.environ.get("AQUANT_COMMISSION_SOURCE", "").strip()
 
     # 两个值必须成对出现。尤其不能把缺失的最低佣金解释成 0：那会让
     # 小额订单的真实费用被低估，并把一张未完成的用户配置标成
     # USER_CONFIGURED。
     if raw_rate and raw_min:
+        source = raw_source or "USER_CONFIGURED"
         return (verified_fee_table(commission_rate=Decimal(raw_rate),
                                    commission_min_cents=int(raw_min),
-                                   commission_source="USER_CONFIGURED"),
-                f"用户配置：佣金 {raw_rate}，最低 {raw_min} 分")
+                                   commission_source=source),
+                (f"用户配置：佣金 {raw_rate}，最低 {raw_min} 分；来源 {source}"))
 
     if raw_rate or raw_min:
         missing = []

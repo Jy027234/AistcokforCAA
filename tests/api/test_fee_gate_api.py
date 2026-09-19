@@ -51,6 +51,23 @@ def test_unconfigured_real_snapshot_keeps_read_only_service_available(monkeypatc
     assert table.commission_source == "UNCONFIGURED_DEFAULT"
 
 
+def test_user_approved_assumption_clears_fee_readiness_block(monkeypatch, tmp_path):
+    """明确批准的行业假设应放行费用闸门，同时保留来源标签。"""
+
+    monkeypatch.setenv("AQUANT_COMMISSION_RATE", "0.00025")
+    monkeypatch.setenv("AQUANT_COMMISSION_MIN_CENTS", "500")
+    monkeypatch.setenv("AQUANT_COMMISSION_SOURCE", "USER_APPROVED_ASSUMPTION")
+    app = create_app(state=build_state(tmp_path))
+    with TestClient(app) as c:
+        fees = c.get("/api/v1/fees").json()
+        trial = c.get("/api/v1/readiness").json()["trial"]
+    assert fees["commissionSource"] == "USER_APPROVED_ASSUMPTION"
+    assert fees["syntheticTestRate"] is False
+    assert "FEE_VERSION_UNVERIFIED" not in {
+        item["code"] for item in trial["blockingIssues"]
+    }
+
+
 def test_fee_error_becomes_a_422_envelope_not_a_500(client):
     """费率问题必须是 422 + §16.4 信封，不能是 500。
 

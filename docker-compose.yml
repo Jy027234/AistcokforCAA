@@ -24,6 +24,7 @@ services:
       AQUANT_SNAPSHOT_ID: ${AQUANT_SNAPSHOT_ID:-}
       AQUANT_COMMISSION_RATE: ${AQUANT_COMMISSION_RATE:-}
       AQUANT_COMMISSION_MIN_CENTS: ${AQUANT_COMMISSION_MIN_CENTS:-}
+      AQUANT_COMMISSION_SOURCE: ${AQUANT_COMMISSION_SOURCE:-}
     volumes:
       - aquant-data:/data
     restart: unless-stopped

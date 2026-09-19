@@ -97,8 +97,10 @@ export function StatusDrawer({
     return () => { active = false; };
   }, []);
 
-  const feeIsVerified = fees?.commissionSource === "USER_CONFIGURED" &&
+  const feeIsUsable = (fees?.commissionSource === "USER_CONFIGURED" ||
+    fees?.commissionSource === "USER_APPROVED_ASSUMPTION") &&
     fees.syntheticTestRate === false;
+  const feeIsAssumption = fees?.commissionSource === "USER_APPROVED_ASSUMPTION";
 
   return (
     <>
@@ -161,18 +163,27 @@ export function StatusDrawer({
             <>
               <dl className="kv">
                 <dt>佣金来源</dt>
-                <dd><Badge tone={feeIsVerified ? "ok" : "warn"}>
-                  {feeIsVerified ? "USER_CONFIGURED" : "UNCONFIGURED_DEFAULT · 示例假设"}
+                <dd><Badge tone={feeIsAssumption ? "warn" : feeIsUsable ? "ok" : "warn"}>
+                  {feeIsAssumption
+                    ? "USER_APPROVED_ASSUMPTION · 已批准试运行假设"
+                    : feeIsUsable ? "USER_CONFIGURED · 合同配置" : "UNCONFIGURED_DEFAULT · 未配置"}
                 </Badge></dd>
                 <dt>佣金率</dt><dd className="mono">{fees.commissionRate}</dd>
                 <dt>最低佣金</dt><dd className="mono">{fees.commissionMinCents} 分</dd>
                 <dt>费率版本</dt><dd className="mono">{fees.feeVersion}</dd>
               </dl>
-              {!feeIsVerified && (
+              {!feeIsUsable && (
                 <Callout tone="warn" title="真实佣金尚未确认">
                   这些佣金数字是示例假设，不能用于真实 S1 模拟。请在 API 进程环境变量中同时设置
                   <span className="mono"> AQUANT_COMMISSION_RATE </span>和
                   <span className="mono"> AQUANT_COMMISSION_MIN_CENTS </span>，然后重启 API。
+                </Callout>
+              )}
+              {feeIsAssumption && (
+                <Callout tone="warn" title="当前使用行业假设">
+                  该费率经使用者批准用于试运行，能够估算费用和盈亏，但不代表实际券商合同或账单。
+                  取得真实费率后，请在配置中替换并将来源改为
+                  <span className="mono"> USER_CONFIGURED</span>。
                 </Callout>
               )}
             </>
