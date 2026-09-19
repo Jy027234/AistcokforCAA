@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-19T14:31:23.803416+00:00",
+  "generatedAt": "2026-09-19T22:39:00.597594+08:00",
   "sourceId": "mootdx-tdx",
   "probeMode": "LOCAL_LIMITED_SPIKE_EXPLICIT_SERVER",
   "rightsStatus": "UNKNOWN_LOCAL_PROBE_ONLY",
@@ -12,68 +12,1170 @@
     "count": 147,
     "earliestPeriod": "19881231",
     "latestPeriod": "20260930",
-    "latestUsablePeriod": "20260630"
+    "latestUsablePeriod": "20260630",
+    "periodsWithMultiplePackages": []
   },
-  "selectedPackage": {
-    "filename": "gpcw20260630.zip",
-    "filesize": 5748252,
-    "contentHash": "sha256:0636087e5ba7124ce950a5d64eb917e2ec08957d646316cd67ea5186216279d9"
-  },
-  "parsedShape": {
-    "rows": 5568,
-    "columns": 585
-  },
-  "fieldQuality": {
-    "96": {
-      "meaning": "net_income_attributable_cumulative",
-      "zeroCount": 0,
-      "missingCount": 0
+  "packages": [
+    {
+      "period": "20260630",
+      "filename": "gpcw20260630.zip",
+      "filesize": 5748252,
+      "contentHash": "sha256:0636087e5ba7124ce950a5d64eb917e2ec08957d646316cd67ea5186216279d9",
+      "parsedShape": {
+        "rows": 5568,
+        "columns": 585
+      },
+      "fieldQuality": {
+        "96": {
+          "meaning": "net_income_attributable_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "107": {
+          "meaning": "operating_cashflow_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "230": {
+          "meaning": "revenue_single_quarter",
+          "zeroCount": 25,
+          "missingCount": 0
+        },
+        "232": {
+          "meaning": "net_income_attributable_single_quarter",
+          "zeroCount": 22,
+          "missingCount": 0
+        },
+        "234": {
+          "meaning": "operating_cashflow_single_quarter",
+          "zeroCount": 22,
+          "missingCount": 0
+        },
+        "271": {
+          "meaning": "parent_equity",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "314": {
+          "meaning": "report_announcement_date",
+          "zeroCount": 0,
+          "missingCount": 0
+        }
+      },
+      "samples": {
+        "600519": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000333": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000651": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600276": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601012": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "002415": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "300750": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "688981": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600036": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000001": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601318": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600030": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        }
+      }
     },
-    "107": {
-      "meaning": "operating_cashflow_cumulative",
-      "zeroCount": 0,
-      "missingCount": 0
+    {
+      "period": "20260331",
+      "filename": "gpcw20260331.zip",
+      "filesize": 5135844,
+      "contentHash": "sha256:63aac7c6b976d5f7de412bf34f007f62459a96be8d4cab68b6bbd3c87fccfed2",
+      "parsedShape": {
+        "rows": 5547,
+        "columns": 585
+      },
+      "fieldQuality": {
+        "96": {
+          "meaning": "net_income_attributable_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "107": {
+          "meaning": "operating_cashflow_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "230": {
+          "meaning": "revenue_single_quarter",
+          "zeroCount": 2,
+          "missingCount": 0
+        },
+        "232": {
+          "meaning": "net_income_attributable_single_quarter",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "234": {
+          "meaning": "operating_cashflow_single_quarter",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "271": {
+          "meaning": "parent_equity",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "314": {
+          "meaning": "report_announcement_date",
+          "zeroCount": 0,
+          "missingCount": 0
+        }
+      },
+      "samples": {
+        "600519": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000333": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000651": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600276": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601012": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "002415": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "300750": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "688981": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600036": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000001": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601318": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600030": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        }
+      }
     },
-    "230": {
-      "meaning": "revenue_single_quarter",
-      "zeroCount": 25,
-      "missingCount": 0
+    {
+      "period": "20251231",
+      "filename": "gpcw20251231.zip",
+      "filesize": 5807433,
+      "contentHash": "sha256:ccfc469a1cf91140724e453d4879471b3b6c39387a41075f6340c562e2f690ae",
+      "parsedShape": {
+        "rows": 5570,
+        "columns": 585
+      },
+      "fieldQuality": {
+        "96": {
+          "meaning": "net_income_attributable_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "107": {
+          "meaning": "operating_cashflow_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "230": {
+          "meaning": "revenue_single_quarter",
+          "zeroCount": 102,
+          "missingCount": 0
+        },
+        "232": {
+          "meaning": "net_income_attributable_single_quarter",
+          "zeroCount": 100,
+          "missingCount": 0
+        },
+        "234": {
+          "meaning": "operating_cashflow_single_quarter",
+          "zeroCount": 100,
+          "missingCount": 0
+        },
+        "271": {
+          "meaning": "parent_equity",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "314": {
+          "meaning": "report_announcement_date",
+          "zeroCount": 0,
+          "missingCount": 0
+        }
+      },
+      "samples": {
+        "600519": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000333": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000651": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600276": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601012": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "002415": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "300750": {
+          "rowPresent": true,
+          "rowCount": 2,
+          "cumulativeInputsPresent": false,
+          "announcementDatePresent": false,
+          "singleQuarterZeroObservations": 0
+        },
+        "688981": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600036": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000001": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601318": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600030": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        }
+      }
     },
-    "232": {
-      "meaning": "net_income_attributable_single_quarter",
-      "zeroCount": 22,
-      "missingCount": 0
+    {
+      "period": "20250930",
+      "filename": "gpcw20250930.zip",
+      "filesize": 5339185,
+      "contentHash": "sha256:75f49fc38334c1cd9eff00c75da39af0c70f5eac9d95ec0a65937ddd91a3eb53",
+      "parsedShape": {
+        "rows": 5470,
+        "columns": 585
+      },
+      "fieldQuality": {
+        "96": {
+          "meaning": "net_income_attributable_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "107": {
+          "meaning": "operating_cashflow_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "230": {
+          "meaning": "revenue_single_quarter",
+          "zeroCount": 3,
+          "missingCount": 0
+        },
+        "232": {
+          "meaning": "net_income_attributable_single_quarter",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "234": {
+          "meaning": "operating_cashflow_single_quarter",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "271": {
+          "meaning": "parent_equity",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "314": {
+          "meaning": "report_announcement_date",
+          "zeroCount": 0,
+          "missingCount": 0
+        }
+      },
+      "samples": {
+        "600519": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000333": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000651": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600276": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601012": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "002415": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "300750": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "688981": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600036": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000001": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601318": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600030": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        }
+      }
     },
-    "234": {
-      "meaning": "operating_cashflow_single_quarter",
-      "zeroCount": 22,
-      "missingCount": 0
+    {
+      "period": "20250630",
+      "filename": "gpcw20250630.zip",
+      "filesize": 5687332,
+      "contentHash": "sha256:e35595b49141ddd6fc4217e9dda113d3cd28a415fd473f4c538c5a74ee3cc396",
+      "parsedShape": {
+        "rows": 5545,
+        "columns": 585
+      },
+      "fieldQuality": {
+        "96": {
+          "meaning": "net_income_attributable_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "107": {
+          "meaning": "operating_cashflow_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "230": {
+          "meaning": "revenue_single_quarter",
+          "zeroCount": 20,
+          "missingCount": 0
+        },
+        "232": {
+          "meaning": "net_income_attributable_single_quarter",
+          "zeroCount": 16,
+          "missingCount": 0
+        },
+        "234": {
+          "meaning": "operating_cashflow_single_quarter",
+          "zeroCount": 16,
+          "missingCount": 0
+        },
+        "271": {
+          "meaning": "parent_equity",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "314": {
+          "meaning": "report_announcement_date",
+          "zeroCount": 0,
+          "missingCount": 0
+        }
+      },
+      "samples": {
+        "600519": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000333": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000651": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600276": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601012": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "002415": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "300750": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "688981": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600036": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000001": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601318": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600030": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        }
+      }
     },
-    "271": {
-      "meaning": "parent_equity",
-      "zeroCount": 0,
-      "missingCount": 0
+    {
+      "period": "20250331",
+      "filename": "gpcw20250331.zip",
+      "filesize": 4969416,
+      "contentHash": "sha256:646892c1ae272c60aedb7f81531cf499567c0c2d60bface3c5e553d3da3f7ebb",
+      "parsedShape": {
+        "rows": 5406,
+        "columns": 585
+      },
+      "fieldQuality": {
+        "96": {
+          "meaning": "net_income_attributable_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "107": {
+          "meaning": "operating_cashflow_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "230": {
+          "meaning": "revenue_single_quarter",
+          "zeroCount": 2,
+          "missingCount": 0
+        },
+        "232": {
+          "meaning": "net_income_attributable_single_quarter",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "234": {
+          "meaning": "operating_cashflow_single_quarter",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "271": {
+          "meaning": "parent_equity",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "314": {
+          "meaning": "report_announcement_date",
+          "zeroCount": 0,
+          "missingCount": 0
+        }
+      },
+      "samples": {
+        "600519": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000333": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000651": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600276": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601012": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "002415": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "300750": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "688981": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600036": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000001": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601318": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600030": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        }
+      }
     },
-    "314": {
-      "meaning": "report_announcement_date",
-      "zeroCount": 0,
-      "missingCount": 0
+    {
+      "period": "20241231",
+      "filename": "gpcw20241231.zip",
+      "filesize": 5777864,
+      "contentHash": "sha256:53a661ed73aac5bd7da0462c263701a3f5529be975c5b616c2e43c543b523a5e",
+      "parsedShape": {
+        "rows": 5571,
+        "columns": 585
+      },
+      "fieldQuality": {
+        "96": {
+          "meaning": "net_income_attributable_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "107": {
+          "meaning": "operating_cashflow_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "230": {
+          "meaning": "revenue_single_quarter",
+          "zeroCount": 107,
+          "missingCount": 0
+        },
+        "232": {
+          "meaning": "net_income_attributable_single_quarter",
+          "zeroCount": 106,
+          "missingCount": 0
+        },
+        "234": {
+          "meaning": "operating_cashflow_single_quarter",
+          "zeroCount": 106,
+          "missingCount": 0
+        },
+        "271": {
+          "meaning": "parent_equity",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "314": {
+          "meaning": "report_announcement_date",
+          "zeroCount": 0,
+          "missingCount": 0
+        }
+      },
+      "samples": {
+        "600519": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000333": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000651": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600276": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601012": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "002415": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "300750": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "688981": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600036": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000001": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601318": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600030": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        }
+      }
+    },
+    {
+      "period": "20240930",
+      "filename": "gpcw20240930.zip",
+      "filesize": 5204789,
+      "contentHash": "sha256:201c2c7e20f8bb16de0658d5b11cbb79a6cb6993f41b5402d420aab21c7234d6",
+      "parsedShape": {
+        "rows": 5354,
+        "columns": 585
+      },
+      "fieldQuality": {
+        "96": {
+          "meaning": "net_income_attributable_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "107": {
+          "meaning": "operating_cashflow_cumulative",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "230": {
+          "meaning": "revenue_single_quarter",
+          "zeroCount": 7,
+          "missingCount": 0
+        },
+        "232": {
+          "meaning": "net_income_attributable_single_quarter",
+          "zeroCount": 4,
+          "missingCount": 0
+        },
+        "234": {
+          "meaning": "operating_cashflow_single_quarter",
+          "zeroCount": 4,
+          "missingCount": 0
+        },
+        "271": {
+          "meaning": "parent_equity",
+          "zeroCount": 0,
+          "missingCount": 0
+        },
+        "314": {
+          "meaning": "report_announcement_date",
+          "zeroCount": 0,
+          "missingCount": 0
+        }
+      },
+      "samples": {
+        "600519": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000333": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000651": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600276": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601012": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "002415": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "300750": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "688981": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600036": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "000001": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "601318": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        },
+        "600030": {
+          "rowPresent": true,
+          "rowCount": 1,
+          "cumulativeInputsPresent": true,
+          "announcementDatePresent": true,
+          "singleQuarterZeroObservations": 0
+        }
+      }
     }
-  },
-  "samples": {
+  ],
+  "sampleCoverage": {
     "600519": {
-      "rowPresent": true
+      "periodsPresent": 8,
+      "periodsWithCumulativeInputs": 8,
+      "periodsWithAnnouncementDate": 8,
+      "singleQuarterZeroObservations": 0,
+      "ambiguousCodePeriods": 0
+    },
+    "000333": {
+      "periodsPresent": 8,
+      "periodsWithCumulativeInputs": 8,
+      "periodsWithAnnouncementDate": 8,
+      "singleQuarterZeroObservations": 0,
+      "ambiguousCodePeriods": 0
+    },
+    "000651": {
+      "periodsPresent": 8,
+      "periodsWithCumulativeInputs": 8,
+      "periodsWithAnnouncementDate": 8,
+      "singleQuarterZeroObservations": 0,
+      "ambiguousCodePeriods": 0
+    },
+    "600276": {
+      "periodsPresent": 8,
+      "periodsWithCumulativeInputs": 8,
+      "periodsWithAnnouncementDate": 8,
+      "singleQuarterZeroObservations": 0,
+      "ambiguousCodePeriods": 0
+    },
+    "601012": {
+      "periodsPresent": 8,
+      "periodsWithCumulativeInputs": 8,
+      "periodsWithAnnouncementDate": 8,
+      "singleQuarterZeroObservations": 0,
+      "ambiguousCodePeriods": 0
+    },
+    "002415": {
+      "periodsPresent": 8,
+      "periodsWithCumulativeInputs": 8,
+      "periodsWithAnnouncementDate": 8,
+      "singleQuarterZeroObservations": 0,
+      "ambiguousCodePeriods": 0
+    },
+    "300750": {
+      "periodsPresent": 8,
+      "periodsWithCumulativeInputs": 7,
+      "periodsWithAnnouncementDate": 7,
+      "singleQuarterZeroObservations": 0,
+      "ambiguousCodePeriods": 1
+    },
+    "688981": {
+      "periodsPresent": 8,
+      "periodsWithCumulativeInputs": 8,
+      "periodsWithAnnouncementDate": 8,
+      "singleQuarterZeroObservations": 0,
+      "ambiguousCodePeriods": 0
+    },
+    "600036": {
+      "periodsPresent": 8,
+      "periodsWithCumulativeInputs": 8,
+      "periodsWithAnnouncementDate": 8,
+      "singleQuarterZeroObservations": 0,
+      "ambiguousCodePeriods": 0
     },
     "000001": {
-      "rowPresent": true
+      "periodsPresent": 8,
+      "periodsWithCumulativeInputs": 8,
+      "periodsWithAnnouncementDate": 8,
+      "singleQuarterZeroObservations": 0,
+      "ambiguousCodePeriods": 0
+    },
+    "601318": {
+      "periodsPresent": 8,
+      "periodsWithCumulativeInputs": 8,
+      "periodsWithAnnouncementDate": 8,
+      "singleQuarterZeroObservations": 0,
+      "ambiguousCodePeriods": 0
+    },
+    "600030": {
+      "periodsPresent": 8,
+      "periodsWithCumulativeInputs": 8,
+      "periodsWithAnnouncementDate": 8,
+      "singleQuarterZeroObservations": 0,
+      "ambiguousCodePeriods": 0
     }
   },
   "summary": {
     "status": "PARSED",
+    "periodsRequested": 8,
+    "periodsParsed": 8,
     "s2Enabled": false,
     "blockingGates": [
+      "DUPLICATE_CODE_ROWS_WITHOUT_VERSION_IDENTITY",
       "ZERO_MISSINGNESS_AMBIGUOUS_FOR_SINGLE_QUARTER_FIELDS",
-      "REVISION_CHAIN_NOT_IN_SOURCE",
+      "ONE_PACKAGE_PER_PERIOD_NO_REVISION_CHAIN",
       "FULL_MARKET_COVERAGE_NOT_VALIDATED",
       "RIGHTS_NOT_REVIEWED"
     ]

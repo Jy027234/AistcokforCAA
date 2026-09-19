@@ -1,0 +1,3433 @@
+{
+  "generatedAt": "2026-09-19T15:03:55.667355+00:00",
+  "probeMode": "HISTORICAL_RECONSTRUCTED_METADATA_ONLY",
+  "sources": [
+    "sina-financial",
+    "cninfo"
+  ],
+  "rawDocumentsDownloaded": false,
+  "financialValuesPersisted": false,
+  "samples": [
+    {
+      "symbol": "600519",
+      "role": "ordinary_industrial",
+      "market": "SH",
+      "periods": [
+        {
+          "period": "2026-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1430,
+            "responseHashes": [
+              "sha256:b0dfc3ea5301efa2481b0145c820499ad16d9b2fddba64b4805b576ea3fa872a"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225475868",
+            "valuePageHashes": [
+              "sha256:3f037cf6f530dda9212c18ae8fdbd853fec470cacee836459d740ac811d010af",
+              "sha256:a68659af275450dac59cd3d514f71fa905ef0afa5aa71897d3edbf8bb85db046",
+              "sha256:cb224b154ff221cf264943ff93aeb9e70a682ba8d139e5d9f6efb5b030a0d2d6"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225475868",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-08-15",
+                "title": "贵州茅台2026年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-08-15/1225475868.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2026-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 796,
+            "responseHashes": [
+              "sha256:4a2a4f093dbf8ed35bdf7ad2d43f6c6374cade6b7bd6051d302bc70290b1b717"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225187851",
+            "valuePageHashes": [
+              "sha256:3f037cf6f530dda9212c18ae8fdbd853fec470cacee836459d740ac811d010af",
+              "sha256:a68659af275450dac59cd3d514f71fa905ef0afa5aa71897d3edbf8bb85db046",
+              "sha256:cb224b154ff221cf264943ff93aeb9e70a682ba8d139e5d9f6efb5b030a0d2d6"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225187851",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-04-25",
+                "title": "贵州茅台2026年第一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-04-25/1225187851.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2072,
+            "responseHashes": [
+              "sha256:1dc206291eec5431bf21dc9faad45470aa9acb1cf05be7af083e99276109341d"
+            ],
+            "matchedAnnouncements": 3
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225114741",
+            "valuePageHashes": [
+              "sha256:30624f0f6335d1743d095852df0642945a5bcba695d373711642ee3243dcd8fc",
+              "sha256:30b0572ca75cb175c4ddf9b55f0962c06cb1aba03b5edb52dad46060f60d83e2",
+              "sha256:3f037cf6f530dda9212c18ae8fdbd853fec470cacee836459d740ac811d010af",
+              "sha256:a68659af275450dac59cd3d514f71fa905ef0afa5aa71897d3edbf8bb85db046",
+              "sha256:cb224b154ff221cf264943ff93aeb9e70a682ba8d139e5d9f6efb5b030a0d2d6",
+              "sha256:f3028d66055cfd69446199cee6cf576e895413f1c332b98ef42316c2302d3d3d"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225114741",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-04-17",
+                "title": "贵州茅台2025年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-04-17/1225114741.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 806,
+            "responseHashes": [
+              "sha256:78ecf1237f7bfa0b08f7fd5c01f68d7ea4e84ec2a6f97ab96a5d8b8ef513ded0"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224764517",
+            "valuePageHashes": [
+              "sha256:30624f0f6335d1743d095852df0642945a5bcba695d373711642ee3243dcd8fc",
+              "sha256:30b0572ca75cb175c4ddf9b55f0962c06cb1aba03b5edb52dad46060f60d83e2",
+              "sha256:3f037cf6f530dda9212c18ae8fdbd853fec470cacee836459d740ac811d010af",
+              "sha256:a68659af275450dac59cd3d514f71fa905ef0afa5aa71897d3edbf8bb85db046",
+              "sha256:cb224b154ff221cf264943ff93aeb9e70a682ba8d139e5d9f6efb5b030a0d2d6",
+              "sha256:f3028d66055cfd69446199cee6cf576e895413f1c332b98ef42316c2302d3d3d"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224764517",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-10-30",
+                "title": "贵州茅台2025年第三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-10-30/1224764517.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2698,
+            "responseHashes": [
+              "sha256:da43d799a7490659219acd510409a84c368765ef9d1cb0a9f02b4479600d0ee8"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224462930",
+            "valuePageHashes": [
+              "sha256:30624f0f6335d1743d095852df0642945a5bcba695d373711642ee3243dcd8fc",
+              "sha256:30b0572ca75cb175c4ddf9b55f0962c06cb1aba03b5edb52dad46060f60d83e2",
+              "sha256:3f037cf6f530dda9212c18ae8fdbd853fec470cacee836459d740ac811d010af",
+              "sha256:a68659af275450dac59cd3d514f71fa905ef0afa5aa71897d3edbf8bb85db046",
+              "sha256:cb224b154ff221cf264943ff93aeb9e70a682ba8d139e5d9f6efb5b030a0d2d6",
+              "sha256:f3028d66055cfd69446199cee6cf576e895413f1c332b98ef42316c2302d3d3d"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224462930",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-08-13",
+                "title": "贵州茅台2025年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-08-13/1224462930.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1430,
+            "responseHashes": [
+              "sha256:8c1d4d2d14e4667b66fcb3009672524c9c0ebc9a5138e1397464d05aaa755feb"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1223413786",
+            "valuePageHashes": [
+              "sha256:30624f0f6335d1743d095852df0642945a5bcba695d373711642ee3243dcd8fc",
+              "sha256:30b0572ca75cb175c4ddf9b55f0962c06cb1aba03b5edb52dad46060f60d83e2",
+              "sha256:f3028d66055cfd69446199cee6cf576e895413f1c332b98ef42316c2302d3d3d"
+            ],
+            "versions": [
+              {
+                "announcementId": "1223413786",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-04-30",
+                "title": "贵州茅台2025年第一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-04-30/1223413786.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 3982,
+            "responseHashes": [
+              "sha256:c5bd8a70fb789f6f09a49ce19392f603337f3eaccbc7e992f28e041e0a449782"
+            ],
+            "matchedAnnouncements": 3
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1222993920",
+            "valuePageHashes": [
+              "sha256:196b18b86914300bdc4303b4693e7d71ceb637fe3aaade7ca9143789b62ca534",
+              "sha256:dc2d0b29a9b4f521589e10136770e5c7d505c08196418de225fe69b4e07d567a",
+              "sha256:fff3ef96fdeb2c673a29aebb929905706354d5c4ba0712bb9574ea3ea4a73e25"
+            ],
+            "versions": [
+              {
+                "announcementId": "1222993920",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-04-03",
+                "title": "贵州茅台2024年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-04-03/1222993920.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1450,
+            "responseHashes": [
+              "sha256:b5e061c86c382b3452a3f44fb8a1a1c19b3c36cade534656a2902dc5a8e58ec3"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1221523519",
+            "valuePageHashes": [
+              "sha256:196b18b86914300bdc4303b4693e7d71ceb637fe3aaade7ca9143789b62ca534",
+              "sha256:dc2d0b29a9b4f521589e10136770e5c7d505c08196418de225fe69b4e07d567a",
+              "sha256:fff3ef96fdeb2c673a29aebb929905706354d5c4ba0712bb9574ea3ea4a73e25"
+            ],
+            "versions": [
+              {
+                "announcementId": "1221523519",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2024-10-26",
+                "title": "贵州茅台2024年第三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2024-10-26/1221523519.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "symbol": "000333",
+      "role": "ordinary_industrial",
+      "market": "SZ",
+      "periods": [
+        {
+          "period": "2026-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1401,
+            "responseHashes": [
+              "sha256:6eae1ec066a554072185eef2a370845c4afd8d7e25862c651a8c5083229e21c1"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225531404",
+            "valuePageHashes": [
+              "sha256:56edfc626d73966e986ba6c5e36cc354f9bdbfe657f2eb8f01da9efb905b52d5",
+              "sha256:be4ab5199b34a1faa6bad5688a34ebe363c913c61939ccd94b6ce59ed346560d",
+              "sha256:c32afd876c39fe9c91b9f4a22d6968e44f4b28f235d25f9b6e8bf8ebb7e6633d"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225531404",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-08-29",
+                "title": "2026年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-08-29/1225531404.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2026-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 775,
+            "responseHashes": [
+              "sha256:8d94681f8b9a40f5ba8ed06c9e08b7c528565bd3d8cc84711621c9beef7ebfe8"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225259066",
+            "valuePageHashes": [
+              "sha256:56edfc626d73966e986ba6c5e36cc354f9bdbfe657f2eb8f01da9efb905b52d5",
+              "sha256:be4ab5199b34a1faa6bad5688a34ebe363c913c61939ccd94b6ce59ed346560d",
+              "sha256:c32afd876c39fe9c91b9f4a22d6968e44f4b28f235d25f9b6e8bf8ebb7e6633d"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225259066",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-04-30",
+                "title": "2026年一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225259066.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1389,
+            "responseHashes": [
+              "sha256:3c6b95775cfe940191bd928ba822f68a7e75569a860cb74912a5caf5c5e44543"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225065145",
+            "valuePageHashes": [
+              "sha256:56edfc626d73966e986ba6c5e36cc354f9bdbfe657f2eb8f01da9efb905b52d5",
+              "sha256:72097593e174ec2b6523fef97f2b6f405407be87afbc163d143cb8ffbc169618",
+              "sha256:9759521708e2d03b69b27a77c6568a037e7fd241ad3210c04ef645e88485d321",
+              "sha256:b311153546f8058916dce6bfea37bfe221aa9818473bd3a956e4b482be9ea561",
+              "sha256:be4ab5199b34a1faa6bad5688a34ebe363c913c61939ccd94b6ce59ed346560d",
+              "sha256:c32afd876c39fe9c91b9f4a22d6968e44f4b28f235d25f9b6e8bf8ebb7e6633d"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225065145",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-03-31",
+                "title": "2025年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225065145.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 775,
+            "responseHashes": [
+              "sha256:1c1116e10479681d3c5adf8ee95ccb37e58c256076197cdbd4e9ef0f741a967a"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224767336",
+            "valuePageHashes": [
+              "sha256:56edfc626d73966e986ba6c5e36cc354f9bdbfe657f2eb8f01da9efb905b52d5",
+              "sha256:72097593e174ec2b6523fef97f2b6f405407be87afbc163d143cb8ffbc169618",
+              "sha256:9759521708e2d03b69b27a77c6568a037e7fd241ad3210c04ef645e88485d321",
+              "sha256:b311153546f8058916dce6bfea37bfe221aa9818473bd3a956e4b482be9ea561",
+              "sha256:be4ab5199b34a1faa6bad5688a34ebe363c913c61939ccd94b6ce59ed346560d",
+              "sha256:c32afd876c39fe9c91b9f4a22d6968e44f4b28f235d25f9b6e8bf8ebb7e6633d"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224767336",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-10-30",
+                "title": "2025年三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-10-30/1224767336.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2640,
+            "responseHashes": [
+              "sha256:a2b2d32934d1af5483069cd2454bc8ee09341a84f51d4e5ae607a127c761e910"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224626720",
+            "valuePageHashes": [
+              "sha256:56edfc626d73966e986ba6c5e36cc354f9bdbfe657f2eb8f01da9efb905b52d5",
+              "sha256:72097593e174ec2b6523fef97f2b6f405407be87afbc163d143cb8ffbc169618",
+              "sha256:9759521708e2d03b69b27a77c6568a037e7fd241ad3210c04ef645e88485d321",
+              "sha256:b311153546f8058916dce6bfea37bfe221aa9818473bd3a956e4b482be9ea561",
+              "sha256:be4ab5199b34a1faa6bad5688a34ebe363c913c61939ccd94b6ce59ed346560d",
+              "sha256:c32afd876c39fe9c91b9f4a22d6968e44f4b28f235d25f9b6e8bf8ebb7e6633d"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224626720",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-08-30",
+                "title": "2025年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-08-30/1224626720.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1388,
+            "responseHashes": [
+              "sha256:d1a8434201a53fabc609303f3843f8959984f1c860f43d041a91be86b6923f86"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1223412432",
+            "valuePageHashes": [
+              "sha256:72097593e174ec2b6523fef97f2b6f405407be87afbc163d143cb8ffbc169618",
+              "sha256:9759521708e2d03b69b27a77c6568a037e7fd241ad3210c04ef645e88485d321",
+              "sha256:b311153546f8058916dce6bfea37bfe221aa9818473bd3a956e4b482be9ea561"
+            ],
+            "versions": [
+              {
+                "announcementId": "1223412432",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-04-30",
+                "title": "2025年一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-04-30/1223412432.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2616,
+            "responseHashes": [
+              "sha256:462947520b78b3cea4c33a0d490fa94f146b07238bfb19369cf311a2de36ed94"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1222951181",
+            "valuePageHashes": [
+              "sha256:0e550ec534d7dab7f1cf1a718308e7d4938f11cafce0f7e4068969edd09f395e",
+              "sha256:51668a1e93753589e4a5c3006d5b1f4dadf9c390ed4abe82629a7b4b9703a7a8",
+              "sha256:e5716df9724b1101929b47358e600d3724a7949462f3f16bd56a82806da19594"
+            ],
+            "versions": [
+              {
+                "announcementId": "1222951181",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-03-29",
+                "title": "2024年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-03-29/1222951181.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2031,
+            "responseHashes": [
+              "sha256:e5f6765e51f066a0b91da4ea0cf0c92a4eea18a38f60df8ca5b07e688f6d8b98"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1221570980",
+            "valuePageHashes": [
+              "sha256:0e550ec534d7dab7f1cf1a718308e7d4938f11cafce0f7e4068969edd09f395e",
+              "sha256:51668a1e93753589e4a5c3006d5b1f4dadf9c390ed4abe82629a7b4b9703a7a8",
+              "sha256:e5716df9724b1101929b47358e600d3724a7949462f3f16bd56a82806da19594"
+            ],
+            "versions": [
+              {
+                "announcementId": "1221570980",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2024-10-31",
+                "title": "2024年三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2024-10-31/1221570980.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "symbol": "000651",
+      "role": "ordinary_industrial",
+      "market": "SZ",
+      "periods": [
+        {
+          "period": "2026-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1402,
+            "responseHashes": [
+              "sha256:c4ea03049a28a4f64d3733d5ff6d7880bc674be714053d699af6a469a9499985"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225515004",
+            "valuePageHashes": [
+              "sha256:33c84efc717b75c749fe9977ac17ccf96ae91ea04ed11573722531cc42f1262a",
+              "sha256:631d8bf49fad9a8013dfc37b51aaa9db4534562e9488ca7463ba3674006daafd",
+              "sha256:83ee705d2fd053609c63cb2c68c722b6be4f0a55e263ec96516c067b86f0f827"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225515004",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-08-27",
+                "title": "2026年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-08-27/1225515004.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2026-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 776,
+            "responseHashes": [
+              "sha256:474e27b536eaf07828b2c0c678a412f73af505d57e677be03db6df0de04f92ce"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225250406",
+            "valuePageHashes": [
+              "sha256:33c84efc717b75c749fe9977ac17ccf96ae91ea04ed11573722531cc42f1262a",
+              "sha256:631d8bf49fad9a8013dfc37b51aaa9db4534562e9488ca7463ba3674006daafd",
+              "sha256:83ee705d2fd053609c63cb2c68c722b6be4f0a55e263ec96516c067b86f0f827"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225250406",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-04-29",
+                "title": "2026年一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-04-29/1225250406.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2030,
+            "responseHashes": [
+              "sha256:b0e63b7ac7b4029ed1bf0a2b9864e7fa5e0dbcdbc6b7c8b6081250914a3483d2"
+            ],
+            "matchedAnnouncements": 3
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225250396",
+            "valuePageHashes": [
+              "sha256:33c84efc717b75c749fe9977ac17ccf96ae91ea04ed11573722531cc42f1262a",
+              "sha256:407b79d3f0949fea4b074c04b192941a6059e552572a25a6b288141ef0733b8c",
+              "sha256:59707a94dd9b51d054869a192b5aae29c9168da885c3a27e72310d9d22080cc2",
+              "sha256:631d8bf49fad9a8013dfc37b51aaa9db4534562e9488ca7463ba3674006daafd",
+              "sha256:6660721a7d71ce312a11d3e2840ef001ffdc67ee0fc3a48c990cde4480c6a163",
+              "sha256:83ee705d2fd053609c63cb2c68c722b6be4f0a55e263ec96516c067b86f0f827"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225250396",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-04-29",
+                "title": "2025年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-04-29/1225250396.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 776,
+            "responseHashes": [
+              "sha256:60d65542f1c3cac2dd20bbe051007f1096b1595b72cd58560abca2715389faa1"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224779019",
+            "valuePageHashes": [
+              "sha256:33c84efc717b75c749fe9977ac17ccf96ae91ea04ed11573722531cc42f1262a",
+              "sha256:407b79d3f0949fea4b074c04b192941a6059e552572a25a6b288141ef0733b8c",
+              "sha256:59707a94dd9b51d054869a192b5aae29c9168da885c3a27e72310d9d22080cc2",
+              "sha256:631d8bf49fad9a8013dfc37b51aaa9db4534562e9488ca7463ba3674006daafd",
+              "sha256:6660721a7d71ce312a11d3e2840ef001ffdc67ee0fc3a48c990cde4480c6a163",
+              "sha256:83ee705d2fd053609c63cb2c68c722b6be4f0a55e263ec96516c067b86f0f827"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224779019",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-10-31",
+                "title": "2025年三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-10-31/1224779019.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2642,
+            "responseHashes": [
+              "sha256:a79391372d0ed9b0f124927a86a1ad60e4d0828c0c6d25d2f904daecbdec7458"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224613604",
+            "valuePageHashes": [
+              "sha256:33c84efc717b75c749fe9977ac17ccf96ae91ea04ed11573722531cc42f1262a",
+              "sha256:407b79d3f0949fea4b074c04b192941a6059e552572a25a6b288141ef0733b8c",
+              "sha256:59707a94dd9b51d054869a192b5aae29c9168da885c3a27e72310d9d22080cc2",
+              "sha256:631d8bf49fad9a8013dfc37b51aaa9db4534562e9488ca7463ba3674006daafd",
+              "sha256:6660721a7d71ce312a11d3e2840ef001ffdc67ee0fc3a48c990cde4480c6a163",
+              "sha256:83ee705d2fd053609c63cb2c68c722b6be4f0a55e263ec96516c067b86f0f827"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224613604",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-08-29",
+                "title": "2025年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-08-29/1224613604.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1390,
+            "responseHashes": [
+              "sha256:a1ff43750fd5f80d5eacd959ac1145b520296d29d0905bb9746c232a1b34002e"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1223330613",
+            "valuePageHashes": [
+              "sha256:407b79d3f0949fea4b074c04b192941a6059e552572a25a6b288141ef0733b8c",
+              "sha256:59707a94dd9b51d054869a192b5aae29c9168da885c3a27e72310d9d22080cc2",
+              "sha256:6660721a7d71ce312a11d3e2840ef001ffdc67ee0fc3a48c990cde4480c6a163"
+            ],
+            "versions": [
+              {
+                "announcementId": "1223330613",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-04-28",
+                "title": "2025年一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-04-28/1223330613.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 3898,
+            "responseHashes": [
+              "sha256:84e9ab5c2faf15ba749476db60a563fba0c4ccd238f7c8156abb8af7510637f3"
+            ],
+            "matchedAnnouncements": 3
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1223330631",
+            "valuePageHashes": [
+              "sha256:04267f7916b26857747aa3bc62618bb4fa6cca464babfb44576656cbd017d2c0",
+              "sha256:35a8f9a466281259975372750732807a2451c455bd2d065cc0ca751377dbcd31",
+              "sha256:79d05bcc4ac4fc714d73e5c6edd1677e781458bf78e882a65468b564cc388d68"
+            ],
+            "versions": [
+              {
+                "announcementId": "1223330631",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-04-28",
+                "title": "2024年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-04-28/1223330631.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1390,
+            "responseHashes": [
+              "sha256:3ebc691754e94538af808ff07256f08da4c29d97b010844ef0f25483083ac997"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1221573963",
+            "valuePageHashes": [
+              "sha256:04267f7916b26857747aa3bc62618bb4fa6cca464babfb44576656cbd017d2c0",
+              "sha256:35a8f9a466281259975372750732807a2451c455bd2d065cc0ca751377dbcd31",
+              "sha256:79d05bcc4ac4fc714d73e5c6edd1677e781458bf78e882a65468b564cc388d68"
+            ],
+            "versions": [
+              {
+                "announcementId": "1221573963",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2024-10-31",
+                "title": "2024年三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2024-10-31/1221573963.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "symbol": "600276",
+      "role": "ordinary_industrial",
+      "market": "SH",
+      "periods": [
+        {
+          "period": "2026-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1431,
+            "responseHashes": [
+              "sha256:6178e5f8d7c0a8f775e56266b23aea2230946bbf673c426c7908a62106117042"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225483600",
+            "valuePageHashes": [
+              "sha256:153e8d52dfdef85c3fa6e5379d4a27d88f05ae364c9a755dc44aea82b9436bca",
+              "sha256:37c6a3344817f54bdf45c23d4a9e26fd5284945c49401de826bcad93a32527e9",
+              "sha256:3cfcf6381c6f2bb2581eebe160cd44284a65b0bab235edde4f0cee06eea59e02"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225483600",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-08-20",
+                "title": "恒瑞医药2026年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-08-20/1225483600.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2026-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 796,
+            "responseHashes": [
+              "sha256:330cf8ea79baca16e69c00787e10e53dca404f3fa17d045a620443deff73ecfc"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225145521",
+            "valuePageHashes": [
+              "sha256:153e8d52dfdef85c3fa6e5379d4a27d88f05ae364c9a755dc44aea82b9436bca",
+              "sha256:37c6a3344817f54bdf45c23d4a9e26fd5284945c49401de826bcad93a32527e9",
+              "sha256:3cfcf6381c6f2bb2581eebe160cd44284a65b0bab235edde4f0cee06eea59e02"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225145521",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-04-23",
+                "title": "恒瑞医药2026年第一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-04-23/1225145521.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1419,
+            "responseHashes": [
+              "sha256:473d8fe9c5d12004a33fdae5688c4082cc463343f0feec0ec17a7849279da73b"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225032585",
+            "valuePageHashes": [
+              "sha256:0cdbaebd2b77d47a0486b881fe7c9835333341dc93a5e9acbecdb7b2867c2c27",
+              "sha256:153e8d52dfdef85c3fa6e5379d4a27d88f05ae364c9a755dc44aea82b9436bca",
+              "sha256:37c6a3344817f54bdf45c23d4a9e26fd5284945c49401de826bcad93a32527e9",
+              "sha256:3cfcf6381c6f2bb2581eebe160cd44284a65b0bab235edde4f0cee06eea59e02",
+              "sha256:980803863a015f90dfde6cf5f0ca799673f4189cb321ce39646cbab9c4172a5b",
+              "sha256:d0ad173fa02ee9131c413f54aca2a699bb42f563a0c63bc585b4eea707ff6ae1"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225032585",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-03-26",
+                "title": "恒瑞医药2025年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-03-26/1225032585.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 806,
+            "responseHashes": [
+              "sha256:626173b34ae6d8098636b079d1eaba7a9619de0d8eb7bee53fa74c64ea5af0a5"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224743064",
+            "valuePageHashes": [
+              "sha256:0cdbaebd2b77d47a0486b881fe7c9835333341dc93a5e9acbecdb7b2867c2c27",
+              "sha256:153e8d52dfdef85c3fa6e5379d4a27d88f05ae364c9a755dc44aea82b9436bca",
+              "sha256:37c6a3344817f54bdf45c23d4a9e26fd5284945c49401de826bcad93a32527e9",
+              "sha256:3cfcf6381c6f2bb2581eebe160cd44284a65b0bab235edde4f0cee06eea59e02",
+              "sha256:980803863a015f90dfde6cf5f0ca799673f4189cb321ce39646cbab9c4172a5b",
+              "sha256:d0ad173fa02ee9131c413f54aca2a699bb42f563a0c63bc585b4eea707ff6ae1"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224743064",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-10-28",
+                "title": "恒瑞医药2025年第三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-10-28/1224743064.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2700,
+            "responseHashes": [
+              "sha256:999b62881d76766022afdbb7940accafe3f25b6847b825db22da6a4469d31042"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224526675",
+            "valuePageHashes": [
+              "sha256:0cdbaebd2b77d47a0486b881fe7c9835333341dc93a5e9acbecdb7b2867c2c27",
+              "sha256:153e8d52dfdef85c3fa6e5379d4a27d88f05ae364c9a755dc44aea82b9436bca",
+              "sha256:37c6a3344817f54bdf45c23d4a9e26fd5284945c49401de826bcad93a32527e9",
+              "sha256:3cfcf6381c6f2bb2581eebe160cd44284a65b0bab235edde4f0cee06eea59e02",
+              "sha256:980803863a015f90dfde6cf5f0ca799673f4189cb321ce39646cbab9c4172a5b",
+              "sha256:d0ad173fa02ee9131c413f54aca2a699bb42f563a0c63bc585b4eea707ff6ae1"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224526675",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-08-21",
+                "title": "恒瑞医药2025年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-08-21/1224526675.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1430,
+            "responseHashes": [
+              "sha256:17db17e01a74ad62869255ce19b31d4571e9eb30238368f79dffdd98ae2cd156"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1223274888",
+            "valuePageHashes": [
+              "sha256:0cdbaebd2b77d47a0486b881fe7c9835333341dc93a5e9acbecdb7b2867c2c27",
+              "sha256:980803863a015f90dfde6cf5f0ca799673f4189cb321ce39646cbab9c4172a5b",
+              "sha256:d0ad173fa02ee9131c413f54aca2a699bb42f563a0c63bc585b4eea707ff6ae1"
+            ],
+            "versions": [
+              {
+                "announcementId": "1223274888",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-04-25",
+                "title": "恒瑞医药2025年第一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-04-25/1223274888.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2677,
+            "responseHashes": [
+              "sha256:4121f08ba76d91133a3b3fe5fd7ca5b5b3838457dafc66ac7f88ed08388395df"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1222961962",
+            "valuePageHashes": [
+              "sha256:15227a0589d55d90ea6f716647b97ffcab18c28a197a108609dead5b3ead5feb",
+              "sha256:4124d7f79c23a64f1ab383bb707e19d34b5f2d14d56e32946328f3e4b5049488",
+              "sha256:dface45c45393a5d1da2c80c06515702c65c76f7d6ef5f197800be286aef33f8"
+            ],
+            "versions": [
+              {
+                "announcementId": "1222961962",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-03-31",
+                "title": "恒瑞医药2024年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-03-31/1222961962.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1450,
+            "responseHashes": [
+              "sha256:5c98d5840494887fd074f740f64188900ec7ef7f58632a1f7a4bc70e6a3e39f9"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1221505210",
+            "valuePageHashes": [
+              "sha256:15227a0589d55d90ea6f716647b97ffcab18c28a197a108609dead5b3ead5feb",
+              "sha256:4124d7f79c23a64f1ab383bb707e19d34b5f2d14d56e32946328f3e4b5049488",
+              "sha256:dface45c45393a5d1da2c80c06515702c65c76f7d6ef5f197800be286aef33f8"
+            ],
+            "versions": [
+              {
+                "announcementId": "1221505210",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2024-10-25",
+                "title": "恒瑞医药2024年第三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2024-10-25/1221505210.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "symbol": "601012",
+      "role": "ordinary_industrial",
+      "market": "SH",
+      "periods": [
+        {
+          "period": "2026-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1381,
+            "responseHashes": [
+              "sha256:345cb9b01a6269864654ea5758bef527112cf71ac1cea6bb144258713defbe5c"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225535067",
+            "valuePageHashes": [
+              "sha256:5b59fff998f283e0a121fb7bb9cedce5ae183afa4a3c26011733ffcc75f7f957",
+              "sha256:ce71f74381b15cd5f374376832962a6f4709f92d98ac85314bb961aea407beac",
+              "sha256:fe47bc5d4e9664c89fba83594f1b8da76325702acc700b2c1a1d2aa10adabba6"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225535067",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-08-31",
+                "title": "2026年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-08-31/1225535067.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2026-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 771,
+            "responseHashes": [
+              "sha256:bb2d12a40ef614c2dbfe310291574592c360d3582bf0cd6bc67dc55c249cacca"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225251668",
+            "valuePageHashes": [
+              "sha256:5b59fff998f283e0a121fb7bb9cedce5ae183afa4a3c26011733ffcc75f7f957",
+              "sha256:ce71f74381b15cd5f374376832962a6f4709f92d98ac85314bb961aea407beac",
+              "sha256:fe47bc5d4e9664c89fba83594f1b8da76325702acc700b2c1a1d2aa10adabba6"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225251668",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-04-29",
+                "title": "2026年第一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-04-29/1225251668.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1369,
+            "responseHashes": [
+              "sha256:5610073206e675de2750e46cd040c0abbd04d44de42b9f8e980a91d1eec6c3b8"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225251647",
+            "valuePageHashes": [
+              "sha256:137b1066522d2c84743bfd073beb119a576e7741907ec2a863f49033c75e0d05",
+              "sha256:179b178db44307db7c1c2050206e635f02f304309ef8a666edf303e278c3cbc9",
+              "sha256:5b59fff998f283e0a121fb7bb9cedce5ae183afa4a3c26011733ffcc75f7f957",
+              "sha256:5d68e3515f52aa63512600deeec7d149d2f2f917e4df7569dc2267659247ca20",
+              "sha256:ce71f74381b15cd5f374376832962a6f4709f92d98ac85314bb961aea407beac",
+              "sha256:fe47bc5d4e9664c89fba83594f1b8da76325702acc700b2c1a1d2aa10adabba6"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225251647",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-04-29",
+                "title": "2025年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-04-29/1225251647.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 781,
+            "responseHashes": [
+              "sha256:26e6f6d55cdfae61e2b369075f3becb3dd4d5e236fd178202bb8f3dc7b303b57"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224771207",
+            "valuePageHashes": [
+              "sha256:137b1066522d2c84743bfd073beb119a576e7741907ec2a863f49033c75e0d05",
+              "sha256:179b178db44307db7c1c2050206e635f02f304309ef8a666edf303e278c3cbc9",
+              "sha256:5b59fff998f283e0a121fb7bb9cedce5ae183afa4a3c26011733ffcc75f7f957",
+              "sha256:5d68e3515f52aa63512600deeec7d149d2f2f917e4df7569dc2267659247ca20",
+              "sha256:ce71f74381b15cd5f374376832962a6f4709f92d98ac85314bb961aea407beac",
+              "sha256:fe47bc5d4e9664c89fba83594f1b8da76325702acc700b2c1a1d2aa10adabba6"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224771207",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-10-31",
+                "title": "2025年第三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-10-31/1224771207.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2600,
+            "responseHashes": [
+              "sha256:1c5af99efb814f4a809e2a246f370ea1450163f6ed85c39ed61dae25e715eff4"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224562068",
+            "valuePageHashes": [
+              "sha256:137b1066522d2c84743bfd073beb119a576e7741907ec2a863f49033c75e0d05",
+              "sha256:179b178db44307db7c1c2050206e635f02f304309ef8a666edf303e278c3cbc9",
+              "sha256:5b59fff998f283e0a121fb7bb9cedce5ae183afa4a3c26011733ffcc75f7f957",
+              "sha256:5d68e3515f52aa63512600deeec7d149d2f2f917e4df7569dc2267659247ca20",
+              "sha256:ce71f74381b15cd5f374376832962a6f4709f92d98ac85314bb961aea407beac",
+              "sha256:fe47bc5d4e9664c89fba83594f1b8da76325702acc700b2c1a1d2aa10adabba6"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224562068",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-08-23",
+                "title": "2025年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-08-23/1224562068.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1380,
+            "responseHashes": [
+              "sha256:77b05697d9c57150a6ccf248cc23b2674dc5f1f8679a024be7f55bd3b7693d7e"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1223421493",
+            "valuePageHashes": [
+              "sha256:137b1066522d2c84743bfd073beb119a576e7741907ec2a863f49033c75e0d05",
+              "sha256:179b178db44307db7c1c2050206e635f02f304309ef8a666edf303e278c3cbc9",
+              "sha256:5d68e3515f52aa63512600deeec7d149d2f2f917e4df7569dc2267659247ca20"
+            ],
+            "versions": [
+              {
+                "announcementId": "1223421493",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-04-30",
+                "title": "2025年第一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-04-30/1223421493.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 3204,
+            "responseHashes": [
+              "sha256:6219fab671cbb8b35f068020afff3cafeedaedd522a56e77316a3b690d12b9ef"
+            ],
+            "matchedAnnouncements": 3
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1223477802",
+            "valuePageHashes": [
+              "sha256:190093bca923e2efa512767bb2532836458fb34d959afe6ca564fbe6dabf667b",
+              "sha256:2505ea6139f5347a694079a29c37dde6033e852193c1fc018a76a1e96d3a0feb",
+              "sha256:5ce95e0f8c7127ea7820e1baa5dab3054bccaeb8078e0511eefc63ea3b33cec4"
+            ],
+            "versions": [
+              {
+                "announcementId": "1223421477",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-04-30",
+                "title": "2024年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-04-30/1223421477.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              },
+              {
+                "announcementId": "1223477802",
+                "role": "REVISED_REPORT",
+                "announcedOn": "2025-05-07",
+                "title": "2024年年度报告（修订版）",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-05-07/1223477802.PDF",
+                "candidatePredecessorAnnouncementId": "1223421477",
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1400,
+            "responseHashes": [
+              "sha256:c4cd83183c7c9f04b4c3b0077187c4b0a7bb618d0daca458686913058088c28b"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1221575084",
+            "valuePageHashes": [
+              "sha256:190093bca923e2efa512767bb2532836458fb34d959afe6ca564fbe6dabf667b",
+              "sha256:2505ea6139f5347a694079a29c37dde6033e852193c1fc018a76a1e96d3a0feb",
+              "sha256:5ce95e0f8c7127ea7820e1baa5dab3054bccaeb8078e0511eefc63ea3b33cec4"
+            ],
+            "versions": [
+              {
+                "announcementId": "1221575084",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2024-10-31",
+                "title": "2024年第三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2024-10-31/1221575084.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "symbol": "002415",
+      "role": "ordinary_industrial",
+      "market": "SZ",
+      "periods": [
+        {
+          "period": "2026-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2045,
+            "responseHashes": [
+              "sha256:58791594cd11abf6caf835b96a8f4f10d5ac4fc644bf0a2809f696ed8032135c"
+            ],
+            "matchedAnnouncements": 3
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225440236",
+            "valuePageHashes": [
+              "sha256:0e920a46d1a3bf62c9961933467ed644a78072d7f095be688b4ddaaa90a079ee",
+              "sha256:3dd0ae560499cf0147f721bf0fca1d99ffc4a04ea5bd9c8031676dc4ce328c60",
+              "sha256:ea2641fa6b73594dbb57d72efd80bd2f0a2bee694fe752fd4dd88ccec14ab1ac"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225440236",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-07-25",
+                "title": "2026年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-07-25/1225440236.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2026-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1418,
+            "responseHashes": [
+              "sha256:a3d0ddc682b4b4ce0762b0a70a5d80e1de17bc160dfa22eba205bdff054b04b6"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225123071",
+            "valuePageHashes": [
+              "sha256:0e920a46d1a3bf62c9961933467ed644a78072d7f095be688b4ddaaa90a079ee",
+              "sha256:3dd0ae560499cf0147f721bf0fca1d99ffc4a04ea5bd9c8031676dc4ce328c60",
+              "sha256:ea2641fa6b73594dbb57d72efd80bd2f0a2bee694fe752fd4dd88ccec14ab1ac"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225123071",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-04-18",
+                "title": "2026年一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-04-18/1225123071.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2029,
+            "responseHashes": [
+              "sha256:24134ed8687d8890d8287410516b78e7c1e8526bd741a6c26c58afac8f1fbde2"
+            ],
+            "matchedAnnouncements": 3
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225123062",
+            "valuePageHashes": [
+              "sha256:0e920a46d1a3bf62c9961933467ed644a78072d7f095be688b4ddaaa90a079ee",
+              "sha256:2e831fcf82b8ebbacf6e9e0edda801db8492c8d599e5ab5fd93d723a0d9506d1",
+              "sha256:3dd0ae560499cf0147f721bf0fca1d99ffc4a04ea5bd9c8031676dc4ce328c60",
+              "sha256:7e29789c492350cb05917aaa6ba70371e1701b5d2d4b035c08950730e21a5737",
+              "sha256:981c0776dad9cbb758a4caf75ab36348f9d05c78f7b353b4b309487b55533b48",
+              "sha256:ea2641fa6b73594dbb57d72efd80bd2f0a2bee694fe752fd4dd88ccec14ab1ac"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225123062",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-04-18",
+                "title": "2025年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-04-18/1225123062.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1418,
+            "responseHashes": [
+              "sha256:b26376a1a1442069a9b1ca7df1396b173b2ff141e947ca94a72ede19b030f7e1"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224718570",
+            "valuePageHashes": [
+              "sha256:0e920a46d1a3bf62c9961933467ed644a78072d7f095be688b4ddaaa90a079ee",
+              "sha256:2e831fcf82b8ebbacf6e9e0edda801db8492c8d599e5ab5fd93d723a0d9506d1",
+              "sha256:3dd0ae560499cf0147f721bf0fca1d99ffc4a04ea5bd9c8031676dc4ce328c60",
+              "sha256:7e29789c492350cb05917aaa6ba70371e1701b5d2d4b035c08950730e21a5737",
+              "sha256:981c0776dad9cbb758a4caf75ab36348f9d05c78f7b353b4b309487b55533b48",
+              "sha256:ea2641fa6b73594dbb57d72efd80bd2f0a2bee694fe752fd4dd88ccec14ab1ac"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224718570",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-10-18",
+                "title": "2025年三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-10-18/1224718570.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 3928,
+            "responseHashes": [
+              "sha256:d949353c771f99ea477551440ec56581d951017fb42f97dc94f08c93fee65510"
+            ],
+            "matchedAnnouncements": 3
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224368773",
+            "valuePageHashes": [
+              "sha256:0e920a46d1a3bf62c9961933467ed644a78072d7f095be688b4ddaaa90a079ee",
+              "sha256:2e831fcf82b8ebbacf6e9e0edda801db8492c8d599e5ab5fd93d723a0d9506d1",
+              "sha256:3dd0ae560499cf0147f721bf0fca1d99ffc4a04ea5bd9c8031676dc4ce328c60",
+              "sha256:7e29789c492350cb05917aaa6ba70371e1701b5d2d4b035c08950730e21a5737",
+              "sha256:981c0776dad9cbb758a4caf75ab36348f9d05c78f7b353b4b309487b55533b48",
+              "sha256:ea2641fa6b73594dbb57d72efd80bd2f0a2bee694fe752fd4dd88ccec14ab1ac"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224368773",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-08-02",
+                "title": "2025年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-08-02/1224368773.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2686,
+            "responseHashes": [
+              "sha256:18e2d1e7c3d6320656cb62faf74a9f803da9bcad1589b0160163ff792af00609"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1223153144",
+            "valuePageHashes": [
+              "sha256:2e831fcf82b8ebbacf6e9e0edda801db8492c8d599e5ab5fd93d723a0d9506d1",
+              "sha256:7e29789c492350cb05917aaa6ba70371e1701b5d2d4b035c08950730e21a5737",
+              "sha256:981c0776dad9cbb758a4caf75ab36348f9d05c78f7b353b4b309487b55533b48"
+            ],
+            "versions": [
+              {
+                "announcementId": "1223153144",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-04-19",
+                "title": "2025年第一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-04-19/1223153144.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 3896,
+            "responseHashes": [
+              "sha256:3e0626c4c91ec401d078d64e320d8ba2f04488a7f5307d5ae6942e757b1dc5b4"
+            ],
+            "matchedAnnouncements": 3
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1223153152",
+            "valuePageHashes": [
+              "sha256:335b09116c1bbab93c1265adbfc79b65dc71d6d06b27956ae249568e5428d63b",
+              "sha256:5c86d964113066fad2f2c737055b3c17855223b01ce5283ed469543776b34b1d",
+              "sha256:c1e204492f3b1c169759c1ab2226be765d7272ecab364310fe10ab5cd2697af3"
+            ],
+            "versions": [
+              {
+                "announcementId": "1223153152",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-04-19",
+                "title": "2024年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-04-19/1223153152.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2686,
+            "responseHashes": [
+              "sha256:9dbc3f5081172a8c34edf2ff1d60a3e269c23216aadd6ad00a912a08cc35025d"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1221523603",
+            "valuePageHashes": [
+              "sha256:335b09116c1bbab93c1265adbfc79b65dc71d6d06b27956ae249568e5428d63b",
+              "sha256:5c86d964113066fad2f2c737055b3c17855223b01ce5283ed469543776b34b1d",
+              "sha256:c1e204492f3b1c169759c1ab2226be765d7272ecab364310fe10ab5cd2697af3"
+            ],
+            "versions": [
+              {
+                "announcementId": "1221523603",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2024-10-26",
+                "title": "2024年第三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2024-10-26/1221523603.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "symbol": "300750",
+      "role": "ordinary_industrial",
+      "market": "SZ",
+      "periods": [
+        {
+          "period": "2026-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1429,
+            "responseHashes": [
+              "sha256:8ae3a79a86d4ff4e885cbbfbbf993e51a01b978ec614ebdbb975512a8d59ea24"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225441586",
+            "valuePageHashes": [
+              "sha256:5ba46c191ab00ff6f7c7bab457a73bd40bb2b8dff018cec042c65adbc4f9ee1e",
+              "sha256:ee773dddc42a54974443ed6d0121289c1b20056f6cf25ac86106aff2feb44567",
+              "sha256:fe615daf2dd30cf99deba849a3dd713453c30239bfc44821f0e4982e0722ffb6"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225441586",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-07-25",
+                "title": "2026年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-07-25/1225441586.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2026-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 789,
+            "responseHashes": [
+              "sha256:a880dba773fc1a3f7d2c46da5a16d948e410f074bd96f5d0ebc312c525ec1da8"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225107946",
+            "valuePageHashes": [
+              "sha256:5ba46c191ab00ff6f7c7bab457a73bd40bb2b8dff018cec042c65adbc4f9ee1e",
+              "sha256:ee773dddc42a54974443ed6d0121289c1b20056f6cf25ac86106aff2feb44567",
+              "sha256:fe615daf2dd30cf99deba849a3dd713453c30239bfc44821f0e4982e0722ffb6"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225107946",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-04-16",
+                "title": "2026年一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-04-16/1225107946.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1417,
+            "responseHashes": [
+              "sha256:321a9ece40f080009e241a1fd48043888ebec2abd77e9408c8ed717dca7f13dd"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225002214",
+            "valuePageHashes": [
+              "sha256:5ba46c191ab00ff6f7c7bab457a73bd40bb2b8dff018cec042c65adbc4f9ee1e",
+              "sha256:9ae4e8211f7817b8912e398323b31f1d1ba882fb0d729a04b925d88b02bed0b6",
+              "sha256:b27f677f040dc7d6452de54521dba6ea0109fe1ff49a48e6d2a44acd924e770b",
+              "sha256:cc28edd0540a566b610788110bd87bee6df46a252fab898501a41f444bd20291",
+              "sha256:ee773dddc42a54974443ed6d0121289c1b20056f6cf25ac86106aff2feb44567",
+              "sha256:fe615daf2dd30cf99deba849a3dd713453c30239bfc44821f0e4982e0722ffb6"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225002214",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-03-10",
+                "title": "2025年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-03-10/1225002214.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 789,
+            "responseHashes": [
+              "sha256:3d761315820189d88b6b5a96c66b740b22f95f6e2e92094ce4c63ab44bfc3e43"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224721971",
+            "valuePageHashes": [
+              "sha256:5ba46c191ab00ff6f7c7bab457a73bd40bb2b8dff018cec042c65adbc4f9ee1e",
+              "sha256:9ae4e8211f7817b8912e398323b31f1d1ba882fb0d729a04b925d88b02bed0b6",
+              "sha256:b27f677f040dc7d6452de54521dba6ea0109fe1ff49a48e6d2a44acd924e770b",
+              "sha256:cc28edd0540a566b610788110bd87bee6df46a252fab898501a41f444bd20291",
+              "sha256:ee773dddc42a54974443ed6d0121289c1b20056f6cf25ac86106aff2feb44567",
+              "sha256:fe615daf2dd30cf99deba849a3dd713453c30239bfc44821f0e4982e0722ffb6"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224721971",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-10-21",
+                "title": "2025年三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-10-21/1224721971.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2696,
+            "responseHashes": [
+              "sha256:d8ad18ab277caf828f20f9b3b3d7891b5dd95ac781d57ae3262ff74526890fbe"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224342874",
+            "valuePageHashes": [
+              "sha256:5ba46c191ab00ff6f7c7bab457a73bd40bb2b8dff018cec042c65adbc4f9ee1e",
+              "sha256:9ae4e8211f7817b8912e398323b31f1d1ba882fb0d729a04b925d88b02bed0b6",
+              "sha256:b27f677f040dc7d6452de54521dba6ea0109fe1ff49a48e6d2a44acd924e770b",
+              "sha256:cc28edd0540a566b610788110bd87bee6df46a252fab898501a41f444bd20291",
+              "sha256:ee773dddc42a54974443ed6d0121289c1b20056f6cf25ac86106aff2feb44567",
+              "sha256:fe615daf2dd30cf99deba849a3dd713453c30239bfc44821f0e4982e0722ffb6"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224342874",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-07-31",
+                "title": "2025年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-07-31/1224342874.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1416,
+            "responseHashes": [
+              "sha256:c36676a7972aea6a88ef6bb5e5100b0b250db74574db317da4932d60cd6fcd65"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1223094849",
+            "valuePageHashes": [
+              "sha256:9ae4e8211f7817b8912e398323b31f1d1ba882fb0d729a04b925d88b02bed0b6",
+              "sha256:b27f677f040dc7d6452de54521dba6ea0109fe1ff49a48e6d2a44acd924e770b",
+              "sha256:cc28edd0540a566b610788110bd87bee6df46a252fab898501a41f444bd20291"
+            ],
+            "versions": [
+              {
+                "announcementId": "1223094849",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-04-15",
+                "title": "2025年一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-04-15/1223094849.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2672,
+            "responseHashes": [
+              "sha256:224a8abbe16218f11db5b45086bdb88cb2cd2874aa5dcdc3728a09d308448d1d"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1222806982",
+            "valuePageHashes": [
+              "sha256:13883878fc92adfdaf2c09a7066b609b596ae6e6a89a7371fc40d252bd280924",
+              "sha256:369114304b516047b416dbabe180f891a741fd73c77924136ae09156f1bc4883",
+              "sha256:ee64fbdc80398d97423fec4da449fdb13156db6b9be92868855df5d53d1806fc"
+            ],
+            "versions": [
+              {
+                "announcementId": "1222806982",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-03-15",
+                "title": "2024年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-03-15/1222806982.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1416,
+            "responseHashes": [
+              "sha256:c5f1a68be6c5e277d20790957e25ab0dda78ff3760916830128787bf4a62a48f"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1221432744",
+            "valuePageHashes": [
+              "sha256:13883878fc92adfdaf2c09a7066b609b596ae6e6a89a7371fc40d252bd280924",
+              "sha256:369114304b516047b416dbabe180f891a741fd73c77924136ae09156f1bc4883",
+              "sha256:ee64fbdc80398d97423fec4da449fdb13156db6b9be92868855df5d53d1806fc"
+            ],
+            "versions": [
+              {
+                "announcementId": "1221432744",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2024-10-19",
+                "title": "2024年三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2024-10-19/1221432744.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "symbol": "688981",
+      "role": "ordinary_industrial",
+      "market": "SH",
+      "periods": [
+        {
+          "period": "2026-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1433,
+            "responseHashes": [
+              "sha256:c6d1430e1f43b03c6067c851ec693e82dd12d34e0e35530e41ee65745b76aa6f"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225520297",
+            "valuePageHashes": [
+              "sha256:77a7165dc19eb86a7947ba9cea5d781103066a963859b4b0d2080113ee26242c",
+              "sha256:c59de5c2b6eda841eee8a0998b3a68d407a16b385a5da905c1fa90fbdd9f53ea",
+              "sha256:d3b7e7657089c23e48c97911a1454fc20b65684eb00c35b12336da18642de442"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225520297",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-08-28",
+                "title": "中芯国际2026年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-08-28/1225520297.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2026-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 797,
+            "responseHashes": [
+              "sha256:5d4744a667c63a249831f8870fb2e8680f9404244849e175b407ce5e849c4622"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225307101",
+            "valuePageHashes": [
+              "sha256:77a7165dc19eb86a7947ba9cea5d781103066a963859b4b0d2080113ee26242c",
+              "sha256:c59de5c2b6eda841eee8a0998b3a68d407a16b385a5da905c1fa90fbdd9f53ea",
+              "sha256:d3b7e7657089c23e48c97911a1454fc20b65684eb00c35b12336da18642de442"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225307101",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-05-15",
+                "title": "中芯国际2026年第一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-05-15/1225307101.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2040,
+            "responseHashes": [
+              "sha256:56dbd7cb5668d7e4de29f4011815a27d1bd0cdd88bcdafd70c9182add9f100fc"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1225037057",
+            "valuePageHashes": [
+              "sha256:2edae50c4cc0221c6a42663958912d3efb14d8169566d4e5cfa035fdcf7cbd5d",
+              "sha256:77a7165dc19eb86a7947ba9cea5d781103066a963859b4b0d2080113ee26242c",
+              "sha256:84cd564f3d5e4026d06f0437c9364ec5e58f355f6d73cf433657c1e8a004cf68",
+              "sha256:bbc7de2998ca66e5ad8ea14412de9c67513d0ae67270852c0bf9e0480f238dd0",
+              "sha256:c59de5c2b6eda841eee8a0998b3a68d407a16b385a5da905c1fa90fbdd9f53ea",
+              "sha256:d3b7e7657089c23e48c97911a1454fc20b65684eb00c35b12336da18642de442"
+            ],
+            "versions": [
+              {
+                "announcementId": "1225037057",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2026-03-27",
+                "title": "中芯国际2025年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-03-27/1225037057.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 807,
+            "responseHashes": [
+              "sha256:a27cc34cc95b106c6796062db4527d968893867d4999b1d4b771167df6b248ee"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224804086",
+            "valuePageHashes": [
+              "sha256:2edae50c4cc0221c6a42663958912d3efb14d8169566d4e5cfa035fdcf7cbd5d",
+              "sha256:77a7165dc19eb86a7947ba9cea5d781103066a963859b4b0d2080113ee26242c",
+              "sha256:84cd564f3d5e4026d06f0437c9364ec5e58f355f6d73cf433657c1e8a004cf68",
+              "sha256:bbc7de2998ca66e5ad8ea14412de9c67513d0ae67270852c0bf9e0480f238dd0",
+              "sha256:c59de5c2b6eda841eee8a0998b3a68d407a16b385a5da905c1fa90fbdd9f53ea",
+              "sha256:d3b7e7657089c23e48c97911a1454fc20b65684eb00c35b12336da18642de442"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224804086",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-11-14",
+                "title": "中芯国际2025年第三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-11-14/1224804086.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-06-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2703,
+            "responseHashes": [
+              "sha256:028b09e662dd321b7eb3774350592633eb3e898bde36bf05bd9cece9b8e39ed8"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1224608545",
+            "valuePageHashes": [
+              "sha256:2edae50c4cc0221c6a42663958912d3efb14d8169566d4e5cfa035fdcf7cbd5d",
+              "sha256:77a7165dc19eb86a7947ba9cea5d781103066a963859b4b0d2080113ee26242c",
+              "sha256:84cd564f3d5e4026d06f0437c9364ec5e58f355f6d73cf433657c1e8a004cf68",
+              "sha256:bbc7de2998ca66e5ad8ea14412de9c67513d0ae67270852c0bf9e0480f238dd0",
+              "sha256:c59de5c2b6eda841eee8a0998b3a68d407a16b385a5da905c1fa90fbdd9f53ea",
+              "sha256:d3b7e7657089c23e48c97911a1454fc20b65684eb00c35b12336da18642de442"
+            ],
+            "versions": [
+              {
+                "announcementId": "1224608545",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-08-29",
+                "title": "中芯国际2025年半年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-08-29/1224608545.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2025-03-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1432,
+            "responseHashes": [
+              "sha256:6dfba868c440536ce125e8ca6aadfa30e2035fc3774def92e80d8cd9754fbce0"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1223496514",
+            "valuePageHashes": [
+              "sha256:2edae50c4cc0221c6a42663958912d3efb14d8169566d4e5cfa035fdcf7cbd5d",
+              "sha256:84cd564f3d5e4026d06f0437c9364ec5e58f355f6d73cf433657c1e8a004cf68",
+              "sha256:bbc7de2998ca66e5ad8ea14412de9c67513d0ae67270852c0bf9e0480f238dd0"
+            ],
+            "versions": [
+              {
+                "announcementId": "1223496514",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-05-09",
+                "title": "中芯国际2025年第一季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-05-09/1223496514.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-12-31",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 3299,
+            "responseHashes": [
+              "sha256:e02fa997b611d15227a1afb5f9945b9514b7eb3a618d457b15330fb1f989f9be"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1222924320",
+            "valuePageHashes": [
+              "sha256:2dc33629fc89d1865b56c8b77bc243debf7312d121e3ee4318bc4c1f4e92b2f3",
+              "sha256:32f5a6cab9b8b151a651967723cc9b750712ef05bf7df5f5fd664c2f7a95f9af",
+              "sha256:dbb1a5d4a05e1a379a8f7a49e4f12700c76c5b8362ef9e6d90fbff1ba5b8a736"
+            ],
+            "versions": [
+              {
+                "announcementId": "1222924320",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2025-03-28",
+                "title": "中芯国际2024年年度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-03-28/1222924320.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        },
+        {
+          "period": "2024-09-30",
+          "structuredValuesComplete": true,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1452,
+            "responseHashes": [
+              "sha256:f7864a7ee68e76a2982babc3a6f2b9b490750d9bf12b37b0d4f54d7f4e2aad24"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "LINKED_VALUES_UNVERIFIED",
+            "pitEligible": false,
+            "pitBlocker": "structured values have not been verified against a specific archived announcement version",
+            "activeReportAnnouncementId": "1221649951",
+            "valuePageHashes": [
+              "sha256:2dc33629fc89d1865b56c8b77bc243debf7312d121e3ee4318bc4c1f4e92b2f3",
+              "sha256:32f5a6cab9b8b151a651967723cc9b750712ef05bf7df5f5fd664c2f7a95f9af",
+              "sha256:dbb1a5d4a05e1a379a8f7a49e4f12700c76c5b8362ef9e6d90fbff1ba5b8a736"
+            ],
+            "versions": [
+              {
+                "announcementId": "1221649951",
+                "role": "ORIGINAL_REPORT",
+                "announcedOn": "2024-11-08",
+                "title": "中芯国际2024年第三季度报告",
+                "documentUrl": "https://static.cninfo.com.cn/finalpage/2024-11-08/1221649951.PDF",
+                "candidatePredecessorAnnouncementId": null,
+                "supersedesVerified": false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "symbol": "600036",
+      "role": "bank",
+      "market": "SH",
+      "periods": [
+        {
+          "period": "2026-06-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1503,
+            "responseHashes": [
+              "sha256:770e188e99f799a1fd8c13808e0424896acfbb0e2501154538f77a41e5e3a5df"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2026-03-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 832,
+            "responseHashes": [
+              "sha256:2923b9feab676243fe04b9831604b1a87a6cfe78f0baba366afbb2423fcce728"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-12-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1480,
+            "responseHashes": [
+              "sha256:712462c0619a7ed3bdd85805811ee7d46aa252306047f72bbd00088a519a44db"
+            ],
+            "matchedAnnouncements": 0
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-09-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 842,
+            "responseHashes": [
+              "sha256:ae0d1078074266ec5ced1f7b26553bcb886d398e51cfbd050a29abaf51bb1a29"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-06-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2844,
+            "responseHashes": [
+              "sha256:b5c1f4d08eba4f297c66d57f5f36e71e97074570ebfd2399c2c140fa15176203"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-03-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1502,
+            "responseHashes": [
+              "sha256:09d91a43f340df60299486fec31db52712b3c4c701d30ffe67f35fd884d7fc12"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2024-12-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2797,
+            "responseHashes": [
+              "sha256:3000e6a966cf1857f255930c44be0102e7c15b932306c9b7122990f1fe55a81a"
+            ],
+            "matchedAnnouncements": 0
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2024-09-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1523,
+            "responseHashes": [
+              "sha256:d21c8b1164b8cc0ee78231a923459fcca3b67f0c88bd09c128eecb1d86e6ccfe"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        }
+      ]
+    },
+    {
+      "symbol": "000001",
+      "role": "bank",
+      "market": "SZ",
+      "periods": [
+        {
+          "period": "2026-06-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1403,
+            "responseHashes": [
+              "sha256:0d56c593f2a658297393d8ddf80a7a2102e9f5cd4a2964de3e3cdc407c3558f2"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2026-03-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 776,
+            "responseHashes": [
+              "sha256:2239f35bf0cca17851a9eff6873f8d391f9e5311240f79fc4c7195bd41ed6a3c"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-12-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1391,
+            "responseHashes": [
+              "sha256:3d66a189a5e827f36e3e5f70b6a2cc99fb83f89cb7d7d04242dfff62e2d2faa6"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-09-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 776,
+            "responseHashes": [
+              "sha256:35788a1aedc5ee62ee1066960462942d698fa6b8c019ec6b75d4f9aa8e661cea"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-06-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2644,
+            "responseHashes": [
+              "sha256:bc2e3f78f7f93385f804c9bc6afbcdc708fc40bd642c45cb54ce1d05089b7615"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-03-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1397,
+            "responseHashes": [
+              "sha256:9ada1a5bb5ab860438063356910a59e381e805e61dbaf54d56c15788ed1396b8"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2024-12-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2620,
+            "responseHashes": [
+              "sha256:84a01b5c1cc9c3cb3f93044e3a8f5c102b9ecec430e6f5c441998d4a482095d4"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2024-09-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1397,
+            "responseHashes": [
+              "sha256:eb41af31fef03f0bd6afe5d40b0055b8cf3e0676038230b50281bce8cd60248b"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        }
+      ]
+    },
+    {
+      "symbol": "601318",
+      "role": "insurance",
+      "market": "SH",
+      "periods": [
+        {
+          "period": "2026-06-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1489,
+            "responseHashes": [
+              "sha256:4f57ba16237d1981591a6ce4a1423efe909a3922ca7931b78567020875c027cb"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2026-03-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1495,
+            "responseHashes": [
+              "sha256:b7d2a4838c161681f96ad5f388ce2643da80ac15059e2d91865822e20d746411"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-12-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2116,
+            "responseHashes": [
+              "sha256:034f9412db63bebe2903321ed8730dbc23e1c393b69571fba1c2e0a39aee4c13"
+            ],
+            "matchedAnnouncements": 3
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-09-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1515,
+            "responseHashes": [
+              "sha256:7e436b7bf5de9640f3173e664af639d7391c621e2c59ffe7506b7cc5d9b0cc84"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-06-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 3449,
+            "responseHashes": [
+              "sha256:84d674d4711837ba22b0392516004702e643d49736278720da8eace6b38e5b59"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-03-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2828,
+            "responseHashes": [
+              "sha256:1aa17676ecdd3d367fcf924f20ce9cb6b4c16b263ec138be79b78cfe8be9a3f9"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2024-12-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 4071,
+            "responseHashes": [
+              "sha256:56eb780760d2f92dd756b3067cf30bfd7c8eb69d280004af466b9cf80ded1e14"
+            ],
+            "matchedAnnouncements": 3
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2024-09-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2868,
+            "responseHashes": [
+              "sha256:e667c192c594f6a1efcbcf90927534d6b745ff3841a5f034f3a531fad53921c1"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        }
+      ]
+    },
+    {
+      "symbol": "600030",
+      "role": "securities",
+      "market": "SH",
+      "periods": [
+        {
+          "period": "2026-06-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1503,
+            "responseHashes": [
+              "sha256:239c6d7c3fac46b5ad86a55fd1d786a9d71f10277403593230c99133ef3ad367"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2026-03-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 832,
+            "responseHashes": [
+              "sha256:7e044c17c04e4fd41ea1c6393bfce5be93b0a35b3b1f4fdf6d4a10420f1b7efa"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-12-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1492,
+            "responseHashes": [
+              "sha256:88d0b9fe0a6ecac998e0cca0a37cbc5a22795d54787048f387e359c48a9ebf5a"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-09-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 842,
+            "responseHashes": [
+              "sha256:d5db87d9183895f539ef926f4453b31ec18fc483b4b5a2f63ded29b886f0df52"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-06-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2844,
+            "responseHashes": [
+              "sha256:a576654f9091ea4a80666333f8d9ac1f0f3ef9a8d4d812faacbdf5dc9fc7d5f4"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2025-03-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1502,
+            "responseHashes": [
+              "sha256:8c465eb001930a73e1b80b9574fb018134e4bb32ff2699a280569412ac776d35"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2024-12-31",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 2823,
+            "responseHashes": [
+              "sha256:07578b82be472b3a505703fdc613426dc31c392353e17275b7a39dfea335c7e2"
+            ],
+            "matchedAnnouncements": 2
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        },
+        {
+          "period": "2024-09-30",
+          "structuredValuesComplete": false,
+          "query": {
+            "status": "OK",
+            "errorType": null,
+            "requestCount": 1,
+            "httpStatuses": [
+              200
+            ],
+            "responseBytes": 1523,
+            "responseHashes": [
+              "sha256:350fcfc4237b7971060f76bc542dace0ab03f723b13de2d2129afda2c041f3ae"
+            ],
+            "matchedAnnouncements": 1
+          },
+          "link": {
+            "status": "STRUCTURED_VALUES_UNAVAILABLE",
+            "pitEligible": false,
+            "pitBlocker": "required structured values are incomplete for this period",
+            "versions": []
+          }
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "requestedSamples": 12,
+    "requestedPeriodsPerSample": 8,
+    "queries": 96,
+    "queryErrors": 0,
+    "matchedAnnouncements": 158,
+    "linkStatusCounts": {
+      "LINKED_VALUES_UNVERIFIED": 64,
+      "STRUCTURED_VALUES_UNAVAILABLE": 32
+    },
+    "versionRoleCounts": {
+      "ORIGINAL_REPORT": 64,
+      "REVISED_REPORT": 1
+    },
+    "samplesLinkedForAllPeriods": 8,
+    "s2Enabled": false,
+    "blockingGates": [
+      "STRUCTURED_VALUES_NOT_VERIFIED_AGAINST_ARCHIVED_DISCLOSURE",
+      "SUPERSEDES_RELATIONSHIP_NOT_VERIFIED_FROM_DOCUMENTS",
+      "HISTORICAL_CAPTURE_IS_RECONSTRUCTED_NOT_FORWARD_OBSERVED",
+      "FINANCIAL_INDUSTRY_TEMPLATE_INCOMPLETE",
+      "RIGHTS_NOT_REVIEWED"
+    ]
+  }
+}

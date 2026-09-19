@@ -1,0 +1,2647 @@
+{
+  "generatedAt": "2026-09-19T14:48:01.346335+00:00",
+  "sourceId": "sina-financial",
+  "probeMode": "LOCAL_LIMITED_SPIKE_12_SAMPLES_X_8_PERIODS",
+  "rightsStatus": "UNKNOWN_LOCAL_PROBE_ONLY",
+  "financialValuesPersisted": false,
+  "requestPolicy": {
+    "transport": "sequential_https",
+    "pauseSeconds": 1.0,
+    "timeoutSeconds": 15.0,
+    "controls": [
+      "part",
+      "2025",
+      "2024"
+    ],
+    "statements": [
+      "profit",
+      "balance",
+      "cashflow"
+    ]
+  },
+  "samples": [
+    {
+      "symbol": "600519",
+      "role": "ordinary_industrial",
+      "market": "SH",
+      "status": "PARSED",
+      "statementStatus": {
+        "profit": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "balance": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "cashflow": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        }
+      },
+      "pages": [
+        {
+          "statement": "profit",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:cb224b154ff221cf264943ff93aeb9e70a682ba8d139e5d9f6efb5b030a0d2d6"
+        },
+        {
+          "statement": "profit",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:f3028d66055cfd69446199cee6cf576e895413f1c332b98ef42316c2302d3d3d"
+        },
+        {
+          "statement": "profit",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:dc2d0b29a9b4f521589e10136770e5c7d505c08196418de225fe69b4e07d567a"
+        },
+        {
+          "statement": "balance",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:a68659af275450dac59cd3d514f71fa905ef0afa5aa71897d3edbf8bb85db046"
+        },
+        {
+          "statement": "balance",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:30624f0f6335d1743d095852df0642945a5bcba695d373711642ee3243dcd8fc"
+        },
+        {
+          "statement": "balance",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:196b18b86914300bdc4303b4693e7d71ceb637fe3aaade7ca9143789b62ca534"
+        },
+        {
+          "statement": "cashflow",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:3f037cf6f530dda9212c18ae8fdbd853fec470cacee836459d740ac811d010af"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:30b0572ca75cb175c4ddf9b55f0962c06cb1aba03b5edb52dad46060f60d83e2"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:fff3ef96fdeb2c673a29aebb929905706354d5c4ba0712bb9574ea3ea4a73e25"
+        }
+      ],
+      "mergeConflicts": {
+        "profit": 0,
+        "balance": 0,
+        "cashflow": 0
+      },
+      "commonPeriodCount": 10,
+      "commonPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "completeRequiredPeriodCount": 10,
+      "completeRequiredPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "missingRequiredFieldCounts": {},
+      "missingRequiredPeriods": [],
+      "minimumPeriodCount": 8,
+      "minimumPeriodGate": "MEETS_MINIMUM",
+      "pitEligible": false,
+      "pitBlockers": [
+        "ANNOUNCEMENT_DATE_NOT_IN_SOURCE",
+        "REVISION_CHAIN_NOT_IN_SOURCE"
+      ]
+    },
+    {
+      "symbol": "000333",
+      "role": "ordinary_industrial",
+      "market": "SZ",
+      "status": "PARSED",
+      "statementStatus": {
+        "profit": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "balance": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "cashflow": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        }
+      },
+      "pages": [
+        {
+          "statement": "profit",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:56edfc626d73966e986ba6c5e36cc354f9bdbfe657f2eb8f01da9efb905b52d5"
+        },
+        {
+          "statement": "profit",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:b311153546f8058916dce6bfea37bfe221aa9818473bd3a956e4b482be9ea561"
+        },
+        {
+          "statement": "profit",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:e5716df9724b1101929b47358e600d3724a7949462f3f16bd56a82806da19594"
+        },
+        {
+          "statement": "balance",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:be4ab5199b34a1faa6bad5688a34ebe363c913c61939ccd94b6ce59ed346560d"
+        },
+        {
+          "statement": "balance",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:72097593e174ec2b6523fef97f2b6f405407be87afbc163d143cb8ffbc169618"
+        },
+        {
+          "statement": "balance",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:51668a1e93753589e4a5c3006d5b1f4dadf9c390ed4abe82629a7b4b9703a7a8"
+        },
+        {
+          "statement": "cashflow",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:c32afd876c39fe9c91b9f4a22d6968e44f4b28f235d25f9b6e8bf8ebb7e6633d"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:9759521708e2d03b69b27a77c6568a037e7fd241ad3210c04ef645e88485d321"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:0e550ec534d7dab7f1cf1a718308e7d4938f11cafce0f7e4068969edd09f395e"
+        }
+      ],
+      "mergeConflicts": {
+        "profit": 0,
+        "balance": 0,
+        "cashflow": 0
+      },
+      "commonPeriodCount": 10,
+      "commonPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "completeRequiredPeriodCount": 10,
+      "completeRequiredPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "missingRequiredFieldCounts": {},
+      "missingRequiredPeriods": [],
+      "minimumPeriodCount": 8,
+      "minimumPeriodGate": "MEETS_MINIMUM",
+      "pitEligible": false,
+      "pitBlockers": [
+        "ANNOUNCEMENT_DATE_NOT_IN_SOURCE",
+        "REVISION_CHAIN_NOT_IN_SOURCE"
+      ]
+    },
+    {
+      "symbol": "000651",
+      "role": "ordinary_industrial",
+      "market": "SZ",
+      "status": "PARSED",
+      "statementStatus": {
+        "profit": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "balance": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "cashflow": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        }
+      },
+      "pages": [
+        {
+          "statement": "profit",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:631d8bf49fad9a8013dfc37b51aaa9db4534562e9488ca7463ba3674006daafd"
+        },
+        {
+          "statement": "profit",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:6660721a7d71ce312a11d3e2840ef001ffdc67ee0fc3a48c990cde4480c6a163"
+        },
+        {
+          "statement": "profit",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:35a8f9a466281259975372750732807a2451c455bd2d065cc0ca751377dbcd31"
+        },
+        {
+          "statement": "balance",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:83ee705d2fd053609c63cb2c68c722b6be4f0a55e263ec96516c067b86f0f827"
+        },
+        {
+          "statement": "balance",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:59707a94dd9b51d054869a192b5aae29c9168da885c3a27e72310d9d22080cc2"
+        },
+        {
+          "statement": "balance",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:79d05bcc4ac4fc714d73e5c6edd1677e781458bf78e882a65468b564cc388d68"
+        },
+        {
+          "statement": "cashflow",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:33c84efc717b75c749fe9977ac17ccf96ae91ea04ed11573722531cc42f1262a"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:407b79d3f0949fea4b074c04b192941a6059e552572a25a6b288141ef0733b8c"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:04267f7916b26857747aa3bc62618bb4fa6cca464babfb44576656cbd017d2c0"
+        }
+      ],
+      "mergeConflicts": {
+        "profit": 0,
+        "balance": 0,
+        "cashflow": 0
+      },
+      "commonPeriodCount": 10,
+      "commonPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "completeRequiredPeriodCount": 10,
+      "completeRequiredPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "missingRequiredFieldCounts": {},
+      "missingRequiredPeriods": [],
+      "minimumPeriodCount": 8,
+      "minimumPeriodGate": "MEETS_MINIMUM",
+      "pitEligible": false,
+      "pitBlockers": [
+        "ANNOUNCEMENT_DATE_NOT_IN_SOURCE",
+        "REVISION_CHAIN_NOT_IN_SOURCE"
+      ]
+    },
+    {
+      "symbol": "600276",
+      "role": "ordinary_industrial",
+      "market": "SH",
+      "status": "PARSED",
+      "statementStatus": {
+        "profit": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "balance": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "cashflow": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        }
+      },
+      "pages": [
+        {
+          "statement": "profit",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:3cfcf6381c6f2bb2581eebe160cd44284a65b0bab235edde4f0cee06eea59e02"
+        },
+        {
+          "statement": "profit",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:0cdbaebd2b77d47a0486b881fe7c9835333341dc93a5e9acbecdb7b2867c2c27"
+        },
+        {
+          "statement": "profit",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:15227a0589d55d90ea6f716647b97ffcab18c28a197a108609dead5b3ead5feb"
+        },
+        {
+          "statement": "balance",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:37c6a3344817f54bdf45c23d4a9e26fd5284945c49401de826bcad93a32527e9"
+        },
+        {
+          "statement": "balance",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:d0ad173fa02ee9131c413f54aca2a699bb42f563a0c63bc585b4eea707ff6ae1"
+        },
+        {
+          "statement": "balance",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:4124d7f79c23a64f1ab383bb707e19d34b5f2d14d56e32946328f3e4b5049488"
+        },
+        {
+          "statement": "cashflow",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:153e8d52dfdef85c3fa6e5379d4a27d88f05ae364c9a755dc44aea82b9436bca"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:980803863a015f90dfde6cf5f0ca799673f4189cb321ce39646cbab9c4172a5b"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:dface45c45393a5d1da2c80c06515702c65c76f7d6ef5f197800be286aef33f8"
+        }
+      ],
+      "mergeConflicts": {
+        "profit": 0,
+        "balance": 0,
+        "cashflow": 0
+      },
+      "commonPeriodCount": 10,
+      "commonPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "completeRequiredPeriodCount": 10,
+      "completeRequiredPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "missingRequiredFieldCounts": {},
+      "missingRequiredPeriods": [],
+      "minimumPeriodCount": 8,
+      "minimumPeriodGate": "MEETS_MINIMUM",
+      "pitEligible": false,
+      "pitBlockers": [
+        "ANNOUNCEMENT_DATE_NOT_IN_SOURCE",
+        "REVISION_CHAIN_NOT_IN_SOURCE"
+      ]
+    },
+    {
+      "symbol": "601012",
+      "role": "ordinary_industrial",
+      "market": "SH",
+      "status": "PARSED",
+      "statementStatus": {
+        "profit": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "balance": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "cashflow": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        }
+      },
+      "pages": [
+        {
+          "statement": "profit",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:ce71f74381b15cd5f374376832962a6f4709f92d98ac85314bb961aea407beac"
+        },
+        {
+          "statement": "profit",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:179b178db44307db7c1c2050206e635f02f304309ef8a666edf303e278c3cbc9"
+        },
+        {
+          "statement": "profit",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:2505ea6139f5347a694079a29c37dde6033e852193c1fc018a76a1e96d3a0feb"
+        },
+        {
+          "statement": "balance",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:5b59fff998f283e0a121fb7bb9cedce5ae183afa4a3c26011733ffcc75f7f957"
+        },
+        {
+          "statement": "balance",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:5d68e3515f52aa63512600deeec7d149d2f2f917e4df7569dc2267659247ca20"
+        },
+        {
+          "statement": "balance",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:190093bca923e2efa512767bb2532836458fb34d959afe6ca564fbe6dabf667b"
+        },
+        {
+          "statement": "cashflow",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:fe47bc5d4e9664c89fba83594f1b8da76325702acc700b2c1a1d2aa10adabba6"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:137b1066522d2c84743bfd073beb119a576e7741907ec2a863f49033c75e0d05"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:5ce95e0f8c7127ea7820e1baa5dab3054bccaeb8078e0511eefc63ea3b33cec4"
+        }
+      ],
+      "mergeConflicts": {
+        "profit": 0,
+        "balance": 0,
+        "cashflow": 0
+      },
+      "commonPeriodCount": 10,
+      "commonPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "completeRequiredPeriodCount": 10,
+      "completeRequiredPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "missingRequiredFieldCounts": {},
+      "missingRequiredPeriods": [],
+      "minimumPeriodCount": 8,
+      "minimumPeriodGate": "MEETS_MINIMUM",
+      "pitEligible": false,
+      "pitBlockers": [
+        "ANNOUNCEMENT_DATE_NOT_IN_SOURCE",
+        "REVISION_CHAIN_NOT_IN_SOURCE"
+      ]
+    },
+    {
+      "symbol": "002415",
+      "role": "ordinary_industrial",
+      "market": "SZ",
+      "status": "PARSED",
+      "statementStatus": {
+        "profit": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "balance": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "cashflow": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        }
+      },
+      "pages": [
+        {
+          "statement": "profit",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:ea2641fa6b73594dbb57d72efd80bd2f0a2bee694fe752fd4dd88ccec14ab1ac"
+        },
+        {
+          "statement": "profit",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:2e831fcf82b8ebbacf6e9e0edda801db8492c8d599e5ab5fd93d723a0d9506d1"
+        },
+        {
+          "statement": "profit",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:c1e204492f3b1c169759c1ab2226be765d7272ecab364310fe10ab5cd2697af3"
+        },
+        {
+          "statement": "balance",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:0e920a46d1a3bf62c9961933467ed644a78072d7f095be688b4ddaaa90a079ee"
+        },
+        {
+          "statement": "balance",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:981c0776dad9cbb758a4caf75ab36348f9d05c78f7b353b4b309487b55533b48"
+        },
+        {
+          "statement": "balance",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:5c86d964113066fad2f2c737055b3c17855223b01ce5283ed469543776b34b1d"
+        },
+        {
+          "statement": "cashflow",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:3dd0ae560499cf0147f721bf0fca1d99ffc4a04ea5bd9c8031676dc4ce328c60"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:7e29789c492350cb05917aaa6ba70371e1701b5d2d4b035c08950730e21a5737"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:335b09116c1bbab93c1265adbfc79b65dc71d6d06b27956ae249568e5428d63b"
+        }
+      ],
+      "mergeConflicts": {
+        "profit": 0,
+        "balance": 0,
+        "cashflow": 0
+      },
+      "commonPeriodCount": 10,
+      "commonPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "completeRequiredPeriodCount": 10,
+      "completeRequiredPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "missingRequiredFieldCounts": {},
+      "missingRequiredPeriods": [],
+      "minimumPeriodCount": 8,
+      "minimumPeriodGate": "MEETS_MINIMUM",
+      "pitEligible": false,
+      "pitBlockers": [
+        "ANNOUNCEMENT_DATE_NOT_IN_SOURCE",
+        "REVISION_CHAIN_NOT_IN_SOURCE"
+      ]
+    },
+    {
+      "symbol": "300750",
+      "role": "ordinary_industrial",
+      "market": "SZ",
+      "status": "PARSED",
+      "statementStatus": {
+        "profit": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "balance": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "cashflow": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        }
+      },
+      "pages": [
+        {
+          "statement": "profit",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:5ba46c191ab00ff6f7c7bab457a73bd40bb2b8dff018cec042c65adbc4f9ee1e"
+        },
+        {
+          "statement": "profit",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:b27f677f040dc7d6452de54521dba6ea0109fe1ff49a48e6d2a44acd924e770b"
+        },
+        {
+          "statement": "profit",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:369114304b516047b416dbabe180f891a741fd73c77924136ae09156f1bc4883"
+        },
+        {
+          "statement": "balance",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:ee773dddc42a54974443ed6d0121289c1b20056f6cf25ac86106aff2feb44567"
+        },
+        {
+          "statement": "balance",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:cc28edd0540a566b610788110bd87bee6df46a252fab898501a41f444bd20291"
+        },
+        {
+          "statement": "balance",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:ee64fbdc80398d97423fec4da449fdb13156db6b9be92868855df5d53d1806fc"
+        },
+        {
+          "statement": "cashflow",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:fe615daf2dd30cf99deba849a3dd713453c30239bfc44821f0e4982e0722ffb6"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:9ae4e8211f7817b8912e398323b31f1d1ba882fb0d729a04b925d88b02bed0b6"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:13883878fc92adfdaf2c09a7066b609b596ae6e6a89a7371fc40d252bd280924"
+        }
+      ],
+      "mergeConflicts": {
+        "profit": 0,
+        "balance": 0,
+        "cashflow": 0
+      },
+      "commonPeriodCount": 10,
+      "commonPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "completeRequiredPeriodCount": 10,
+      "completeRequiredPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "missingRequiredFieldCounts": {},
+      "missingRequiredPeriods": [],
+      "minimumPeriodCount": 8,
+      "minimumPeriodGate": "MEETS_MINIMUM",
+      "pitEligible": false,
+      "pitBlockers": [
+        "ANNOUNCEMENT_DATE_NOT_IN_SOURCE",
+        "REVISION_CHAIN_NOT_IN_SOURCE"
+      ]
+    },
+    {
+      "symbol": "688981",
+      "role": "ordinary_industrial",
+      "market": "SH",
+      "status": "PARSED",
+      "statementStatus": {
+        "profit": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "balance": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "cashflow": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        }
+      },
+      "pages": [
+        {
+          "statement": "profit",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:d3b7e7657089c23e48c97911a1454fc20b65684eb00c35b12336da18642de442"
+        },
+        {
+          "statement": "profit",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:2edae50c4cc0221c6a42663958912d3efb14d8169566d4e5cfa035fdcf7cbd5d"
+        },
+        {
+          "statement": "profit",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:2dc33629fc89d1865b56c8b77bc243debf7312d121e3ee4318bc4c1f4e92b2f3"
+        },
+        {
+          "statement": "balance",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:c59de5c2b6eda841eee8a0998b3a68d407a16b385a5da905c1fa90fbdd9f53ea"
+        },
+        {
+          "statement": "balance",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:bbc7de2998ca66e5ad8ea14412de9c67513d0ae67270852c0bf9e0480f238dd0"
+        },
+        {
+          "statement": "balance",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:32f5a6cab9b8b151a651967723cc9b750712ef05bf7df5f5fd664c2f7a95f9af"
+        },
+        {
+          "statement": "cashflow",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:77a7165dc19eb86a7947ba9cea5d781103066a963859b4b0d2080113ee26242c"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:84cd564f3d5e4026d06f0437c9364ec5e58f355f6d73cf433657c1e8a004cf68"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:dbb1a5d4a05e1a379a8f7a49e4f12700c76c5b8362ef9e6d90fbff1ba5b8a736"
+        }
+      ],
+      "mergeConflicts": {
+        "profit": 0,
+        "balance": 0,
+        "cashflow": 0
+      },
+      "commonPeriodCount": 10,
+      "commonPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "completeRequiredPeriodCount": 10,
+      "completeRequiredPeriodEnds": [
+        "2026-06-30",
+        "2026-03-31",
+        "2025-12-31",
+        "2025-09-30",
+        "2025-06-30",
+        "2025-03-31",
+        "2024-12-31",
+        "2024-09-30",
+        "2024-06-30",
+        "2024-03-31"
+      ],
+      "missingRequiredFieldCounts": {},
+      "missingRequiredPeriods": [],
+      "minimumPeriodCount": 8,
+      "minimumPeriodGate": "MEETS_MINIMUM",
+      "pitEligible": false,
+      "pitBlockers": [
+        "ANNOUNCEMENT_DATE_NOT_IN_SOURCE",
+        "REVISION_CHAIN_NOT_IN_SOURCE"
+      ]
+    },
+    {
+      "symbol": "600036",
+      "role": "bank",
+      "market": "SH",
+      "status": "FAILED",
+      "statementStatus": {
+        "profit": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "balance": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "cashflow": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        }
+      },
+      "pages": [
+        {
+          "statement": "profit",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:ff1c2d3e21bc380b7f27347024cea0eb9758781eac5ab3cf0393f68c0187bfcc"
+        },
+        {
+          "statement": "profit",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:7540add93ef47355f7a0b7b02906baebb3ee6725eedc6edb1372fda597a500a7"
+        },
+        {
+          "statement": "profit",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:48f2db8d026f53cffbdf40717bef0308523e95bc59824726d6bc44316ea72b1e"
+        },
+        {
+          "statement": "balance",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:ab38f34a8aa1a2484f8795893e04acd08e20d45d1dec25d401face60b3df1af8"
+        },
+        {
+          "statement": "balance",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:92b565dbc86210c208785b9c53e457d5c176dc376b09870a0a5288f0ec08ca43"
+        },
+        {
+          "statement": "balance",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:d162a1c456b0b8977b8330ea09f25dbccec34e1b19bdb6bc6872a70f2fb4ea37"
+        },
+        {
+          "statement": "cashflow",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:4de6ec321cb2dc847dc43c01feaefeac5c304ff9664ddd960370229b1d6a1656"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:034a8e766f4bdba87ee2ec73c9110852812285cb9dcecb64ba0238ceb3d6b50b"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:7f0f2c16c7fbaee574e04043543d924ddd7a97b9d02160782f4dab77ba277d4f"
+        }
+      ],
+      "mergeConflicts": {
+        "profit": 0,
+        "balance": 0,
+        "cashflow": 0
+      },
+      "errorType": "SinaFinancialError",
+      "reason": "required_row_missing"
+    },
+    {
+      "symbol": "000001",
+      "role": "bank",
+      "market": "SZ",
+      "status": "FAILED",
+      "statementStatus": {
+        "profit": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "balance": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "cashflow": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        }
+      },
+      "pages": [
+        {
+          "statement": "profit",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:45825e1c2e0a19afe2688d1f023b71f2b958521b17bf7ce7f92ca929a9d21adf"
+        },
+        {
+          "statement": "profit",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:893842cace86d5a5549579e2b472e07526d82b51fb22045bfd0325f7dbea3929"
+        },
+        {
+          "statement": "profit",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:a3d9e0870e2556f885a12b1a11703e99c276bd8cabff8f48b071ed2b4ae0116f"
+        },
+        {
+          "statement": "balance",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:92b538fcbc5ec4bfd02cd321debdfae8942fcae3e23cf94a2202c3aab1165907"
+        },
+        {
+          "statement": "balance",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:a39449b6b4415f7716e5d20e62d100310909f4d22e7079fab4f14487bb300d71"
+        },
+        {
+          "statement": "balance",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:42f121b0914e31408a7fad0a0c1753dc238445b86783f6006b62d6cdaccc63aa"
+        },
+        {
+          "statement": "cashflow",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:a144d795dd3074389a7bda14ba44e14ec535b2f308b9e5a3c359209617d02c3d"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:b2aac71632d56718228773fca23228535a43a6b04d47c119781c3468f41c9937"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:abb126c9dcb24a3a1ca347feadc66791e50b313f126a2b2c1b6fdc3369664dc0"
+        }
+      ],
+      "mergeConflicts": {
+        "profit": 0,
+        "balance": 0,
+        "cashflow": 0
+      },
+      "errorType": "SinaFinancialError",
+      "reason": "required_row_missing"
+    },
+    {
+      "symbol": "601318",
+      "role": "insurance",
+      "market": "SH",
+      "status": "FAILED",
+      "statementStatus": {
+        "profit": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "balance": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "cashflow": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        }
+      },
+      "pages": [
+        {
+          "statement": "profit",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:e8d20a234bc1e84bd0f21acfd4eebe029afab1c8379940d74366ddfbdf78fafa"
+        },
+        {
+          "statement": "profit",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:9227b9e02f4ca2150e0f11f1c1717426207f8c02be3ca5f92731fb7a29096f5a"
+        },
+        {
+          "statement": "profit",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:74bb4c296a958b2841a7a1e9038d5a4e47f63f546f3488c6a1229bc4f06b210f"
+        },
+        {
+          "statement": "balance",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:dc18663fda84d096bd7e9976d35d2abaa93f05368ef40870ae43cfc10d1a48d1"
+        },
+        {
+          "statement": "balance",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:70e2939e858725d6041e1244c61e1707c7ba343c1f48e37afef9268c03f54791"
+        },
+        {
+          "statement": "balance",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:ffc070080722d7d2f44b7142612c1e27b77192e71de94bda8a729105ea1c16a0"
+        },
+        {
+          "statement": "cashflow",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:f98c4f68469e69761bb3bb3e61976aca44a2286432caeddcd44a075d6843f63a"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:5781348946c530aaa9c1f23c17782fc371419c5a4dd3ef6339a0e3894c036137"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:56054d8c6427269f7246003df301a90fec03528629b09c64962852d002ba93f7"
+        }
+      ],
+      "mergeConflicts": {
+        "profit": 0,
+        "balance": 0,
+        "cashflow": 0
+      },
+      "errorType": "SinaFinancialError",
+      "reason": "required_row_missing"
+    },
+    {
+      "symbol": "600030",
+      "role": "securities",
+      "market": "SH",
+      "status": "FAILED",
+      "statementStatus": {
+        "profit": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "balance": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        },
+        "cashflow": {
+          "status": "PARSED",
+          "successfulPages": 3,
+          "requestedPages": 3,
+          "mergedPeriodCount": 10,
+          "mergedPeriodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31",
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "duplicatePeriodConflictCount": 0
+        }
+      },
+      "pages": [
+        {
+          "statement": "profit",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:7c60505e97947cae035ec1c921347e7b71e18c120849e026adf5c4009e65f218"
+        },
+        {
+          "statement": "profit",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:ffa40bb90686e0541eab5d0332c1c41e7cf5f71f70d37c042541e47b230a6fa5"
+        },
+        {
+          "statement": "profit",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:fcd95cfbcd3282541812f9e13dbe18f8b35b421a1e1e9147d1e7669b68927d80"
+        },
+        {
+          "statement": "balance",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:923c7409844271a38b45c9fb16320aff00f662e5192f1993cfbe162242639fc6"
+        },
+        {
+          "statement": "balance",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:4062ddec71a3273190a5ed26f1d8f93b642cf6ec4810ec6343a22226fbd166bf"
+        },
+        {
+          "statement": "balance",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:dc3bdaac450e2c2dd4b28a751a28e5b97314fea75458d670c25c7306aa902e64"
+        },
+        {
+          "statement": "cashflow",
+          "control": "part",
+          "status": "PARSED",
+          "periodCount": 5,
+          "periodEnds": [
+            "2026-06-30",
+            "2026-03-31",
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30"
+          ],
+          "contentHash": "sha256:95e9d686c615de2b9b46d26d9df9758e6d9e90472dc5e9b2385f550b67b7d8a5"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2025",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2025-12-31",
+            "2025-09-30",
+            "2025-06-30",
+            "2025-03-31"
+          ],
+          "contentHash": "sha256:6f8bfedda393776c23fe05654db6eeca14ffef74c79aeb478188ff687529f029"
+        },
+        {
+          "statement": "cashflow",
+          "control": "2024",
+          "status": "PARSED",
+          "periodCount": 4,
+          "periodEnds": [
+            "2024-12-31",
+            "2024-09-30",
+            "2024-06-30",
+            "2024-03-31"
+          ],
+          "contentHash": "sha256:b6c364237ff2623e911a813987044e6fe80ef16b68c482b4a05f20ee3b96cf13"
+        }
+      ],
+      "mergeConflicts": {
+        "profit": 0,
+        "balance": 0,
+        "cashflow": 0
+      },
+      "errorType": "SinaFinancialError",
+      "reason": "required_row_missing"
+    }
+  ],
+  "summary": {
+    "requestedSamples": 12,
+    "parsedSamples": 8,
+    "samplesMeetingMinimumPeriods": 8,
+    "samplesWithAtLeastEightCompletePeriods": 8,
+    "minimumReportPeriods": 8,
+    "requestedStatementsPerSample": 3,
+    "requestedPagesPerStatement": 3,
+    "requestAttempts": 108,
+    "successfulPageRequests": 108,
+    "failedPageRequests": 0,
+    "roleCounts": {
+      "bank": 2,
+      "insurance": 1,
+      "ordinary_industrial": 8,
+      "securities": 1
+    },
+    "marketCounts": {
+      "SH": 7,
+      "SZ": 5
+    },
+    "s2Enabled": false,
+    "blockingGates": [
+      "ANNOUNCEMENT_DATE_NOT_IN_SOURCE",
+      "REVISION_CHAIN_NOT_IN_SOURCE",
+      "FULL_MARKET_COVERAGE_NOT_VALIDATED",
+      "RIGHTS_NOT_REVIEWED",
+      "REPORT_PERIOD_MINIMUM_UNMET",
+      "REQUIRED_FIELD_COMPLETENESS_UNMET"
+    ]
+  }
+}

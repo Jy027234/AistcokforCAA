@@ -62,7 +62,14 @@ def main() -> int:
         metavar="HOST:PORT",
         help="explicit public TDX financial server; never written to the report",
     )
-    parser.add_argument("--period", help="YYYYMMDD; defaults to latest non-placeholder package")
+    period_group = parser.add_mutually_exclusive_group()
+    period_group.add_argument("--period", metavar="YYYYMMDD",
+                              help="one report period (compatibility alias)")
+    period_group.add_argument("--periods", nargs="+", metavar="YYYYMMDD")
+    period_group.add_argument(
+        "--period-count", type=int, default=1,
+        help="latest usable report periods to inspect (default: 1)",
+    )
     parser.add_argument("--symbols", nargs="+", default=["600519", "000001"])
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
@@ -92,68 +99,144 @@ def main() -> int:
         dated = [(item, period) for item, period in dated if period]
         usable = [(item, period) for item, period in dated
                   if int(item["filesize"]) >= 1024]
-        if args.period:
-            matches = [item for item, period in usable if period == args.period]
-            if not matches:
-                raise RuntimeError(f"no usable financial package for {args.period}")
-            selected = matches[-1]
+        requested_periods = args.periods or ([args.period] if args.period else None)
+        if requested_periods:
+            selected: list[tuple[dict, str]] = []
+            for requested in requested_periods:
+                matches = [(item, period) for item, period in usable
+                           if period == requested]
+                if not matches:
+                    raise RuntimeError(f"no usable financial package for {requested}")
+                selected.append(matches[-1])
         else:
-            selected = max(usable, key=lambda pair: pair[1])[0]
+            if args.period_count < 1:
+                raise RuntimeError("period-count must be positive")
+            selected = sorted(usable, key=lambda pair: pair[1], reverse=True)[
+                :args.period_count]
+
+        packages: list[dict] = []
+        sample_coverage = {
+            symbol: {
+                "periodsPresent": 0,
+                "periodsWithCumulativeInputs": 0,
+                "periodsWithAnnouncementDate": 0,
+                "singleQuarterZeroObservations": 0,
+                "ambiguousCodePeriods": 0,
+            }
+            for symbol in args.symbols
+        }
 
         with tempfile.TemporaryDirectory(prefix="aquant-mootdx-") as directory:
             downloader = Financial()
             downloader.bestip = args.server
-            downloader.fetch_only(
-                downdir=directory,
-                filename=selected["filename"],
-                filesize=int(selected["filesize"]),
-            )
-            archive = Path(directory) / str(selected["filename"])
-            archive_hash = "sha256:" + hashlib.sha256(archive.read_bytes()).hexdigest()
-            frame = FinancialReader.to_data(str(archive), header="en")
+            for selected_item, selected_period in selected:
+                downloader.fetch_only(
+                    downdir=directory,
+                    filename=selected_item["filename"],
+                    filesize=int(selected_item["filesize"]),
+                )
+                archive = Path(directory) / str(selected_item["filename"])
+                archive_hash = "sha256:" + hashlib.sha256(archive.read_bytes()).hexdigest()
+                frame = FinancialReader.to_data(str(archive), header="en")
 
-        fields: dict[str, dict[str, int | str]] = {}
-        for number, meaning in FIELD_MAP.items():
-            column = f"col{number}"
-            if column not in frame.columns:
-                raise RuntimeError(f"parsed package has no required field {column}")
-            series = frame[column]
-            fields[str(number)] = {
-                "meaning": meaning,
-                "zeroCount": int((series == 0).sum()),
-                "missingCount": int(series.isna().sum()),
-            }
+                fields: dict[str, dict[str, int | str]] = {}
+                for number, meaning in FIELD_MAP.items():
+                    column = f"col{number}"
+                    if column not in frame.columns:
+                        raise RuntimeError(f"parsed package has no required field {column}")
+                    series = frame[column]
+                    fields[str(number)] = {
+                        "meaning": meaning,
+                        "zeroCount": int((series == 0).sum()),
+                        "missingCount": int(series.isna().sum()),
+                    }
 
-        index_strings = {str(index) for index in frame.index}
-        sample_presence = {
-            symbol: {"rowPresent": symbol in index_strings}
-            for symbol in args.symbols
-        }
+                index_strings = {str(index) for index in frame.index}
+                samples: dict[str, dict[str, bool | int]] = {}
+                for symbol in args.symbols:
+                    present = symbol in index_strings
+                    cumulative = False
+                    announcement_date = False
+                    zero_observations = 0
+                    row_count = 0
+                    if present:
+                        symbol_rows = frame.loc[[symbol]]
+                        row_count = len(symbol_rows)
+                        sample_coverage[symbol]["periodsPresent"] += 1
+                        if row_count != 1:
+                            sample_coverage[symbol]["ambiguousCodePeriods"] += 1
+                        else:
+                            row = symbol_rows.iloc[0]
+                            cumulative = all(
+                                not bool(symbol_rows[f"col{number}"].isna().any())
+                                and float(row[f"col{number}"]) != 0
+                                for number in (96, 107, 271)
+                            )
+                            announcement_date = (
+                                not bool(symbol_rows["col314"].isna().any())
+                                and float(row["col314"]) != 0
+                            )
+                            zero_observations = sum(
+                                float(row[f"col{number}"]) == 0
+                                for number in (230, 232, 234)
+                            )
+                            sample_coverage[symbol]["periodsWithCumulativeInputs"] += int(
+                                cumulative)
+                            sample_coverage[symbol]["periodsWithAnnouncementDate"] += int(
+                                announcement_date)
+                            sample_coverage[symbol]["singleQuarterZeroObservations"] += int(
+                                zero_observations)
+                    samples[symbol] = {
+                        "rowPresent": present,
+                        "rowCount": row_count,
+                        "cumulativeInputsPresent": cumulative,
+                        "announcementDatePresent": announcement_date,
+                        "singleQuarterZeroObservations": zero_observations,
+                    }
+
+                packages.append({
+                    "period": selected_period,
+                    "filename": selected_item["filename"],
+                    "filesize": int(selected_item["filesize"]),
+                    "contentHash": archive_hash,
+                    "parsedShape": {
+                        "rows": int(frame.shape[0]),
+                        "columns": int(frame.shape[1]),
+                    },
+                    "fieldQuality": fields,
+                    "samples": samples,
+                })
+
         periods = sorted(period for _, period in dated)
+        listed_period_counts: dict[str, int] = {}
+        for _, period in dated:
+            listed_period_counts[period] = listed_period_counts.get(period, 0) + 1
+        blocking_gates = [
+            "ZERO_MISSINGNESS_AMBIGUOUS_FOR_SINGLE_QUARTER_FIELDS",
+            "ONE_PACKAGE_PER_PERIOD_NO_REVISION_CHAIN",
+            "FULL_MARKET_COVERAGE_NOT_VALIDATED",
+            "RIGHTS_NOT_REVIEWED",
+        ]
+        if any(item["ambiguousCodePeriods"] for item in sample_coverage.values()):
+            blocking_gates.insert(0, "DUPLICATE_CODE_ROWS_WITHOUT_VERSION_IDENTITY")
         report.update({
             "packageListing": {
                 "count": len(listing),
                 "earliestPeriod": periods[0] if periods else None,
                 "latestPeriod": periods[-1] if periods else None,
                 "latestUsablePeriod": max(period for _, period in usable),
+                "periodsWithMultiplePackages": sorted(
+                    period for period, count in listed_period_counts.items() if count > 1
+                ),
             },
-            "selectedPackage": {
-                "filename": selected["filename"],
-                "filesize": int(selected["filesize"]),
-                "contentHash": archive_hash,
-            },
-            "parsedShape": {"rows": int(frame.shape[0]), "columns": int(frame.shape[1])},
-            "fieldQuality": fields,
-            "samples": sample_presence,
+            "packages": packages,
+            "sampleCoverage": sample_coverage,
             "summary": {
                 "status": "PARSED",
+                "periodsRequested": len(selected),
+                "periodsParsed": len(packages),
                 "s2Enabled": False,
-                "blockingGates": [
-                    "ZERO_MISSINGNESS_AMBIGUOUS_FOR_SINGLE_QUARTER_FIELDS",
-                    "REVISION_CHAIN_NOT_IN_SOURCE",
-                    "FULL_MARKET_COVERAGE_NOT_VALIDATED",
-                    "RIGHTS_NOT_REVIEWED",
-                ],
+                "blockingGates": blocking_gates,
             },
         })
         exit_code = 0
