@@ -107,7 +107,7 @@ npm run dev                         # http://localhost:5173
 | 检查 | 命令 | 目的 |
 |---|---|---|
 | 资料包自检 | `python tests/validate_spec.py` | 契约、示例、SQL、约束 |
-| 领域与接口测试 | `pytest tests` | 606 个用例 / 62 个测试文件 |
+| 领域与接口测试 | `pytest tests` | 711 个用例（本次全量通过） |
 | 界面交互 + 数字出处 | `python tools/check_ui_flow.py` | 真浏览器点击；每个区块的数字必须说得出出处 |
 | 归档字节离线复核 | `python tools/verify_archive.py` | 留证字节与摘要一致 |
 | 真实数据闭环 | `python tools/check_real_flow.py` | 真实快照上走完决策闭环 |
