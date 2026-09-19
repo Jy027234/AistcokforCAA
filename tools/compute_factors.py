@@ -43,13 +43,15 @@ from aquant.domain.data.db import apply_migrations, connect  # noqa: E402
 from aquant.domain.data.reader import SnapshotReader  # noqa: E402
 from aquant.domain.data.snapshot import SnapshotError, SnapshotStore  # noqa: E402
 from aquant.domain.research.f10 import compute_f10_for_snapshot  # noqa: E402
+from aquant.operations.snapshot_lifecycle import resolve_current_snapshot  # noqa: E402
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--snapshot-dir", default=str(ROOT / "deploy" / "universe-snapshot"),
                     help="已发布快照的数据目录（含 meta.sqlite 与 api/）")
-    ap.add_argument("--snapshot-id", default="snap-universe")
+    ap.add_argument("--snapshot-id", default=None,
+                    help="物理快照 ID；省略时解析 current_snapshot.json")
     ap.add_argument("--limit", type=int, default=0, help="只算前 N 只（调试用）")
     ap.add_argument("--json-out", default=None,
                     help="把摘要写成 JSON（供流水线留痕）")
@@ -67,17 +69,19 @@ def main() -> int:
     apply_migrations(con)
     store = SnapshotStore(con, data_dir / "api")
     reader = SnapshotReader(store)
+    snapshot_id = resolve_current_snapshot(
+        data_dir, explicit_snapshot_id=args.snapshot_id, connection=con)
 
     try:
-        ref = reader.ref(args.snapshot_id)
+        ref = reader.ref(snapshot_id)
     except SnapshotError as exc:
-        print(f"快照 {args.snapshot_id!r} 不可读：{exc.message}")
+        print(f"快照 {snapshot_id!r} 不可读：{exc.message}")
         print("修复：" + exc.repair_action)
         con.close()
         return 2
 
     try:
-        financials = reader.financials(args.snapshot_id, as_of=ref.as_of_time)
+        financials = reader.financials(snapshot_id, as_of=ref.as_of_time)
     except SnapshotError as exc:
         # 只吞"这份快照没有财务数据集"。数据集存在但哈希不对是另一回事，
         # 掩盖它会让"快照被改过"看起来像"没有财务数据"（同 reader 的口径）。
@@ -91,7 +95,7 @@ def main() -> int:
         return 2
 
     summary = compute_f10_for_snapshot(
-        con=con, reader=reader, snapshot_id=args.snapshot_id,
+        con=con, reader=reader, snapshot_id=snapshot_id,
         as_of=ref.as_of_time, limit=args.limit,
     )
     con.commit()

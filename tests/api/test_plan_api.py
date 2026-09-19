@@ -163,6 +163,67 @@ def test_happy_path_preview_confirm_freeze_execute_value(client):
     assert rec["valuation_cash_matches_ledger"] is True
 
 
+def test_frozen_plan_executes_after_appstate_restart(tmp_path, monkeypatch):
+    """冻结结果落库后，新的 AppState 不应需要旧的 live preview。"""
+
+    main = __import__("main")
+    first_state = main.build_state(tmp_path)
+    with TestClient(create_app(state=first_state)) as first:
+        pv = preview(first).json()
+        pid = pv["planId"]
+        token = confirm(first, pid).json()["confirmationToken"]
+        frozen = freeze(first, pid, token)
+        assert frozen.status_code == 200, frozen.text
+        binding = first_state.con.execute(
+            "SELECT fee_version,commission_rate FROM plan_fee_binding WHERE plan_id=?",
+            (pid,),
+        ).fetchone()
+        assert binding is not None
+        frozen_fee_version = binding["fee_version"]
+
+    # 模拟进程重启：数据库目录保持不变，连接、PlanService 和 previews
+    # 全部由新的 AppState 重建。刻意改变环境佣金，执行仍须使用冻结时绑定值。
+    first_state.con.close()
+    monkeypatch.setenv("AQUANT_COMMISSION_RATE", "0.001")
+    monkeypatch.setenv("AQUANT_COMMISSION_MIN_CENTS", "0")
+    second_state = main.build_state(tmp_path)
+    with TestClient(create_app(state=second_state)) as second:
+        assert second.app.state.aquant.previews == {}
+        executed = second.post(
+            f"/api/v1/plans/{pid}/execute",
+            json={"plan_id": pid}, headers=USER,
+        )
+        assert executed.status_code == 200, executed.text
+        assert executed.json()["fills"], "持久化冻结计划应当继续成交"
+        used_versions = {
+            row[0] for row in second_state.con.execute(
+                "SELECT DISTINCT fee_version FROM fee_charge"
+            ).fetchall()
+        }
+        assert used_versions == {frozen_fee_version}
+
+
+def test_execute_requires_the_subject_that_froze_the_plan(tmp_path):
+    """现有模型能表达的组合归属是冻结主体，执行时必须复核它。"""
+
+    main = __import__("main")
+    first_state = main.build_state(tmp_path)
+    with TestClient(create_app(state=first_state)) as first:
+        pid = preview(first).json()["planId"]
+        token = confirm(first, pid).json()["confirmationToken"]
+        assert freeze(first, pid, token).status_code == 200
+    first_state.con.close()
+
+    second_state = main.build_state(tmp_path)
+    with TestClient(create_app(state=second_state)) as second:
+        rejected = second.post(
+            f"/api/v1/plans/{pid}/execute",
+            json={"plan_id": pid}, headers={"X-Aquant-Subject": "user:bob"},
+        )
+        assert rejected.status_code == 409, rejected.text
+        assert "does not match" in rejected.json()["error"]["message"]
+
+
 def test_forged_token_is_refused(client):
     pid = preview(client).json()["planId"]
     r = freeze(client, pid, "forged-token-000000")

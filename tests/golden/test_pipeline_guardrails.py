@@ -130,8 +130,8 @@ def test_cache_last_day_reads_the_actual_data_window(tmp_path):
 
     cache = tmp_path / "bars.json"
     cache.write_text(json.dumps({"bars": {
-        "SH.600000": {"rows": [{"trading_day": "2026-09-11", "close_cents": 100},
-                               {"trading_day": "2026-09-14", "close_cents": 101}]},
+        # 第一只可能停牌，不能因此把整个市场的末日判成 9 月 11 日。
+        "SH.600000": {"rows": [{"trading_day": "2026-09-11", "close_cents": 100}]},
         "SZ.000001": {"rows": [{"trading_day": "2026-09-14", "close_cents": 200}]},
     }}, ensure_ascii=False), encoding="utf-8")
     assert _daily_run_module(cache)._cache_last_day() == "2026-09-14"

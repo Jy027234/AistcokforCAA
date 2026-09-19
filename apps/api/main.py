@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import shutil
 import sqlite3
+import threading
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
@@ -67,6 +68,7 @@ from aquant.operations.scheduler import (
     save_schedule,
 )
 from aquant.operations.scheduler import status as scheduler_status
+from aquant.operations.snapshot_lifecycle import resolve_current_snapshot
 from aquant.domain.simulation.corporate_actions import CashDividend
 from aquant.domain.simulation.fees import synthetic_fee_table
 from aquant.operations.jobs import Job, JobError, JobStore
@@ -148,10 +150,11 @@ class AppState:
         #: AQUANT_RESET_DATA=1 时它会 shutil.rmtree 数据目录。
         #: 把它放进请求路径的后果是**每个请求都在删自己的数据目录**
         #: （当时还开着 SQLite 连接）。这正是 /status 500 的原因。
-        self.data_dir = data_dir
+        self.data_dir = data_dir or root.parent
         self.store = SnapshotStore(con, root)
         self.reader = SnapshotReader(self.store)
-        self.snapshot_id = active_snapshot()
+        self._snapshot_lock = threading.RLock()
+        self.snapshot_id = active_snapshot(self.data_dir, con)
         self.fees = resolve_fee_table(self.snapshot_id)
         self.fee_provenance = fee_provenance()
         # 组合参数与研究配置保持一致（单票 10% / 行业 30%）。持仓上限取 4：
@@ -180,6 +183,40 @@ class AppState:
         #: 只是调用助手接口会明确报"模型不可用"，而不是启动就崩。
         #: 这样离线测试与行情相关的功能完全不依赖模型配置。
         self.model_provider: TextModelProvider | None = None
+
+    def current_snapshot(self) -> str:
+        """解析并切换到流水线刚发布的当前物理快照。
+
+        一次请求只应调用一次并复用返回值。指针变化时同步刷新费率、
+        证券板块映射和 PlanService，避免页面已经显示新快照而组合服务仍
+        使用旧快照派生状态。
+        """
+
+        with self._snapshot_lock:
+            snapshot_id = active_snapshot(self.data_dir, self.con)
+            self.store.require_published(snapshot_id)
+            if snapshot_id == self.snapshot_id:
+                return snapshot_id
+
+            # 先完整构造新快照所需依赖，再一次性替换内存状态。费率未配置等
+            # 闸门可能在这里拒绝切换；若提前写 self.snapshot_id，下一次请求
+            # 会误以为已经切换完成，实际却继续使用旧费率和旧 PlanService。
+            fees = resolve_fee_table(snapshot_id)
+            if snapshot_id == SNAPSHOT_ID:
+                listings = dict(LISTINGS)
+            else:
+                try:
+                    listings = _listings_for(self, snapshot_id)
+                except (SnapshotError, KeyError):
+                    listings = {}
+            service = PlanService(
+                self.con, self.reader, fees, BOARD_RULES, listings, self.params,
+            )
+            self.snapshot_id = snapshot_id
+            self.fees = fees
+            self.listings = listings
+            self.service = service
+            return snapshot_id
 
     def provider(self) -> TextModelProvider:
         if self.model_provider is None:
@@ -314,7 +351,8 @@ def _data_dir_from_env() -> Path | None:
     return data_dir
 
 
-def active_snapshot() -> str:
+def active_snapshot(data_dir: Path | None = None,
+                    con: sqlite3.Connection | None = None) -> str:
     """当前生效的快照 ID。
 
     `AQUANT_SNAPSHOT_ID` 可以指向**已经发布过**的快照（例如真实数据快照
@@ -322,7 +360,17 @@ def active_snapshot() -> str:
     不必为真实数据再写一个服务。默认仍是合成快照。
     """
 
-    return os.environ.get("AQUANT_SNAPSHOT_ID", "").strip() or SNAPSHOT_ID
+    configured = os.environ.get("AQUANT_SNAPSHOT_ID", "").strip()
+    if configured:
+        return configured
+    resolved_root = data_dir
+    if resolved_root is None:
+        raw = os.environ.get("AQUANT_DATA_DIR", "").strip()
+        resolved_root = Path(raw).expanduser() if raw else None
+    if resolved_root is None:
+        return SNAPSHOT_ID
+    return resolve_current_snapshot(
+        resolved_root, connection=con, legacy_default=SNAPSHOT_ID)
 
 
 def _seed_synthetic(con: sqlite3.Connection, root: Path) -> None:
@@ -369,7 +417,7 @@ def build_state(data_dir: Path | None = None) -> AppState:
     if seeded["created"]:
         print(f"[api] 登记策略版本：{', '.join(seeded['created'])}")
 
-    wanted = active_snapshot()
+    wanted = active_snapshot(data_dir, con)
     try:
         # require_published 同时校验状态：只认已发布快照，
         # 半成品快照不能拿来跑决策（否则会读到一份"看起来有数据"的空壳）。
@@ -378,8 +426,9 @@ def build_state(data_dir: Path | None = None) -> AppState:
     except SnapshotError:
         if wanted != SNAPSHOT_ID:
             raise RuntimeError(
-                f"AQUANT_SNAPSHOT_ID={wanted} 指向的快照不存在或未发布；"
-                "先用对应脚本建成并发布该快照，或去掉这个环境变量使用合成快照"
+                f"当前快照 {wanted} 不存在或未发布；"
+                "检查 AQUANT_SNAPSHOT_ID / current_snapshot.json，"
+                "或先用发布脚本建成该快照"
             ) from None
         _seed_synthetic(con, root)
     return AppState(con, root, data_dir=data_dir)
@@ -1018,7 +1067,8 @@ def create_app(state: AppState | None = None) -> FastAPI:
         因此比较的是快照覆盖的末日与采集实际拿到的末日。
         """
 
-        out = build_data_status(s.reader, active_snapshot()).as_dict()
+        snapshot_id = s.current_snapshot()
+        out = build_data_status(s.reader, snapshot_id).as_dict()
         # 快照覆盖的最后一个交易日：取自交易数据集，而不是 as_of_time
         # （as_of_time 是快照的时点，可能与行情末日不同）。
         #
@@ -1046,12 +1096,13 @@ def create_app(state: AppState | None = None) -> FastAPI:
         继续返回固定的三个演示标的，会让界面显示一份与数据无关的排名。
         """
 
-        signals, note = _s1_candidates(s, active_snapshot())
+        snapshot_id = s.current_snapshot()
+        signals, note = _s1_candidates(s, snapshot_id)
         return {
-            "snapshotId": active_snapshot(),
+            "snapshotId": snapshot_id,
             "candidates": [
                 {"instrumentId": sig.instrument_id,
-                 "displayName": _display_name(s, active_snapshot(), sig.instrument_id),
+                 "displayName": _display_name(s, snapshot_id, sig.instrument_id),
                  "industryCode": sig.industry_code,
                  "signalRank": sig.signal_rank,
                  "simulatable": sig.simulatable}
@@ -1062,20 +1113,21 @@ def create_app(state: AppState | None = None) -> FastAPI:
 
     @app.get("/api/v1/instruments/{instrument_id}/research")
     def research(instrument_id: str, trading_day: date, s: AppState = Depends(svc)) -> dict:
-        ref = s.reader.ref(active_snapshot())
-        bars = s.service._bars(active_snapshot(), trading_day, ref.as_of_time, [instrument_id])
+        snapshot_id = s.current_snapshot()
+        ref = s.reader.ref(snapshot_id)
+        bars = s.service._bars(snapshot_id, trading_day, ref.as_of_time, [instrument_id])
         # 因子值来自**已落库的研究运行**，不在这里现算。
         #
         # 这一段此前缺失，后果是：库里有因子、卡片上永远没有。两侧各自的
         # 测试都是绿的——卡片层默认 factor_values=None 就是"没有因子"，
         # 而那看起来与"这只没有因子值"完全一样。
         factor_values, factor_note = factor_values_for_snapshot(
-            s.con, snapshot_id=active_snapshot(), instrument_id=instrument_id)
+            s.con, snapshot_id=snapshot_id, instrument_id=instrument_id)
         try:
             card = build_research_card(
-                s.reader, snapshot_id=active_snapshot(), as_of=ref.as_of_time,
+                s.reader, snapshot_id=snapshot_id, as_of=ref.as_of_time,
                 instrument_id=instrument_id, trading_day=trading_day,
-                board_rules=BOARD_RULES, listings=LISTINGS,
+                board_rules=BOARD_RULES, listings=s.listings,
                 bar=bars.get(instrument_id),
                 factor_values=factor_values,
                 factor_note=factor_note,
@@ -1093,7 +1145,7 @@ def create_app(state: AppState | None = None) -> FastAPI:
         # 卡片按 (标的, 快照, 交易日) 冻结留档：它是"当时看到的证据"。
         # 同一快照同一天重复打开得到同一张，**不刷新生成时刻**；
         # 现算即弃的话，事后无法还原"我那天看到的是什么"。
-        stored = persist_card(s.con, snapshot_id=active_snapshot(),
+        stored = persist_card(s.con, snapshot_id=snapshot_id,
                               trading_day=trading_day, card=body,
                               data_mode=ref.data_mode)
         # 返回体必须读留档值，而不是顺手把刚算出来的时刻放回去：
@@ -1190,12 +1242,13 @@ def create_app(state: AppState | None = None) -> FastAPI:
         的事件——PIT 在读取侧的落点。
         """
 
-        ref = s.reader.ref(active_snapshot())
+        snapshot_id = s.current_snapshot()
+        ref = s.reader.ref(snapshot_id)
         as_of = ref.as_of_time
         rows = events(s.con, as_of=as_of, instrument_id=instrument_id,
                       category=category, limit=max(1, min(limit, 500)))
         return {
-            "snapshotId": active_snapshot(),
+            "snapshotId": snapshot_id,
             "asOfTime": as_of.isoformat(),
             "count": len(rows),
             "note": ("已按 available_at <= as_of 过滤；"
@@ -1207,7 +1260,7 @@ def create_app(state: AppState | None = None) -> FastAPI:
     def readiness(s: AppState = Depends(svc)) -> dict:
         """就绪状态：数据、账本、任务三个维度分开报。"""
 
-        status = build_data_status(s.reader, active_snapshot()).as_dict()
+        status = build_data_status(s.reader, s.current_snapshot()).as_dict()
         jobs = JobStore(s.con).counts_by_status()
         return {
             "ready": status.get("readiness") == "READY",
@@ -1333,9 +1386,10 @@ def create_app(state: AppState | None = None) -> FastAPI:
         财报可用性由 PIT 闸门保证：只使用决策时点前已公布的财报。
         """
 
-        ref = s.reader.ref(active_snapshot())
+        snapshot_id = s.current_snapshot()
+        ref = s.reader.ref(snapshot_id)
         return compute_f10_for_snapshot(
-            con=s.con, reader=s.reader, snapshot_id=active_snapshot(),
+            con=s.con, reader=s.reader, snapshot_id=snapshot_id,
             as_of=ref.as_of_time, limit=body.limit)
 
     @app.get("/api/v1/research/runs/{research_run_id}/factors")
@@ -1385,7 +1439,8 @@ def create_app(state: AppState | None = None) -> FastAPI:
         # §5.5：助手在回答系统状态前**先读已发布快照**。
         # ref() 会在快照未发布或读不出时直接抛错——那时不该继续调用模型：
         # 一份不知道时点的回答，看起来完整但无法判断是否已过期。
-        ref = s.reader.ref(active_snapshot())
+        snapshot_id = s.current_snapshot()
+        ref = s.reader.ref(snapshot_id)
         # 草稿先算（只算不写），再连同材料一起交给助手。
         # 顺序如此是因为"助手看到的草稿"必须与返回给界面的**同一份**，
         # 各算一次会得到两个版本，而用户只看到其中一个。
@@ -1401,7 +1456,7 @@ def create_app(state: AppState | None = None) -> FastAPI:
                 purpose=body.purpose, data_mode=ref.data_mode,
                 max_output_tokens=body.max_output_tokens,
                 snapshot_context={
-                    "snapshotId": active_snapshot(),
+                    "snapshotId": snapshot_id,
                     "dataMode": ref.data_mode,
                     "asOfTime": ref.as_of_time.isoformat(),
                 })
@@ -1429,8 +1484,10 @@ def create_app(state: AppState | None = None) -> FastAPI:
         使用者只看到金额，看不到金额背后的假设。
         """
 
+        snapshot_id = s.current_snapshot()
         sched = s.fees.schedule_for(date.today())
         return {
+            "snapshotId": snapshot_id,
             "feeVersion": sched.fee_version,
             "syntheticTestRate": s.fees.is_synthetic,
             "commissionSource": s.fees.commission_source,
@@ -1515,9 +1572,10 @@ def create_app(state: AppState | None = None) -> FastAPI:
     def preview(body: PreviewRequest, s: AppState = Depends(svc)) -> dict:
         """只算不冻。不写计划、不写账本（A08）。"""
 
-        if body.snapshot_id != active_snapshot():
+        snapshot_id = s.current_snapshot()
+        if body.snapshot_id != snapshot_id:
             raise HTTPException(status_code=404, detail=f"unknown snapshot {body.snapshot_id!r}")
-        ref = s.reader.ref(active_snapshot())
+        ref = s.reader.ref(snapshot_id)
 
         # 账户必须先存在，否则预览记录的 account_version 会基于"空账本"，
         # 而随后的令牌签发会先建账户再读账本，两者版本不一致，冻结永远失败。
@@ -1539,9 +1597,9 @@ def create_app(state: AppState | None = None) -> FastAPI:
 
         # 候选必须与当前快照一致：预览写进计划的目标权重会冻结，
         # 用另一份快照的排名去建仓，冻结的就是一个无据可查的组合。
-        ranked, _ = _s1_candidates(s, active_snapshot())
+        ranked, _ = _s1_candidates(s, snapshot_id)
         pv = s.service.preview(
-            portfolio_id=body.portfolio_id, snapshot_id=active_snapshot(),
+            portfolio_id=body.portfolio_id, snapshot_id=snapshot_id,
             trading_day=body.trading_day, as_of=ref.as_of_time,
             candidates=[Candidate(r.instrument_id, r.industry_code, r.signal_rank,
                                   simulatable=r.simulatable) for r in ranked],
@@ -1646,10 +1704,10 @@ def create_app(state: AppState | None = None) -> FastAPI:
     @app.post("/api/v1/plans/{plan_id}/execute")
     def execute(plan_id: str, body: ExecuteRequest, subject: str = Depends(current_subject),
                 s: AppState = Depends(svc)) -> dict:
-        pv = s.previews.get(plan_id)
-        if pv is None:
-            raise HTTPException(status_code=404, detail="no live preview for this plan")
-        lots = s.service._load_lots(pv.portfolio_id)
+        if body.plan_id != plan_id:
+            raise HTTPException(status_code=400, detail="plan_id mismatch between path and body")
+        if s.service.load_persisted_plan(plan_id) is None:
+            raise HTTPException(status_code=404, detail=f"unknown plan {plan_id!r}")
         # 构造 CashDividend 时就会校验日期顺序与股利符号；不合法即抛
         # SimError，由上面的处理器统一转成 409 错误信封。
         actions = [
@@ -1664,17 +1722,21 @@ def create_app(state: AppState | None = None) -> FastAPI:
             )
             for a in body.corporate_actions
         ]
-        out = s.service.execute(plan_id=plan_id, lots=lots,
-                                cash_available_cents=s.service._ledger_cash(pv.portfolio_id),
+        # 冻结计划的组合、快照、订单与状态都已持久化。执行必须从这些
+        # 数据恢复，不能要求重启后的 AppState 仍持有未冻结的预览对象。
+        # PlanService 还会用 simulation_plan.confirmed_by 校验主体，并从
+        # 该计划绑定的组合账本加载现金与批次。
+        out = s.service.execute(plan_id=plan_id, subject=subject,
                                 corporate_actions=actions)
         return out
 
     @app.post("/api/v1/valuations")
     def value(body: ValueRequest, s: AppState = Depends(svc)) -> dict:
-        ref = s.reader.ref(active_snapshot())
+        snapshot_id = s.current_snapshot()
+        ref = s.reader.ref(snapshot_id)
         lots = s.service._load_lots(body.portfolio_id)
         return s.service.value(
-            portfolio_id=body.portfolio_id, snapshot_id=active_snapshot(),
+            portfolio_id=body.portfolio_id, snapshot_id=snapshot_id,
             trading_day=body.trading_day, as_of=ref.as_of_time,
             lots=lots, cash_available_cents=s.service._ledger_cash(body.portfolio_id),
         )

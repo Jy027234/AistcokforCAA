@@ -3,7 +3,7 @@
 为什么需要它
 ------------
 在此之前，"更新数据"是一串手工命令：先跑 collect_universe.py，
-再跑 t10_universe_snapshot.py。短跑可以接受，**每天跑会立刻暴露两个问题**：
+再跑一次性快照验收脚本。短跑可以接受，**每天跑会立刻暴露两个问题**：
 
   * 没人记得跑，或者跑了但没看结果；
   * 两次运行重叠时会同时写同一份缓存与同一个快照目录。
@@ -30,6 +30,7 @@ available_basis 记为 RECONSTRUCTED 是准确的。
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -45,16 +46,20 @@ from aquant.operations.alerting import (  # noqa: E402
 from aquant.operations.pipeline import (  # noqa: E402
     PipelineBusy, PipelineLock, RunLog, RunRecord,
 )
+from aquant.operations.snapshot_lifecycle import new_snapshot_id  # noqa: E402
 
 PYTHON = sys.executable
 CACHE = ROOT / "deploy" / "agentctl-q0" / "universe-bars.json"
+FINANCIALS_CACHE = ROOT / "deploy" / "agentctl-q0" / "financials-cache.json"
+ACTIONS_CACHE = ROOT / "deploy" / "agentctl-q0" / "dividend-actions.json"
 LOCK = ROOT / "deploy" / "agentctl-q0" / "daily-run.lock"
 RUNS = ROOT / "deploy" / "agentctl-q0" / "daily-runs.jsonl"
 ALERTS = ROOT / "deploy" / "agentctl-q0" / "alerts.jsonl"
 POOL = ROOT / "configs" / "real-pool-csrc.yaml"
 #: 已发布快照的数据目录。因子必须落在**这份**库里，
 #: 否则研究卡（它读的就是这里）永远看不到数值。
-SNAPSHOT_DIR = ROOT / "deploy" / "universe-snapshot"
+SNAPSHOT_DIR = Path(os.environ.get(
+    "AQUANT_DATA_DIR", str(ROOT / "deploy" / "universe-snapshot")))
 FACTORS_REPORT = ROOT / "deploy" / "agentctl-q0" / "factors-persist.json"
 
 #: 快照窗口的第一天。**固定不动**：窗口跟着当天滑动的话，
@@ -77,11 +82,13 @@ def _cache_last_day() -> str | None:
         doc = json.loads(CACHE.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    for entry in (doc.get("bars") or {}).values():
-        rows = entry.get("rows") or []
-        if rows:
-            return rows[-1]["trading_day"]
-    return None
+    days = [
+        row.get("trading_day")
+        for entry in (doc.get("bars") or {}).values()
+        for row in (entry.get("rows") or [])
+        if isinstance(row, dict) and row.get("trading_day")
+    ]
+    return max(days) if days else None
 
 
 def log(message: str) -> None:
@@ -116,19 +123,23 @@ def main() -> int:
                     help="该交易日已成功发布过就直接退出（定时任务推荐）")
     ap.add_argument("--dry-run", action="store_true", help="只说会做什么")
     ap.add_argument("--window-start", default=WINDOW_START)
+    ap.add_argument("--data-dir", default=None,
+                    help="统一数据根目录（默认 AQUANT_DATA_DIR 或 deploy/universe-snapshot）")
     ap.add_argument("--source", default="manual", choices=["manual", "scheduler"],
                     help="谁发起的一次运行。写进留痕，用来回答"
                          "「这次是到点跑的，还是有人点了按钮」——"
                          "两者都合法，但排查时的下一步不一样。")
-    ap.add_argument("--snapshot-id", default="snap-universe",
-                    help="快照 ID。默认稳定不变——每天重建的是同一个逻辑"
-                         "对象的新版本，由 supersedes 串链；换 ID 会让所有"
-                         "引用固定 ID 的工具同时失效。")
+    ap.add_argument("--snapshot-id", default=None,
+                    help="显式物理快照 ID；省略时每次发布生成唯一 ID，"
+                         "当前快照由 current_snapshot.json 指针解析。")
     ap.add_argument("--json-out", default=None,
                     help="把本次留痕记录写成 JSON（供调度 worker 落库成运行摘要）。"
                          "留痕文件仍是权威，这份只是同一份事实的机器可读副本。")
     args = ap.parse_args()
 
+    global SNAPSHOT_DIR
+    if args.data_dir:
+        SNAPSHOT_DIR = Path(args.data_dir).expanduser()
     alerts = AlertLog(ALERTS)
 
     def alert(message: str, **detail) -> None:
@@ -155,17 +166,9 @@ def main() -> int:
     target = (date.fromisoformat(args.trading_day) if args.trading_day
               else date.today())
     day = target.isoformat()
-    # 快照 ID **稳定**：内容随交易日推进，ID 不变。
-    #
-    # 第一版每天换 ID（snap-eod-<日期>），结果是所有钉在固定 ID 上的
-    # 工具与验收脚本同时失效——而这恰恰是我自己在文档里警告过的
-    # "两次运行覆盖范围不同就没法比较"的翻版。
-    #
-    # 稳定的 ID 与"快照不可变"并不冲突：不可变指的是**已发布的内容**
-    # 不得原地修改；每天重建的是同一个逻辑对象（"当前快照"）的新版本，
-    # 由 supersedes 串成链。这比"每天一个新 ID、没人知道哪个是当前"
-    # 更接近使用者的心智模型。
-    snapshot_id = args.snapshot_id
+    # 生产默认值等采集确认实际末日后再生成，避免休市跳过也消耗一个
+    # 看似已发布的物理 ID。显式 ID 只用于受控回放/迁移，仍禁止覆盖。
+    snapshot_id = args.snapshot_id or "pending"
     run_log = RunLog(RUNS)
     record = RunRecord(trading_day=day, snapshot_id=snapshot_id, outcome="FAILED",
                        started_at=datetime.now(timezone.utc).isoformat(),
@@ -182,7 +185,7 @@ def main() -> int:
     if args.dry_run:
         print("会做的事（dry-run）：")
         print("  1. 采集 " + args.window_start + " .. " + day + " 的研究池行情")
-        print("  2. 发布快照 " + snapshot_id)
+        print("  2. 发布一个新的唯一物理快照，并更新 current_snapshot.json")
         print("  3. 在该快照上计算 F10 因子")
         print("  4. 追加运行日志 " + str(RUNS))
         return 0
@@ -221,27 +224,20 @@ def main() -> int:
                 # 按计划跳过而不是失败：休市不是错误。
                 # 报失败会让定时任务重试到天亮，而结果不会变。
                 return _finish(run_log, record, started, 0, json_out=args.json_out)
+            # 2. 建快照。窗口收窄到固定的起点。生产服务为每次运行生成
+            # 唯一物理 ID，保留所有旧目录与 meta.sqlite，最后原子替换当前指针。
+            snapshot_id = args.snapshot_id or new_snapshot_id(actual_last)
             record.snapshot_id = snapshot_id
-
-            # 2. 建快照。窗口收窄到固定的起点。
-            #
-            # 刻意**不做 supersedes 链**：那条链要求被替代的快照仍然存在
-            # 且为 PUBLISHED，而稳定 ID 下它会被同 ID 的新版本覆盖，
-            # 两者不能同时成立。今天选择的取舍是：
-            #
-            #   * ID 稳定（"当前快照"），内容随交易日推进；
-            #   * **不用** supersedes，因此"这一刻的当前快照长什么样"
-            #     只由运行留痕与快照自身的 as_of_time 回答。
-            #
-            # 代价要写清楚：严格意义上"快照不可变"被放宽了——
-            # 每天都在重建同一个 ID。对"给工作台提供当前视图"这个用途
-            # 这是可接受的；但如果将来要拿历史快照做逐日回放，
-            # 必须先改成每次发布新 ID 并保留旧目录，
-            # 否则回放看到的是被覆盖后的内容。
             step = run_step([
-                "-m", "tests.integration.t10_universe_snapshot",
-                "--pool", str(POOL), "--snapshot-id", snapshot_id,
+                "tools/publish_universe_snapshot.py",
+                "--data-dir", str(SNAPSHOT_DIR),
+                "--cache", str(CACHE), "--pool", str(POOL),
+                "--financials", str(FINANCIALS_CACHE),
+                "--actions", str(ACTIONS_CACHE),
+                "--snapshot-id", snapshot_id,
                 "--window-start", args.window_start,
+                "--window-end", actual_last,
+                "--defer-promotion",
             ], label="发布快照")
             record.steps.append(step)
             if not step["ok"]:
@@ -266,11 +262,13 @@ def main() -> int:
             ], label="因子落库")
             record.steps.append(step)
             if not step["ok"]:
-                # 快照已发布是事实，因子没落库是另一个状态：结果仍是
-                # PUBLISHED，但这条必须告警——研究卡上没有数值。
-                alert("快照已发布，但因子未落库（研究卡将无数值）",
+                # 物理快照已经不可变发布，但尚未切 current。因子缺失时
+                # 保留上一份完整 current，不能让研究卡进入半完成状态。
+                record.reason = "新快照因子未落库；current 保持不变"
+                alert("新快照因子未落库，未切换 current",
                       tradingDay=day, snapshotId=snapshot_id,
                       exitCode=step["exitCode"], tail=step["tail"])
+                return _finish(run_log, record, started, 1, json_out=args.json_out)
 
             # 4. 因子质量闸门。失败不影响"快照已发布"与"因子已落库"这两个事实，
             #    但它说明数值本身有问题（单位、值域、亏损股被截断为 0……），
@@ -279,9 +277,27 @@ def main() -> int:
                             label="F10 质量闸门")
             record.steps.append(step)
             if not step["ok"]:
-                alert("F10 质量闸门未通过（数值可能不可信）",
+                record.reason = "F10 质量闸门未通过；current 保持不变"
+                alert("F10 质量闸门未通过，未切换 current",
                       tradingDay=day, snapshotId=snapshot_id,
                       exitCode=step["exitCode"], tail=step["tail"])
+                return _finish(run_log, record, started, 1, json_out=args.json_out)
+
+            # 5. 只有行情、快照、因子持久化和质量闸门全部通过，才原子切换
+            # current。此前所有步骤失败都只留下可审计的候选物理快照。
+            step = run_step([
+                "tools/promote_snapshot.py",
+                "--data-dir", str(SNAPSHOT_DIR),
+                "--snapshot-id", snapshot_id,
+                "--require-factors",
+            ], label="切换当前快照")
+            record.steps.append(step)
+            if not step["ok"]:
+                record.reason = "快照提升失败；current 保持不变"
+                alert("快照提升失败，current 保持不变",
+                      tradingDay=day, snapshotId=snapshot_id,
+                      exitCode=step["exitCode"], tail=step["tail"])
+                return _finish(run_log, record, started, 1, json_out=args.json_out)
 
             record.outcome = "PUBLISHED"
             return _finish(run_log, record, started, 0, json_out=args.json_out)

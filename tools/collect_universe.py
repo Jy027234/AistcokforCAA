@@ -35,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from aquant.adapters.providers.baostock import BaostockClient  # noqa: E402
+from aquant.operations.pipeline import PipelineBusy, PipelineLock  # noqa: E402
 
 OUT = ROOT / "deploy" / "agentctl-q0" / "universe-bars.json"
 
@@ -58,6 +59,13 @@ BASIC_ATTEMPTS = 2
 #:   v1 -> v2：窗口首行的 prev_close_cents 由"当日开盘价占位"改为
 #:             "窗口前最后一个真实收盘价"，并在窗口前多取一小段。
 ROWS_FORMAT = 2
+
+# 行里目前只保存成交价、成交量和成交额等不复权日线字段。这个集合单独
+# 放出来是为了让增量合并不依赖供应商返回的额外字段（turn/pctChg 等）。
+BAR_FIELDS = (
+    "trading_day", "open_cents", "high_cents", "low_cents", "close_cents",
+    "volume_shares", "amount_cents", "prev_close_cents",
+)
 
 #: 代码前缀 -> 板块。
 #:
@@ -93,6 +101,157 @@ def baostock_code(internal: str) -> str:
     return market.lower() + "." + number
 
 
+def _valid_trading_day(value: object) -> bool:
+    """判断缓存行是否带有可排序的 ISO 日期。"""
+
+    if not isinstance(value, str):
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _canonical_row(row: object) -> dict | None:
+    """清理一条缓存/供应商行情行，但保留未知字段以兼容旧缓存。"""
+
+    if not isinstance(row, dict):
+        return None
+    day = row.get("trading_day")
+    if not _valid_trading_day(day) or row.get("close_cents") is None:
+        # BaoStock 的适配层已经过滤无收盘价的行；这里再过滤一次，避免
+        # 手工缓存或旧版本缓存把"无成交"伪装成已覆盖日期。
+        return None
+    return dict(row)
+
+
+def normalize_rows(rows: object) -> list[dict]:
+    """按交易日去重并排序，后出现的同日行覆盖先出现的行。"""
+
+    if not isinstance(rows, list):
+        return []
+    by_day: dict[str, dict] = {}
+    for raw in rows:
+        row = _canonical_row(raw)
+        if row is not None:
+            by_day[row["trading_day"]] = row
+    return [by_day[day] for day in sorted(by_day)]
+
+
+def bar_to_row(bar: object, *, target_days: set[str]) -> dict | None:
+    """把供应商日线转换成缓存行，并只保留本次请求的目标交易日。"""
+
+    if not isinstance(bar, dict):
+        return None
+    day = bar.get("trading_day")
+    if day not in target_days:
+        return None
+    row = {field: bar.get(field) for field in BAR_FIELDS}
+    return _canonical_row(row)
+
+
+def merge_rows(existing: object, incoming: object) -> list[dict]:
+    """合并两组行情，供应商本次返回的同日数据优先。"""
+
+    merged = normalize_rows(existing)
+    updates = normalize_rows(incoming)
+    by_day = {row["trading_day"]: row for row in merged}
+    by_day.update({row["trading_day"]: row for row in updates})
+    return [by_day[day] for day in sorted(by_day)]
+
+
+def fetch_ranges_for_entry(
+    rows: object,
+    first_day: str,
+    last_day: str,
+    *,
+    force_rebuild: bool = False,
+) -> list[tuple[str, str]]:
+    """返回需要向供应商请求的日期区间。
+
+    正常续跑只请求缓存最后一天之后的尾部；若窗口向前扩展，则只请求
+    缓存第一天之前的前缀。中间因停牌/无成交而没有行的日期不在这里重复
+    追抓，由上层根据交易日历和供应商状态决定是否需要复核。
+    """
+
+    if first_day > last_day:
+        return []
+    cached_rows = normalize_rows(rows)
+    if force_rebuild or not cached_rows:
+        return [(
+            str(date.fromisoformat(first_day) - timedelta(days=LOOKBACK_CALENDAR_DAYS)),
+            last_day,
+        )]
+
+    existing_first = cached_rows[0]["trading_day"]
+    existing_last = cached_rows[-1]["trading_day"]
+    ranges: list[tuple[str, str]] = []
+
+    # 缓存没有覆盖目标窗口的左侧时，向前取一小段来重新建立首行前收。
+    if existing_first > first_day:
+        prefix_end = min(
+            date.fromisoformat(existing_first) - timedelta(days=1),
+            date.fromisoformat(last_day),
+        )
+        if date.fromisoformat(first_day) <= prefix_end:
+            ranges.append((
+                str(date.fromisoformat(first_day)
+                    - timedelta(days=LOOKBACK_CALENDAR_DAYS)),
+                str(prefix_end),
+            ))
+
+    # 正常日常增量只会走这个尾部区间。起点是已有最后一天之后的自然日，
+    # BaoStock 会自行按交易日返回；这样不会无条件重新抓整个历史窗口。
+    if existing_last < last_day:
+        suffix_start = max(
+            date.fromisoformat(existing_last) + timedelta(days=1),
+            date.fromisoformat(first_day),
+        )
+        if suffix_start <= date.fromisoformat(last_day):
+            ranges.append((str(suffix_start), last_day))
+    return ranges
+
+
+def recompute_prev_closes(
+    rows: object,
+    seed_prev: int | None,
+) -> tuple[list[dict], int | None]:
+    """按排序后的完整序列重建前收，返回序列及其首行前收。"""
+
+    normalized = normalize_rows(rows)
+    if not normalized:
+        return [], seed_prev
+    if seed_prev is None:
+        # 旧缓存可能没有单独的元数据，但行本身仍保存了首行前收。
+        seed_prev = normalized[0].get("prev_close_cents")
+    previous = seed_prev
+    for row in normalized:
+        row["prev_close_cents"] = previous
+        previous = row.get("close_cents")
+    return normalized, seed_prev
+
+
+def seed_from_fetched(
+    rows: list[dict], fetched: object, current_seed: int | None,
+) -> int | None:
+    """若本次请求包含序列最早行之前的收盘，优先用它作为首行前收。"""
+
+    if not rows or not isinstance(fetched, list):
+        return current_seed
+    first_day = rows[0]["trading_day"]
+    before = sorted(
+        (
+            bar["trading_day"], bar.get("close_cents")
+        ) for bar in fetched
+        if isinstance(bar, dict)
+        and isinstance(bar.get("trading_day"), str)
+        and bar["trading_day"] < first_day
+        and bar.get("close_cents") is not None
+    )
+    return before[-1][1] if before else current_seed
+
+
 def load_cache() -> dict:
     if OUT.exists():
         return json.loads(OUT.read_text(encoding="utf-8"))
@@ -108,7 +267,7 @@ def save_cache(doc: dict) -> None:
     tmp.replace(OUT)
 
 
-def main() -> int:
+def _main_unlocked() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=0, help="只抓前 N 只（试跑用）")
     ap.add_argument("--window", type=int, default=61, help="交易日数量")
@@ -146,7 +305,10 @@ def main() -> int:
         end_day = date.fromisoformat(args.end) if args.end else date.today()
         idx, _ = bs.daily_bars("sh.000001", start=str(end_day - timedelta(days=800)),
                                end=str(end_day))
-        all_days = [b["trading_day"] for b in idx]
+        all_days = sorted({
+            b["trading_day"] for b in idx
+            if isinstance(b, dict) and _valid_trading_day(b.get("trading_day"))
+        })
         if args.start:
             # 显式钉住窗口起点。日常增量必须用它：不指定时窗口是
             # "最后 N 个交易日"，**跟着当天日期滑动**——同一个脚本今天和
@@ -163,6 +325,7 @@ def main() -> int:
         print(f"  窗口 {days[0]} .. {days[-1]}（{len(days)} 天）")
 
         targets: list[tuple[str, str, str]] = []
+        allstock: list[dict] = []
         if args.pool:
             # 池文件本身就是标的清单，用它就不必再调 all_stock——
             # 那个批量接口在代理下偶发超时，而它的结果只用得上"代码+板块"，
@@ -212,6 +375,8 @@ def main() -> int:
         doc["window"] = {"first_day": days[0], "last_day": days[-1],
                          "trading_days": len(days)}
         doc["calendar_source"] = "baostock:sh.000001"
+        target_window = f"{days[0]}..{days[-1]}"
+        target_days = set(days)
 
         print()
         print("[2] 逐只采集（可中断续跑）")
@@ -220,51 +385,105 @@ def main() -> int:
         for i, (code, exchange, board) in enumerate(targets, 1):
             key = internal_id(code)
             cached = bars.get(key) or {}
-            already = bool(cached.get("rows"))
-            # 续跑标记与"值是否为 None"分开：新股补出来就是 None，
-            # 若拿值当标记，每次续跑都会把它们重抓一遍。
-            # 续跑判据必须同时带上"窗口是什么"和"行是怎么构造的"：
-            # 只记"补过了"会让用错误窗口或旧口径跑出来的结果被永久当成已完成
-            # （本工具真的这样错过一次）。
-            target_window = f"{days[0]}..{days[-1]}"
+            cached_rows = normalize_rows(cached.get("rows"))
+            # 窗口变化本身不代表要重抓：缓存保存的是逐只的历史序列，
+            # 本次只补左侧前缀或右侧尾部。真正改变行构造口径时，旧行不能
+            # 与新行混用，才按本次窗口重建。缺失 rows_format 的旧缓存按兼容
+            # 路径处理，并在成功写回时补上当前版本。
+            format_changed = (
+                cached.get("rows_format") is not None
+                and cached.get("rows_format") != ROWS_FORMAT
+            )
             seeded = (cached.get("prev_close_attempted")
                       and cached.get("window") == target_window
                       and cached.get("rows_format") == ROWS_FORMAT)
-            if prev_close_only:
-                if seeded:
-                    skipped += 1
-                    continue
-            elif already and not args.refresh:
+
+            if prev_close_only and seeded:
                 skipped += 1
                 continue
-            # 多取窗口起始日**之前**的一小段：窗口首行需要一个真实的前收
-            # 才能判定"开盘是否即涨停"。原先首行用当日开盘价当占位，于是
-            # 首行永远算不出涨停——把"未知"当成了"不是"。多取几天是为了
-            # 跨过停牌，取其中最后一根真实收盘价。
-            fetch_start = str(date.fromisoformat(days[0])
-                              - timedelta(days=LOOKBACK_CALENDAR_DAYS))
-            # 瞬时故障必须重试，否则一次抖动就变成永久数据缺口。
-            # 实测：代理下服务端偶发不响应，baostock 把 socket 超时吞成 None，
-            # 调用方随后崩在 rs.fields 上；重连后同一只往往一次就成功。
-            got = None
-            last_error = ""
-            for attempt in range(1, FETCH_ATTEMPTS + 1):
-                try:
-                    got, _ = bs.daily_bars(code, start=fetch_start, end=days[-1],
-                                           adjust="3")
-                    break
-                except Exception as exc:                # noqa: BLE001
-                    last_error = f"{type(exc).__name__}: {str(exc)[:80]}"
-                    if attempt < FETCH_ATTEMPTS:
-                        # 重连是全局动作：会话/连接坏了，单靠重发同一条没用
-                        try:
-                            bs._reconnect()
-                        except Exception:               # noqa: BLE001
-                            pass
-                        time.sleep(FETCH_BACKOFF_SECONDS * attempt)
-            if got is None:
-                failed[key] = last_error or "unknown failure"
+
+            force_rebuild = bool(args.refresh or prev_close_only or format_changed)
+            base_rows = [] if force_rebuild else cached_rows
+            fetch_ranges = fetch_ranges_for_entry(
+                base_rows, days[0], days[-1], force_rebuild=force_rebuild)
+
+            if not fetch_ranges:
+                # 已覆盖目标尾部时可以跳过网络请求，但仍要规范化旧缓存，
+                # 防止重复/乱序行持续污染下游。窗口变化只更新元数据。
+                seed_prev = cached.get("prev_close_before_window")
+                canonical_rows, seed_prev = recompute_prev_closes(
+                    cached_rows, seed_prev)
+                entry = dict(cached)
+                entry.update({
+                    "exchange": exchange,
+                    "board": board,
+                    "rows": canonical_rows,
+                    "window": target_window,
+                    "rows_format": ROWS_FORMAT,
+                })
+                if canonical_rows:
+                    entry["prev_close_before_window"] = seed_prev
+                bars[key] = entry
+                skipped += 1
                 continue
+
+            # 一个证券最多会有左前缀和右尾部两个请求；每个区间独立重试，
+            # 这样窗口扩展时不会因为重建整段历史而放大供应商压力。
+            fetched: list[dict] = []
+            fetch_error = ""
+            for fetch_start, fetch_end in fetch_ranges:
+                got = None
+                last_error = ""
+                for attempt in range(1, FETCH_ATTEMPTS + 1):
+                    try:
+                        got, _ = bs.daily_bars(
+                            code, start=fetch_start, end=fetch_end, adjust="3")
+                        break
+                    except Exception as exc:            # noqa: BLE001
+                        last_error = f"{type(exc).__name__}: {str(exc)[:80]}"
+                        if attempt < FETCH_ATTEMPTS:
+                            # 重连是全局动作：会话/连接坏了，单靠重发同一条没用
+                            try:
+                                bs._reconnect()
+                            except Exception:             # noqa: BLE001
+                                pass
+                            time.sleep(FETCH_BACKOFF_SECONDS * attempt)
+                if got is None:
+                    fetch_error = last_error or "unknown failure"
+                else:
+                    fetched.extend(got)
+
+            fetched_rows = [
+                row for row in (
+                    bar_to_row(bar, target_days=target_days) for bar in fetched
+                ) if row is not None
+            ]
+
+            if fetch_error:
+                # 已完成的区间仍可安全合并到旧缓存；失败区间留在 failed，
+                # 下一次运行会按现有最后日期继续补尾部。口径变更时保留旧行，
+                # 避免部分请求失败导致已有数据丢失。
+                partial_rows = merge_rows(cached_rows, fetched_rows)
+                if partial_rows != cached_rows:
+                    seed_prev = cached.get("prev_close_before_window")
+                    seed_prev = seed_from_fetched(partial_rows, fetched, seed_prev)
+                    partial_rows, seed_prev = recompute_prev_closes(
+                        partial_rows, seed_prev)
+                    entry = dict(cached)
+                    entry.update({
+                        "exchange": exchange,
+                        "board": board,
+                        "rows": partial_rows,
+                        "window": target_window,
+                        "rows_format": (ROWS_FORMAT
+                                        if not format_changed else
+                                        cached.get("rows_format")),
+                        "prev_close_before_window": seed_prev,
+                    })
+                    bars[key] = entry
+                failed[key] = fetch_error
+                continue
+
             # --- 上市日期（只取一次，失败不影响行情） ---
             # `ipoDate` 是判断「上市未满规定交易日」与「决策时点是否已上市」
             # 的唯一依据。此前从不采集，`instrument.listed_on` 恒为 NULL，
@@ -293,47 +512,33 @@ def main() -> int:
                         if attempt < BASIC_ATTEMPTS:
                             time.sleep(FETCH_BACKOFF_SECONDS * attempt)
 
-            before = [b for b in got if b["trading_day"] < days[0]
-                      and b.get("close_cents") is not None]
-            by_day = {b["trading_day"]: b for b in got}
-            rows = []
-            for day in days:
-                bar = by_day.get(day)
-                if bar is None or bar["close_cents"] is None:
-                    continue            # 停牌/无成交：缺失即缺失
-                rows.append({
-                    "trading_day": day,
-                    "open_cents": bar["open_cents"],
-                    "high_cents": bar["high_cents"],
-                    "low_cents": bar["low_cents"],
-                    "close_cents": bar["close_cents"],
-                    "volume_shares": bar["volume_shares"],
-                    "amount_cents": bar["amount_cents"],
-                    "prev_close_cents": None,   # 下面统一回填，避免两处口径
-                })
-            # 首行的前收取自窗口之前那一小段（真实收盘价）；确实没有就是 None。
-            # 用真实前收而不是当日开盘价：否则首行的"开盘是否即涨停"
-            # 永远算不出 True——把"未知"当成了"不是"。
-            seed_prev = before[-1]["close_cents"] if before else None
-            prev = seed_prev
-            for row in rows:
-                row["prev_close_cents"] = prev
-                prev = row["close_cents"]
-            entry = {
-                "exchange": exchange, "board": board, "rows": rows,
-                # 窗口首行的前收只能来自窗口之前那一小段。
-                # 之前确实没有行情（新股）就写 None：未知就是未知，不能拿
-                # 开盘价冒充前收——那会让"是否涨停"这个判断永远偏向否。
+            rows = merge_rows(base_rows, fetched_rows)
+            seed_prev = None if force_rebuild else cached.get(
+                "prev_close_before_window")
+            seed_prev = seed_from_fetched(rows, fetched, seed_prev)
+            rows, seed_prev = recompute_prev_closes(rows, seed_prev)
+            entry = dict(cached)
+            entry.update({
+                "exchange": exchange,
+                "board": board,
+                "rows": rows,
+                # 这个字段描述缓存中最早保存的那一行之前的真实收盘，
+                # 保留历史序列后它不再随滚动窗口起点改变。
                 "prev_close_before_window": seed_prev,
                 "prev_close_attempted": True,
                 "window": target_window,
                 "rows_format": ROWS_FORMAT,
-            }
+            })
             if listed_on is not None:
                 # 只有真的取到才写（见上：写成 None 会让续跑把它当成已完成）。
                 # 下游一律把 None / 缺键当作「未知」，而不是「未上市」。
                 entry["listed_on"] = listed_on
+            else:
+                # 兼容曾经把查询失败写成 None 的旧缓存；缺键才表示下次
+                # 仍可重试，不把一次临时失败固化成永久结果。
+                entry.pop("listed_on", None)
             bars[key] = entry
+            failed.pop(key, None)
             done += 1
 
             # 每 25 只落盘一次：崩溃或被杀时最多丢 25 只，
@@ -358,6 +563,18 @@ def main() -> int:
         for k, v in list(failed.items())[:5]:
             print(f"  {k}: {v}")
     return 0
+
+
+def main() -> int:
+    """跨进程串行更新同一份整体 JSON，避免后写进程覆盖先写结果。"""
+
+    lock_path = OUT.with_suffix(".lock")
+    try:
+        with PipelineLock(lock_path):
+            return _main_unlocked()
+    except PipelineBusy as exc:
+        print(str(exc))
+        return 2
 
 
 if __name__ == "__main__":

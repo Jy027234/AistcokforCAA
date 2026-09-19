@@ -31,6 +31,9 @@ from aquant.domain.data.reader import SnapshotReader  # noqa: E402
 from aquant.domain.data.snapshot import (  # noqa: E402
     DataMode, DatasetRef, SnapshotDraft, SnapshotStore,
 )
+from aquant.operations.snapshot_lifecycle import (  # noqa: E402
+    new_snapshot_id, record_current_snapshot, write_current_pointer,
+)
 
 SNAPSHOT_ID = "snap-universe"
 CACHE = ROOT / "deploy" / "agentctl-q0" / "universe-bars.json"
@@ -47,16 +50,14 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--pool", default=str(ROOT / "configs" / "real-pool-csrc.yaml"))
     ap.add_argument("--out", default=str(ROOT / "deploy" / "universe-snapshot"))
-    ap.add_argument("--snapshot-id", default=SNAPSHOT_ID,
-                    help="快照 ID。**快照不可变，重复发布会拒绝**——"
-                         "增量更新必须每天用新 ID（见 tools/daily_run.py）。")
+    ap.add_argument("--snapshot-id", default=None,
+                    help="快照 ID；省略时按窗口末日生成唯一物理 ID。")
     ap.add_argument("--window-start", default=None,
                     help="窗口第一天。指定后只保留该日及以后的行情，"
                          "用于让每日快照覆盖固定起点。")
     ap.add_argument("--window", type=int, default=None,
                     help="窗口交易日数量；与 --window-start 二选一。")
     args = ap.parse_args()
-    snapshot_id = args.snapshot_id
 
     pool_path = Path(args.pool)
     out_dir = Path(args.out)
@@ -89,11 +90,10 @@ def main() -> int:
     picked = pool["instruments"]
     print(f"研究池 {pool['pool_id']}：{len(picked)} 只")
 
-    import shutil
-
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
+    # 物理快照按 ID 追加写入。历史快照目录和共享 meta.sqlite 都必须保留，
+    # 当前对象由独立指针解析；这里绝不能再清空整个输出目录。
     out_dir.mkdir(parents=True, exist_ok=True)
+    snapshot_id = args.snapshot_id or new_snapshot_id(days[-1])
 
     instruments: list[dict] = []
     quotes: list[dict] = []
@@ -303,6 +303,9 @@ def main() -> int:
                              as_of_upper_bound=parse(r["as_of_upper_bound"]))
                   for r in refs],
     ))
+    pointer = write_current_pointer(out_dir, snapshot_id)
+    record_current_snapshot(con, snapshot_id,
+                            updated_at=datetime.fromisoformat(pointer.updated_at))
     check("快照已发布", True, snapshot_id)
 
     reader = SnapshotReader(store)

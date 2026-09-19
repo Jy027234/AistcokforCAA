@@ -44,7 +44,7 @@ from ..simulation.corporate_actions import (
     apply_cash_dividend,
     record_dividend_entitlement,
 )
-from ..simulation.fees import FeeTable
+from ..simulation.fees import FeeSchedule, FeeTable
 from ..simulation.simulator import (
     Bar,
     BoardRule,
@@ -188,7 +188,21 @@ class PlanService:
         self.params = params or ConstructionParams()
 
     # ------------------------------------------------------------ helpers
-    def _assert_fee_table_allowed(self, snapshot_id: str, trading_day: date) -> None:
+    def load_persisted_plan(self, plan_id: str) -> sqlite3.Row | None:
+        """Read the durable plan header for API orchestration.
+
+        A preview is deliberately process-local, while a frozen plan is a
+        database record.  Keeping this lookup in the domain service avoids an
+        API caller having to reconstruct a portfolio or snapshot from request
+        data just to decide whether an execute request can be routed.
+        """
+
+        return self.con.execute(
+            "SELECT * FROM simulation_plan WHERE plan_id=?", (plan_id,)
+        ).fetchone()
+
+    def _assert_fee_table_allowed(self, snapshot_id: str, trading_day: date,
+                                  *, fee_table: FeeTable | None = None) -> None:
         """真实数据上不得使用合成费率（§12.6）。
 
         放在 preview / freeze / execute / value 的入口，而不是只做成一个
@@ -202,8 +216,54 @@ class PlanService:
         """
 
         ref = self.reader.ref(snapshot_id)
-        self.fee_table.assert_usable_for_data_mode(ref.data_mode,
-                                                   trading_day=trading_day)
+        (fee_table or self.fee_table).assert_usable_for_data_mode(
+            ref.data_mode, trading_day=trading_day)
+
+    def _persist_plan_fee_binding(self, plan_id: str, trading_day: date) -> None:
+        """冻结时保存当天实际使用的费率输入，而不只保存版本名。"""
+
+        schedule = self.fee_table.schedule_for(trading_day)
+        self.con.execute(
+            "INSERT INTO plan_fee_binding (plan_id,fee_version,effective_from,effective_to,"
+            "commission_rate,commission_min_cents,stamp_duty_rate_sell,"
+            "transfer_fee_rate,synthetic_test_rate,commission_source) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                plan_id, schedule.fee_version, schedule.effective_from.isoformat(),
+                schedule.effective_to.isoformat() if schedule.effective_to else None,
+                str(schedule.commission_rate), schedule.commission_min_cents,
+                str(schedule.stamp_duty_rate_sell), str(schedule.transfer_fee_rate),
+                1 if schedule.synthetic_test_rate else 0,
+                self.fee_table.commission_source,
+            ),
+        )
+
+    def _persisted_fee_table(self, plan_id: str) -> FeeTable:
+        """恢复冻结计划的精确费率，避免重启后读取新的环境配置。"""
+
+        row = self.con.execute(
+            "SELECT * FROM plan_fee_binding WHERE plan_id=?", (plan_id,),
+        ).fetchone()
+        if row is None:
+            raise PlanError(
+                "DATA_NOT_READY",
+                "frozen plan has no exact persisted fee inputs",
+                plan_id,
+                "create and freeze a new plan so its commission inputs are recorded",
+            )
+        return FeeTable([
+            FeeSchedule(
+                fee_version=row["fee_version"],
+                effective_from=date.fromisoformat(row["effective_from"]),
+                effective_to=(date.fromisoformat(row["effective_to"])
+                              if row["effective_to"] else None),
+                commission_rate=Decimal(row["commission_rate"]),
+                commission_min_cents=int(row["commission_min_cents"]),
+                stamp_duty_rate_sell=Decimal(row["stamp_duty_rate_sell"]),
+                transfer_fee_rate=Decimal(row["transfer_fee_rate"]),
+                synthetic_test_rate=bool(row["synthetic_test_rate"]),
+            )
+        ], commission_source=row["commission_source"])
 
     def _bars(self, snapshot_id: str, trading_day: date, as_of: datetime,
               instrument_ids: list[str]) -> dict[str, Bar]:
@@ -855,6 +915,7 @@ class PlanService:
                      json.dumps(preview.as_dict(), ensure_ascii=False),
                      preview.estimated_fees_cents, idempotency_key),
                 )
+                self._persist_plan_fee_binding(preview.plan_id, preview.trading_day)
             except sqlite3.IntegrityError as exc:
                 # 幂等键（组合 + 计划版本 + 账户版本）已存在。
                 #
@@ -933,8 +994,9 @@ class PlanService:
         self,
         *,
         plan_id: str,
-        lots: list[Lot],
-        cash_available_cents: int,
+        lots: list[Lot] | None = None,
+        cash_available_cents: int | None = None,
+        subject: str | None = None,
         now: datetime | None = None,
         lot_id_prefix: str = "lot",
         corporate_actions: list[CashDividend] | None = None,
@@ -949,20 +1011,57 @@ class PlanService:
         """
 
         now = now or datetime.now(timezone.utc)
-        row = self.con.execute("SELECT * FROM simulation_plan WHERE plan_id=?",
-                               (plan_id,)).fetchone()
+        row = self.load_persisted_plan(plan_id)
         if row is None:
             raise PlanError("DATA_NOT_READY", f"unknown plan {plan_id!r}", plan_id,
                             "use an existing plan id")
+        # Execute is also an authenticated API operation.  The current schema does
+        # not have a portfolio-owner relation; the durable ownership fact available
+        # to us is the human subject that confirmed this frozen plan.  Keep this
+        # check in the domain service so callers that survive an AppState rebuild
+        # cannot bypass it by supplying a different in-memory preview.
+        if subject is not None:
+            if not confirmer_is_human(subject):
+                raise PlanError(
+                    "DATA_NOT_READY",
+                    f"execution subject {subject!r} is not a human principal",
+                    plan_id,
+                    "execute the plan as the authenticated human user",
+                )
+            confirmed_by = row["confirmed_by"]
+            if not confirmed_by:
+                raise PlanError(
+                    "DATA_NOT_READY",
+                    "frozen plan has no durable confirmation subject",
+                    plan_id,
+                    "freeze the plan again with an authenticated human user",
+                )
+            if not hmac.compare_digest(str(confirmed_by), str(subject)):
+                raise PlanError(
+                    "DATA_NOT_READY",
+                    "execution subject does not match the subject that confirmed this plan",
+                    plan_id,
+                    "execute the plan with the authenticated subject that froze it",
+                )
         # 执行前再查一次费率表：这里的每一笔费用都会真的写进账本，
         # 用合成费率记出来的盈亏没有依据。
-        self._assert_fee_table_allowed(
-            row["snapshot_id"],
-            date.fromisoformat(json.loads(row["diff_preview_json"])["trading_day"]))
         if row["status"] != "FROZEN":
             raise PlanError("DATA_NOT_READY",
                             f"plan {plan_id} is {row['status']}, not FROZEN", plan_id,
                             "only a frozen plan can execute")
+        try:
+            preview_doc = json.loads(row["diff_preview_json"])
+            trading_day = date.fromisoformat(preview_doc["trading_day"])
+        except (TypeError, ValueError, json.JSONDecodeError, KeyError) as exc:
+            raise PlanError(
+                "DATA_NOT_READY",
+                "frozen plan has no valid persisted trading day",
+                plan_id,
+                "create a new preview and freeze a complete plan",
+            ) from exc
+        execution_fees = self._persisted_fee_table(plan_id)
+        self._assert_fee_table_allowed(
+            row["snapshot_id"], trading_day, fee_table=execution_fees)
         expires_at = datetime.fromisoformat(row["expires_at"])
         if now > expires_at:
             with write_tx(self.con):
@@ -972,16 +1071,37 @@ class PlanService:
                             f"plan {plan_id} expired at {row['expires_at']}", plan_id,
                             "re-preview and re-confirm; an expired plan must not execute")
 
-        preview_doc = json.loads(row["diff_preview_json"])
-        trading_day = date.fromisoformat(preview_doc["trading_day"])
-        snapshot_id = preview_doc["snapshot_id"]
-        portfolio_id = preview_doc["portfolio_id"]
+        # These identity fields come from the durable plan row.  The JSON preview
+        # is retained as audit evidence, but it is not an authority for which
+        # portfolio or snapshot an execute request may touch.
+        snapshot_id = row["snapshot_id"]
+        portfolio_id = row["portfolio_id"]
+        portfolio = self.con.execute(
+            "SELECT portfolio_id,status FROM portfolio WHERE portfolio_id=?",
+            (portfolio_id,),
+        ).fetchone()
+        if portfolio is None:
+            raise PlanError(
+                "DATA_NOT_READY",
+                f"frozen plan references missing portfolio {portfolio_id!r}",
+                plan_id,
+                "restore the referenced portfolio or create a new plan",
+            )
+        if portfolio["status"] != "ACTIVE":
+            raise PlanError(
+                "DATA_NOT_READY",
+                f"portfolio {portfolio_id!r} is {portfolio['status']}",
+                plan_id,
+                "execute only while the referenced portfolio is active",
+            )
         as_of = self.reader.ref(snapshot_id).as_of_time
 
         ledger_lots = self._load_lots(portfolio_id)
         ledger_cash = self._ledger_cash(portfolio_id)
+        supplied_lots = ledger_lots if lots is None else lots
+        supplied_cash = ledger_cash if cash_available_cents is None else cash_available_cents
         ledger_version = _account_version(ledger_lots, ledger_cash)
-        supplied_version = _account_version(lots, cash_available_cents)
+        supplied_version = _account_version(supplied_lots, supplied_cash)
         if supplied_version != ledger_version:
             raise PlanError("STALE_SNAPSHOT", "supplied account state differs from the ledger",
                             plan_id, "reload the account before executing")
@@ -989,15 +1109,52 @@ class PlanService:
             raise PlanError("STALE_SNAPSHOT", "account changed after the plan was frozen",
                             plan_id, "re-preview and confirm against the current ledger")
 
-        ids = sorted({o["instrument_id"] for o in preview_doc["orders"]})
+        # Orders are immutable children of the frozen plan.  Load them from the
+        # order table, and verify their durable portfolio/snapshot bindings before
+        # simulating.  This makes a restart independent of AppState.previews and
+        # prevents a stale preview document from redirecting execution.
+        stored = self.con.execute(
+            "SELECT order_id,portfolio_id,snapshot_id,instrument_id,side,quantity,"
+            "process_sequence,trading_day "
+            "FROM \"order\" WHERE plan_id=? ORDER BY process_sequence",
+            (plan_id,),
+        ).fetchall()
+        for stored_order in stored:
+            if (stored_order["portfolio_id"] != portfolio_id or
+                    stored_order["snapshot_id"] != snapshot_id):
+                raise PlanError(
+                    "DATA_NOT_READY",
+                    "frozen plan contains an order bound to another portfolio or snapshot",
+                    plan_id,
+                    "create a new plan after repairing the persisted order bindings",
+                )
+            if stored_order["trading_day"] != trading_day.isoformat():
+                raise PlanError(
+                    "DATA_NOT_READY",
+                    "frozen plan contains an order for a different trading day",
+                    plan_id,
+                    "create a new plan with a consistent persisted order set",
+                )
+        expected_order_count = len(preview_doc.get("orders", []))
+        if len(stored) != expected_order_count:
+            raise PlanError(
+                "DATA_NOT_READY",
+                "frozen plan order set is incomplete",
+                plan_id,
+                "restore the persisted orders or create a new plan",
+            )
+        ids = sorted({o["instrument_id"] for o in stored})
         bars = self._bars(snapshot_id, trading_day, as_of, ids)
         adv = self._adv(snapshot_id, trading_day, as_of, ids)
+        # 执行可能发生在进程重启或 current 指针前移之后。板块决定涨跌停与
+        # 手数，必须从计划冻结的快照恢复，不能沿用 AppState 当前快照的映射。
+        snapshot_listings = {
+            inst["instrument_id"]: (inst["exchange"], inst["board"])
+            for inst in self.reader.instruments(snapshot_id, as_of=as_of)
+            if inst.get("instrument_id") and inst.get("exchange") and inst.get("board")
+        }
 
         # 订单已由 freeze 持久化；这里按冻结时的顺序号重建，保证 order_id 一致。
-        stored = self.con.execute(
-            "SELECT order_id, instrument_id, side, quantity, process_sequence "
-            "FROM \"order\" WHERE plan_id=? ORDER BY process_sequence", (plan_id,)
-        ).fetchall()
         orders = [
             Order(order_id=r["order_id"], instrument_id=r["instrument_id"],
                   side=Side(r["side"]), quantity=int(r["quantity"]),
@@ -1006,8 +1163,8 @@ class PlanService:
         ]
 
         simulator = DailySimulator(
-            fee_table=self.fee_table, board_rules=self.board_rules,
-            listings=self.listings,
+            fee_table=execution_fees, board_rules=self.board_rules,
+            listings=snapshot_listings,
         )
         # simulate() 会**就地修改**传入的批次（扣减 quantity_remaining）。
         # 因此必须先留一份成交前快照：
@@ -1126,7 +1283,8 @@ class PlanService:
         )
 
         # Preserve the public API's in-memory view while the database remains authoritative.
-        lots[:] = ledger_lots
+        if lots is not None:
+            lots[:] = ledger_lots
 
         return {
             "plan_id": plan_id,

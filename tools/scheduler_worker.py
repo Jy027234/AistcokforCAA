@@ -61,6 +61,10 @@ DEFAULT_DATA_DIR = ROOT / "deploy" / "universe-snapshot"
 #: 单次运行的超时。**必须有**：采集卡住时 worker 不能跟着一起卡死——
 #: 那会让"下一次运行"永远等不到，而且没有任何东西会报错。
 RUN_TIMEOUT_SECONDS = 30 * 60
+# `tick` keeps the historical `_run_pipeline` call shape so callers/tests that
+# replace it remain compatible; the real subprocess still receives the exact
+# data root through this short-lived worker-local context.
+_PIPELINE_DATA_DIR: Path | None = None
 
 
 def log(message: str) -> None:
@@ -105,12 +109,15 @@ def _preflight(interpreter: Path, data_dir: Path) -> list[str]:
 
 
 def _run_pipeline(*, interpreter: Path, window_start: str, source: str,
-                  json_out: Path) -> tuple[int, str]:
+                  json_out: Path, data_dir: Path | None = None) -> tuple[int, str]:
     """起子进程跑一次流水线。返回 (exit_code, 输出尾巴)。"""
 
+    resolved_data_dir = data_dir or _PIPELINE_DATA_DIR
     args = [str(interpreter), str(ROOT / "tools" / "daily_run.py"),
             "--source", source, "--window-start", window_start,
             "--json-out", str(json_out)]
+    if resolved_data_dir is not None:
+        args[4:4] = ["--data-dir", str(resolved_data_dir)]
     log("执行：" + " ".join(args))
     started = time.time()
     try:
@@ -181,9 +188,16 @@ def tick(con, *, worker_id: str, data_dir: Path, schedule: scheduler.RunSchedule
     json_out = ROOT / "deploy" / "agentctl-q0" / "last-run.json"
     if json_out.exists():
         json_out.unlink()
-    code, tail = _run_pipeline(interpreter=interpreter,
-                               window_start=schedule.window_start or "2026-06-22",
-                               source=claimed["source"], json_out=json_out)
+    global _PIPELINE_DATA_DIR
+    previous_data_dir = _PIPELINE_DATA_DIR
+    _PIPELINE_DATA_DIR = data_dir
+    try:
+        code, tail = _run_pipeline(
+            interpreter=interpreter,
+            window_start=schedule.window_start or "2026-06-22",
+            source=claimed["source"], json_out=json_out)
+    finally:
+        _PIPELINE_DATA_DIR = previous_data_dir
     record = _load_record(json_out)
     status = "DONE" if code == 0 else "FAILED"
     scheduler.finish_request(con, request_id=claimed["request_id"], status=status,

@@ -106,6 +106,36 @@ def test_run_log_path_does_not_re_resolve_the_data_dir(isolated):
     assert (data / "meta.sqlite").exists()
 
 
+def test_status_follows_current_snapshot_pointer_without_restart(isolated, monkeypatch):
+    """发布新物理快照后，下一次请求应读取新指针而无需重启 API。"""
+
+    client, state, data = isolated
+    from aquant.domain.data.ingest import SnapshotBuilder
+    from aquant.operations.snapshot_lifecycle import write_current_pointer
+    from test_m1_ingest_e2e import build_snapshot
+
+    next_snapshot = "snap-syn-002"
+    previous_snapshot = state.snapshot_id
+    builder = SnapshotBuilder(state.con, state.root / "datasets")
+    build_snapshot(state.con, builder, state.store, snapshot_id=next_snapshot)
+    write_current_pointer(data, next_snapshot)
+
+    # 非默认 ID 走与真实快照相同的费率配置闸门；这里显式提供测试费率，
+    # 先确认被闸门拒绝时不会留下“ID 已切、服务未切”的半更新状态。
+    rejected = client.get("/api/v1/status", headers=USER)
+    assert rejected.status_code == 422, rejected.text
+    assert state.snapshot_id == previous_snapshot
+
+    # 再提供费率，验证同一进程可在下一次请求完整切换。
+    monkeypatch.setenv("AQUANT_COMMISSION_RATE", "0.00025")
+    monkeypatch.setenv("AQUANT_COMMISSION_MIN_CENTS", "500")
+
+    response = client.get("/api/v1/status", headers=USER)
+    assert response.status_code == 200, response.text
+    assert response.json()["snapshotId"] == next_snapshot
+    assert state.snapshot_id == next_snapshot
+
+
 def test_reset_still_works_at_startup(tmp_path, monkeypatch):
     """收紧副作用不等于取消防御：启动时的重置必须仍然生效。
 
