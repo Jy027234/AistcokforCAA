@@ -18,31 +18,63 @@ docker compose down -v         # 停并清空数据（从零开始）
 > ⚠️ **这不是生产形态。** 前端用的是演示主体开关（`user:demo`），
 > **不是身份认证**。生产形态（API 与前端分开、令牌纪律）见 ADR-013，尚未落实。
 
-想指向真实快照，设 `AQUANT_SNAPSHOT_ID` 与券商佣金（见下文「费率」）：
+想在本机开发 API 指向真实快照，设 `AQUANT_DATA_DIR` 指向发布数据根目录。
+不显式设置 `AQUANT_SNAPSHOT_ID` 时，API/worker 会读取该目录的
+`current_snapshot.json`；只有回放某个已发布物理快照时才需要显式指定 ID。
+真实计划还需要配置券商佣金（见下文「费率」）：
 
 ```powershell
-$env:AQUANT_SNAPSHOT_ID='snap-universe'
+$env:AQUANT_DATA_DIR='E:\IT\A股量化交易\deploy\universe-snapshot'
+# 可选：回放一个已发布的物理快照；省略时跟随 current_snapshot.json
+# $env:AQUANT_SNAPSHOT_ID='snap-eod-2026-09-14-<uuid>'
 $env:AQUANT_COMMISSION_RATE='0.00025'        # 你的券商费率，万分之 2.5 写作 0.00025
 $env:AQUANT_COMMISSION_MIN_CENTS='500'       # 最低 5 元
-docker compose up -d
-```
-
-不设佣金时，真实数据会被费率闸门**拒绝**——这是刻意的：合成费率算得出的盈亏没有依据（§12.6）。
-
-## 本地开发（不用 Docker）
-
-```powershell
-# --- 只读浏览 ---
-python tools\build_workspace_fixture.py
-cd apps\web; npm install; npm run dev          # http://localhost:5173
-
-# --- 写链路：另开终端启动 API ---
 $env:PYTHONPATH='src'
 python -m uvicorn main:app --app-dir apps/api --host 127.0.0.1 --port 8000
 ```
 
+上面的宿主机目录不会自动挂进 Docker 命名卷；默认 Compose 路径仍用于合成数据试运行。
+若要让容器读取宿主机真实快照，需要先显式配置 bind mount，不能只设置 Windows 路径环境变量。
+
+未配置佣金时，真实数据仍可用于状态、候选、研究卡和证据等只读接口；
+`preview` / `freeze` / `execute` / `value` 会在领域费率闸门返回拒绝，
+因为合成费率算出的成交与净值没有依据（§12.6）。要走模拟写链路，必须提供使用者实际券商约定的费率。
+
+## 本地开发（不用 Docker）
+
+```powershell
+# --- 终端 1：启动 API（主入口所需） ---
+$env:PYTHONPATH='src'
+python -m uvicorn main:app --app-dir apps/api --host 127.0.0.1 --port 8000
+
+# --- 终端 2：启动前端 ---
+cd apps\web; npm install; npm run dev          # http://localhost:5173
+```
+
 前端在开发与预览两种模式下都把 `/api` 代理到 `127.0.0.1:8000`（`AQUANT_API_TARGET` 可改）。
-API 不在线时界面**明确显示只读状态并禁用写操作**，不会伪造一次成功的冻结。
+默认入口完全读取 API；API 不在线时会明确报错，不会静默回退到夹具或伪造一次成功的冻结。
+只有显式访问 `http://localhost:5173/?mode=demo` 才读取 `workspace.json`。使用该模式前运行
+`python tools\build_workspace_fixture.py`，页面会显示演示模式水印并禁用写操作。
+
+### 最小本机试运行（合成快照）
+
+先用合成数据确认界面和 API 能启动；这一步不需要数据源、券商佣金或模型密钥。
+
+```powershell
+# 终端 1：启动 API
+$env:PYTHONPATH='src'
+python -m uvicorn main:app --app-dir apps/api --host 127.0.0.1 --port 8000
+
+# 终端 2：检查健康与数据状态，再启动前端
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/health
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/status
+cd apps\web
+npm install
+npm run dev                         # http://localhost:5173
+```
+
+页面顶部应显示合成数据水印；`/api/v1/status` 能返回 `snap-syn-001`。
+这条试运行只验证本机链路，不代表真实数据质量或生产部署已验收。
 
 ## 当前状态
 
@@ -96,12 +128,39 @@ python tools\collect_universe.py --start 2026-06-22 --end 2026-09-14
 python tools\collect_listing_dates.py --write
 # 从采集结果重建研究池（会**保留**已采到的上市日期）
 python tools\build_pool_from_universe.py --size 300 --write
-# 建成并发布快照
-python -m tests.integration.t10_universe_snapshot --window-start 2026-06-22
-
 # 每个交易日：采集 -> 快照 -> 因子落库 -> 质量闸门（并发锁 + 休市判断）
 python tools\daily_run.py --skip-if-done
 python tools\show_alerts.py --days 7      # 有 ERROR 时退出码 1
+```
+
+日常生产路径由 `daily_run.py` 串起，生产发布步骤实际调用
+`tools/publish_universe_snapshot.py`，每次生成新的唯一物理 ID；通过因子落库和 F10
+质量闸门后，再由 `tools/promote_snapshot.py --require-factors` 原子切换
+`deploy/universe-snapshot/current_snapshot.json`。旧物理目录与 `meta.sqlite` 不会被覆盖。
+
+需要手工发布或回放时，先延迟切换 current，记下命令输出的 `snapshot_id`，再完成后续闸门：
+
+```powershell
+python tools\publish_universe_snapshot.py `
+  --data-dir deploy\universe-snapshot `
+  --cache deploy\agentctl-q0\universe-bars.json `
+  --pool configs\real-pool-csrc.yaml `
+  --financials deploy\agentctl-q0\financials-cache.json `
+  --actions deploy\agentctl-q0\dividend-actions.json `
+  --window-start 2026-06-22 `
+  --window-end 2026-09-14 `
+  --defer-promotion
+
+$snapshotId='<上一步输出的 snap-eod-...>'
+python tools\compute_factors.py `
+  --snapshot-dir deploy\universe-snapshot `
+  --snapshot-id $snapshotId `
+  --json-out deploy\agentctl-q0\factors-persist.json
+python -m tests.integration.t12_f10_real
+python tools\promote_snapshot.py `
+  --data-dir deploy\universe-snapshot `
+  --snapshot-id $snapshotId `
+  --require-factors
 ```
 
 ### 每天自动跑：界面配置 + 独立 worker（ADR-014）
@@ -125,7 +184,10 @@ python tools\scheduler_worker.py --now      # 立刻跑一次
 写 `research_run` 与 `feature_value`：
 
 ```powershell
-python tools\compute_factors.py --snapshot-id snap-universe --json-out deploy\agentctl-q0\factors-persist.json
+python tools\compute_factors.py `
+  --snapshot-dir deploy\universe-snapshot `
+  --snapshot-id $snapshotId `
+  --json-out deploy\agentctl-q0\factors-persist.json
 # 真实快照上：财务记录 5397 条 -> 900 行落库，其中 832 行有值，
 # 68 只标注「TTM 不可得（缺上年同期或口径不成立）」
 ```
@@ -133,6 +195,14 @@ python tools\compute_factors.py --snapshot-id snap-universe --json-out deploy\ag
 `tests/integration/t12_f10_real` 仍然跑，但它的角色是**质量闸门**（值域、亏损股
 是否被截断为 0、覆盖率），不是"算因子"。二者曾经被合成一步：流水线每天报成功，
 而 `research_run` 一直是 0 行。
+
+### 采集缓存 v3 与升级注意事项
+
+采集器当前要求 `rows_format=3`，每个行情行还包括
+`adjusted_close_cents`。采集器遇到仍含旧 `rows_format=2` 行的标的时，会对该标的按目标
+窗口做一次全量重采，并在成功后写回 v3；之后才恢复增量续跑。升级期间不要用
+`--prev-close-only` 跳过这次重采；网络中断会保留旧行并记入 `failed`，下次继续补齐。
+不需要为了这个升级手工删除缓存，只有确实要重抓全部数据时才使用 `--refresh`。
 
 ### 两类用上市日期的判定
 
@@ -144,7 +214,7 @@ python tools\compute_factors.py --snapshot-id snap-universe --json-out deploy\ag
 窗口外的标的不会被误排除，但门槛也没有被验证过——这句话写在预览的 `notes` 里，
 不藏在文档里。
 
-调度接入、退出码语义、以及四个必须知道的限制见 **`docs/daily-pipeline.md`**。
+调度接入、退出码语义、运行限制与升级注意事项见 **`docs/daily-pipeline.md`**。
 
 分红金额以**整数微元**（10⁻⁶ 元）记账：真实分红常常不是整数分
 （茅台 2025 年度每股 28.02423 元），按分存储只能截断，误差随股数放大。
@@ -163,9 +233,9 @@ python tools\compute_factors.py --snapshot-id snap-universe --json-out deploy\ag
 python tools\fetch_fee_sources.py    # 抓取并留证（URL + 时间 + 内容哈希）
 ```
 
-合成费率**不得**用于真实数据：`preview` / `freeze` / `execute` 三个入口都会拦，
-真实快照 + 未配置佣金时 API **拒绝启动**。这条曾静默失效过——
-守卫写在代码里、配了测试，但生产路径上没有任何地方调用它。
+合成费率**不得**用于真实数据：`preview` / `freeze` / `execute` / `value` 四个入口都会拦。
+真实快照 + 未配置佣金时 API 仍可启动并提供只读接口；只有依赖费用的模拟与估值入口拒绝。
+配置费率是放行这些入口的唯一方式，不能用开关绕过。
 
 ## 界面上的数字从哪来
 
@@ -200,6 +270,11 @@ python tools\fetch_fee_sources.py    # 抓取并留证（URL + 时间 + 内容�
 | 执行 | `POST /api/v1/plans/{id}/execute` | 按 §12 规则模拟成交 |
 | 估值 | `POST /api/v1/valuations` | 不变量失败则不发布净值 |
 | 对账 | `GET /api/v1/portfolios/{id}/reconcile` | 逐项核验订单、费用、现金、批次 |
+
+真实生产计划必须显式绑定两份已发布且不同的物理快照：
+`decision_snapshot_id`（决策截止时间必须早于执行日开盘）和
+`execution_snapshot_id`（必须是执行日收盘快照）。单快照兼容路径只用于合成演示；
+冻结时会把两份快照及各自截止时间持久化，之后切换 `current_snapshot.json` 不会改写已冻结计划。
 
 ### 研究作业与证据
 

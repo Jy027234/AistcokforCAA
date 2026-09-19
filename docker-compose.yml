@@ -13,8 +13,8 @@ services:
       - "8080:8000"
     environment:
       # 不设 AQUANT_SNAPSHOT_ID：让 API 用内置合成夹具自举一份快照，
-      # 这样容器一起来界面就有内容。指向真实快照时再设它，
-      # 并按 §12.6 提供券商佣金（否则真实数据会被费率闸门拒绝）。
+      # 这样容器一起来界面就有内容。若显式挂载真实数据并指向真实快照，
+      # 只读接口仍可用；模拟与估值按 §12.6 要求配置券商佣金。
       AQUANT_SNAPSHOT_ID: ${AQUANT_SNAPSHOT_ID:-}
       AQUANT_COMMISSION_RATE: ${AQUANT_COMMISSION_RATE:-}
       AQUANT_COMMISSION_MIN_CENTS: ${AQUANT_COMMISSION_MIN_CENTS:-}
