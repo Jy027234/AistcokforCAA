@@ -82,7 +82,8 @@ export function PortfolioView({
           <Card title="生产时点绑定">
             <Callout tone="info" title="候选与成交使用不同快照">
               决策快照决定候选与参考价，执行快照只提供执行日收盘行情。
-              截止时间和交易日都从已发布快照读取，不能手工改写。
+              截止时间和交易日都从已发布快照读取，不能手工改写；决策快照还必须在
+              执行日 09:30 前实际发布，事后补发的历史回放不会进入试运行计划。
             </Callout>
             {productionSnapshots.length < 2 ? (
               <Callout tone="warn" title="已发布快照不足">
@@ -134,7 +135,7 @@ export function PortfolioView({
           confirmResult={confirmResult}
           previewEnabled={!productionTimingUnavailable}
           previewDisabledReason={productionTimingUnavailable
-            ? "没有找到具备 S1 决策能力且满足先后顺序的同源快照对；先补齐前复权数据并运行下一次日终流水线。"
+            ? "没有找到具备 S1 决策能力、在执行日开盘前已发布且满足先后顺序的同源快照对；请等待下一次合格日终流水线。"
             : null}
         />
       </Section>

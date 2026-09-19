@@ -66,6 +66,13 @@ function timingFrom(
   if (decision.asOfTime >= execution.asOfTime || decision.tradingDay >= execution.tradingDay) {
     return null;
   }
+  if (!decision.publishedAt) return null;
+  const publishedAt = Date.parse(decision.publishedAt);
+  const executionOpen = Date.parse(execution.tradingDay + "T09:30:00+08:00");
+  if (!Number.isFinite(publishedAt) || !Number.isFinite(executionOpen) ||
+      publishedAt >= executionOpen) {
+    return null;
+  }
   return {
     decisionSnapshotId: decision.snapshotId,
     decisionCutoffAt: decision.asOfTime,
