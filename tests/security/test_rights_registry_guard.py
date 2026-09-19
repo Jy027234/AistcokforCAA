@@ -99,3 +99,10 @@ def test_no_real_source_is_prohibited_without_a_record():
         for purpose, value in entry.rights.items():
             assert value is not Rights.PROHIBITED or entry.note, (
                 f"{entry.source_id}.{purpose} 被标为 PROHIBITED 但没写依据")
+
+
+def test_planned_tushare_source_is_registered_but_closed_by_default():
+    entry = default_rights().get("tushare-pro")
+    assert entry.basis is Basis.TERMS_NOT_REVIEWED
+    assert all(value is Rights.UNKNOWN for value in entry.rights.values())
+    assert not entry.can_enter_model_context()

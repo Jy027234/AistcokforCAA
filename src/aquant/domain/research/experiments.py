@@ -25,6 +25,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timezone
 
 from ..data.db import write_tx
+from .strategies import require_strategy_version_available
 
 
 class ExperimentError(Exception):
@@ -128,6 +129,9 @@ def register_experiment(con: sqlite3.Connection, spec: ExperimentSpec, *,
     """
 
     spec.validate()
+    # 外键只能证明“这个名字存在”，不能证明对应策略仍获准运行。升级前可能
+    # 已经留下 S2 记录，因此登记实验时必须再次经过当前能力闸门。
+    require_strategy_version_available(con, spec.strategy_version)
     fp = fingerprint(spec)
 
     existing = con.execute(

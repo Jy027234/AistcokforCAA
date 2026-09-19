@@ -24,6 +24,24 @@ from ..data.db import write_tx
 #: （当前数据源下做不成，见 ADR-005）。
 FAMILIES = ("S1", "S2", "E1", "CUSTOM")
 
+# S2 不是一个只差实现开关的策略。ADR-005/015 要求 F07--F09 的真实字段、
+# PIT、修订链和权利闸门全部验收后才能启用。当前 Tushare 账户连三张财报表
+# 都无访问权限，因此允许登记 S2 版本会把“名字合法”误写成“策略可运行”。
+# 这里把关闭状态放在领域层，避免 API、脚本或未来 worker 绕过同一规则。
+_CLOSED_FAMILIES: dict[str, dict[str, str]] = {
+    "S2": {
+        "code": "SOURCE_PERMISSION_MISSING",
+        "message": (
+            "S2 is disabled: F07-F09 financial inputs have not passed "
+            "provider permission, PIT, revision-chain and coverage validation"
+        ),
+        "repair_action": (
+            "obtain an approved financial source, pass the ADR-015 provider "
+            "spike, then register a new immutable S2 version"
+        ),
+    },
+}
+
 
 class StrategyVersionError(Exception):
     def __init__(self, code: str, message: str, object_id: str,
@@ -52,6 +70,47 @@ def spec_hash(spec: dict) -> str:
     return "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
+def require_strategy_family_available(family: str, *, object_id: str) -> None:
+    """拒绝仍处于数据能力关闭状态的策略族。"""
+
+    gate = _CLOSED_FAMILIES.get(family)
+    if gate is not None:
+        raise StrategyVersionError(
+            gate["code"], gate["message"], object_id, gate["repair_action"])
+
+
+def require_strategy_version_available(con: sqlite3.Connection,
+                                       strategy_version: str) -> None:
+    """实验引用策略版本前再次检查，覆盖升级前遗留的 S2 记录。"""
+
+    row = con.execute(
+        "SELECT family FROM strategy_version WHERE strategy_version=?",
+        (strategy_version,),
+    ).fetchone()
+    if row is None:
+        raise StrategyVersionError(
+            "DATA_NOT_READY", "unknown strategy version " + repr(strategy_version),
+            strategy_version, "register an available immutable strategy version first")
+    require_strategy_family_available(row["family"], object_id=strategy_version)
+
+
+def strategy_family_gates() -> list[dict]:
+    """给 API/UI 的机器可读关闭原因；不把可登记误称为可运行。"""
+
+    return [
+        {
+            "family": family,
+            "registrationAvailable": False,
+            "error": {
+                "code": gate["code"],
+                "message": gate["message"],
+                "repair_action": gate["repair_action"],
+            },
+        }
+        for family, gate in sorted(_CLOSED_FAMILIES.items())
+    ]
+
+
 def ensure_strategy_version(con: sqlite3.Connection, *, strategy_version: str,
                             family: str, spec: dict,
                             parent_version: str | None = None,
@@ -62,6 +121,7 @@ def ensure_strategy_version(con: sqlite3.Connection, *, strategy_version: str,
         raise StrategyVersionError(
             "DATA_NOT_READY", "unknown family " + repr(family),
             strategy_version, "use one of: " + ", ".join(FAMILIES))
+    require_strategy_family_available(family, object_id=strategy_version)
 
     digest = spec_hash(spec)
     existing = con.execute(

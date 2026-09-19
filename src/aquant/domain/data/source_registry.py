@@ -242,4 +242,25 @@ def default_registry() -> SourceRegistry:
             rights=dict(_UNKNOWN_RIGHTS),
             notes=["证监会指定披露平台；公告原文与时间的权威来源"],
         ),
+        SourceSpec(
+            source_id="tushare-pro",
+            display_name="Tushare Pro 财务数据",
+            domains=frozenset({Domain.FINANCIALS}),
+            priority=35,
+            cost_model="POINTS_AND_TOKEN",
+            requires_credentials=True,
+            # 官方文档提供 ann_date / f_ann_date、report_type 与
+            # update_flag，但历史修订记录是否足以恢复任一过去时点，
+            # 仍须用真实账户和样本报告验证，因此不能先写成 YES。
+            pit_available="PARTIAL",
+            pit_basis="RECONSTRUCTED",
+            integration_state=IntegrationState.CREDENTIALS_CONFIGURED,
+            health=SourceHealth.UNKNOWN,
+            rights=dict(_UNKNOWN_RIGHTS),
+            notes=[
+                "Token 已验证有效，但 income/balancesheet/cashflow 均返回 40203 无权限",
+                "文档字段可覆盖 F07-F10；尚未完成真实字段与覆盖率验收",
+                "必须保留公告日、报表类型和修订版本；不得与 BaoStock 字段静默拼接",
+            ],
+        ),
     ])

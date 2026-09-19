@@ -1,0 +1,826 @@
+{
+  "schema_version": "aquant.q5.acceptance.v1",
+  "run_id": "q5-af55901b616b48699b19b6b1eec4dc9b",
+  "generated_at": "2026-09-19T09:16:01.085497+00:00",
+  "started_at": "2026-09-19T09:15:53.138826+00:00",
+  "topology": "live_http",
+  "source_of_truth": {
+    "capabilities": "capabilities\\agentctl.capabilities.yaml",
+    "runtime_config": "deploy\\agentctl-q0\\runtime.config.yaml",
+    "historical_evidence_used": false
+  },
+  "agentctl_base": {
+    "schema_version": "aquant.agentctl_base_status.v1",
+    "matched": false,
+    "locked_commit": "b5cad04836cf93b35750fb0116ab0c2d936d1f89",
+    "current_commit": "f10bb6ac42d4a30a9a521194fb27a950e7384456",
+    "changed_file_count": 11,
+    "diff_summary": "11 files changed, 206 insertions(+), 56 deletions(-)",
+    "changed_files": [
+      "src/agentctl/aios/control_plane.py",
+      "src/agentctl/cli/main.py",
+      "src/agentctl/cli/selfcheck.py",
+      "src/agentctl/cli/serve.py",
+      "src/agentctl/release/smoke.py",
+      "src/agentctl/server/bridge.py",
+      "src/agentctl/server/http.py",
+      "src/agentctl/server/http_security.py",
+      "src/agentctl/server/mcp_northbound.py",
+      "src/agentctl/server/mcp_official.py",
+      "src/agentctl/server/product_context.py"
+    ],
+    "upgrade_required": true,
+    "available": true,
+    "checker_exit_code": 1
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 18765,
+    "started_by_runner": true,
+    "stopped": true,
+    "ready": true
+  },
+  "credentials": {
+    "temporary_master_issued": true,
+    "temporary_product_restricted_issued": true,
+    "temporary_low_privilege_issued": true,
+    "revoked": true,
+    "token_value_exposed": false,
+    "token_hash_exposed": false,
+    "hmac_exposed": false
+  },
+  "blockers": {
+    "A05": {
+      "blocker": true,
+      "blocker_code": "product_entrypoint_not_bound",
+      "required_capabilities": [
+        "aquant.event_evidence.read"
+      ],
+      "missing_capabilities": [],
+      "missing_handlers": [],
+      "declared_handlers": {
+        "aquant.event_evidence.read": "aquant_lab_agentctl_handlers:event_evidence_read"
+      },
+      "manifest_capabilities": [
+        "aquant.event_evidence.read",
+        "aquant.experiment.submit",
+        "aquant.portfolio.read",
+        "aquant.research_card.read",
+        "aquant.simulation_plan.preview"
+      ],
+      "required_entrypoint": "agentctl runtime_capability.invoke -> product-owned event/evidence handler",
+      "reason": "能力与产品 handler 已在 manifest 声明，但本次 runner 尚未通过真实 HTTP 入口执行该用例并核对领域前后状态；声明可装载不能替代真实拓扑验收。"
+    },
+    "A06": {
+      "blocker": true,
+      "blocker_code": "product_entrypoint_not_bound",
+      "required_capabilities": [
+        "aquant.portfolio.read",
+        "aquant.simulation_plan.preview"
+      ],
+      "missing_capabilities": [],
+      "missing_handlers": [],
+      "declared_handlers": {
+        "aquant.portfolio.read": "aquant_lab_agentctl_handlers:portfolio_read",
+        "aquant.simulation_plan.preview": "aquant_lab_agentctl_handlers:simulation_plan_preview"
+      },
+      "manifest_capabilities": [
+        "aquant.event_evidence.read",
+        "aquant.experiment.submit",
+        "aquant.portfolio.read",
+        "aquant.research_card.read",
+        "aquant.simulation_plan.preview"
+      ],
+      "required_entrypoint": "agentctl frontdesk message + product-owned domain state observer",
+      "reason": "能力与产品 handler 已在 manifest 声明，但本次 runner 尚未通过真实 HTTP 入口执行该用例并核对领域前后状态；声明可装载不能替代真实拓扑验收。"
+    },
+    "A07": {
+      "blocker": true,
+      "blocker_code": "product_entrypoint_not_bound",
+      "required_capabilities": [
+        "aquant.experiment.submit"
+      ],
+      "missing_capabilities": [],
+      "missing_handlers": [],
+      "declared_handlers": {
+        "aquant.experiment.submit": "aquant_lab_agentctl_handlers:experiment_submit"
+      },
+      "manifest_capabilities": [
+        "aquant.event_evidence.read",
+        "aquant.experiment.submit",
+        "aquant.portfolio.read",
+        "aquant.research_card.read",
+        "aquant.simulation_plan.preview"
+      ],
+      "required_entrypoint": "agentctl runtime_capability.invoke -> product-owned experiment submit handler",
+      "reason": "能力与产品 handler 已在 manifest 声明，但本次 runner 尚未通过真实 HTTP 入口执行该用例并核对领域前后状态；声明可装载不能替代真实拓扑验收。"
+    },
+    "A08": {
+      "blocker": true,
+      "blocker_code": "product_entrypoint_not_bound",
+      "required_capabilities": [
+        "aquant.simulation_plan.preview"
+      ],
+      "missing_capabilities": [],
+      "missing_handlers": [],
+      "declared_handlers": {
+        "aquant.simulation_plan.preview": "aquant_lab_agentctl_handlers:simulation_plan_preview"
+      },
+      "manifest_capabilities": [
+        "aquant.event_evidence.read",
+        "aquant.experiment.submit",
+        "aquant.portfolio.read",
+        "aquant.research_card.read",
+        "aquant.simulation_plan.preview"
+      ],
+      "required_entrypoint": "agentctl runtime_capability.invoke -> product-owned simulation preview handler",
+      "reason": "能力与产品 handler 已在 manifest 声明，但本次 runner 尚未通过真实 HTTP 入口执行该用例并核对领域前后状态；声明可装载不能替代真实拓扑验收。"
+    },
+    "A09": {
+      "blocker": true,
+      "blocker_code": "product_entrypoint_not_bound",
+      "required_capabilities": [
+        "aquant.simulation_plan.preview"
+      ],
+      "missing_capabilities": [],
+      "missing_handlers": [],
+      "declared_handlers": {
+        "aquant.simulation_plan.preview": "aquant_lab_agentctl_handlers:simulation_plan_preview"
+      },
+      "manifest_capabilities": [
+        "aquant.event_evidence.read",
+        "aquant.experiment.submit",
+        "aquant.portfolio.read",
+        "aquant.research_card.read",
+        "aquant.simulation_plan.preview"
+      ],
+      "required_entrypoint": "product-owned confirmation/freeze HTTP entrypoint bound to agentctl",
+      "reason": "当前 onboarding 只绑定 frontdesk.message，清单也明确不声明计划冻结；没有可供 agentctl 调用的确认/冻结入口，无法在真实拓扑中提交陈旧确认。"
+    }
+  },
+  "checks": [
+    {
+      "case": "A01",
+      "title": "SDK / 服务端 profile 不匹配",
+      "status": "uncovered",
+      "evidence_kind": "live_topology",
+      "observed": "仅观察到 profile mismatch，未观察到明确拒绝",
+      "detail": {
+        "status_mismatch": true,
+        "explicit_refusal": false,
+        "refusal_evidence": "status_only_or_non_http_failure",
+        "client_mode": "growth",
+        "server_mode": "assist",
+        "invocation": {
+          "accepted": true,
+          "status": "failed"
+        }
+      }
+    },
+    {
+      "case": "A02",
+      "title": "能力 apply 与激活重载",
+      "status": "failed",
+      "evidence_kind": "offline_contract",
+      "observed": "manifest doctor 失败",
+      "detail": {
+        "exit_code": 1,
+        "apply_exit_code": 0,
+        "action": "doctor",
+        "doctor_report": {
+          "kind": "AgentctlProductIntegrationDoctorReport",
+          "schema_version": "agentctl.integration.doctor.v1",
+          "ok": false,
+          "manifest": {
+            "schema_version": "agentctl.product_capabilities.v1",
+            "path": "E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml",
+            "digest": "e2bfd06a880d6b557917d75a54eb83c9553fdacacfdfeb0c81e035f661825a27",
+            "product_id": "aquant_lab",
+            "capability_ids": [
+              "aquant.research_card.read",
+              "aquant.event_evidence.read",
+              "aquant.portfolio.read",
+              "aquant.simulation_plan.preview",
+              "aquant.experiment.submit"
+            ]
+          },
+          "config": {
+            "path": "C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-1u3w6jz2\\runtime.config.yaml",
+            "inferred": false,
+            "store": {
+              "kind": "sqlite",
+              "path": "C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-1u3w6jz2\\.agentctl\\data\\product_integration.sqlite"
+            }
+          },
+          "assurance": {
+            "schema_version": "agentctl.integration_assurance_report.v1",
+            "profile": "governed_execution",
+            "ok": false,
+            "checks": [
+              {
+                "id": "product_manifest",
+                "status": "pass",
+                "required": true,
+                "remediation": null
+              },
+              {
+                "id": "runtime_snapshot",
+                "status": "pass",
+                "required": true,
+                "remediation": null
+              },
+              {
+                "id": "tool_terminal_contract",
+                "status": "pass",
+                "required": true,
+                "remediation": null
+              },
+              {
+                "id": "data_egress_declaration",
+                "status": "pass",
+                "required": true,
+                "remediation": null
+              },
+              {
+                "id": "config_provenance",
+                "status": "pass",
+                "required": true,
+                "remediation": null
+              },
+              {
+                "id": "execution_evidence",
+                "status": "fail",
+                "required": true,
+                "remediation": "Enable bounded execution Evidence output for the capability path."
+              }
+            ],
+            "summary": {
+              "pass": 5,
+              "fail": 1
+            }
+          },
+          "checks": [
+            {
+              "id": "distribution_version",
+              "status": "pass",
+              "detail": "distribution=agentctl-core 0.2.0b5, runtime=0.2.0b5",
+              "remediation": "Install the approved agentctl-core artifact version in a clean environment."
+            },
+            {
+              "id": "runtime_config",
+              "status": "pass",
+              "detail": "C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-1u3w6jz2\\runtime.config.yaml",
+              "remediation": null
+            },
+            {
+              "id": "legacy_raw_episode_persist",
+              "status": "pass",
+              "detail": "no explicit legacy raw episode persistence detected",
+              "remediation": null
+            },
+            {
+              "id": "frontdesk_profile",
+              "status": "pass",
+              "detail": "semantic_profile=coordinator_v2",
+              "remediation": "Set frontdesk.profile.name=coordinator_v2 and frontdesk.features.coordinator_v2=true."
+            },
+            {
+              "id": "store_projection",
+              "status": "pass",
+              "detail": "{\"conflicts\": 0, \"created\": 0, \"unchanged\": 11, \"updated\": 0}",
+              "remediation": "agentctl integration apply --manifest \"E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml\" --config \"C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-1u3w6jz2\\runtime.config.yaml\""
+            },
+            {
+              "id": "capability_view",
+              "status": "pass",
+              "detail": "5 capability descriptor(s) visible",
+              "remediation": "agentctl integration apply --manifest \"E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml\" --config \"C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-1u3w6jz2\\runtime.config.yaml\""
+            },
+            {
+              "id": "capability_bindings",
+              "status": "pass",
+              "detail": "5 active binding(s) match",
+              "remediation": "agentctl integration apply --manifest \"E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml\" --config \"C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-1u3w6jz2\\runtime.config.yaml\""
+            },
+            {
+              "id": "entitlements",
+              "status": "pass",
+              "detail": "no entitlement required",
+              "remediation": null
+            },
+            {
+              "id": "provider_registration",
+              "status": "pass",
+              "detail": "registered: aquant.research_card.read, aquant.event_evidence.read, aquant.portfolio.read, aquant.simulation_plan.preview, aquant.experiment.submit",
+              "remediation": "agentctl integration validate --manifest \"E:\\IT\\A股量化交易\\capabilities\\agentctl.capabilities.yaml\" --config \"C:\\Users\\admin\\AppData\\Local\\Temp\\aquant-q5-runtime-1u3w6jz2\\runtime.config.yaml\""
+            },
+            {
+              "id": "job_lifecycle",
+              "status": "warn",
+              "detail": "missing lifecycle declaration: aquant.experiment.submit",
+              "remediation": "Add job_lifecycle submit/status/cancel declarations or regenerate with integration init --template async-job."
+            },
+            {
+              "id": "provider_credentials",
+              "status": "pass",
+              "detail": "provider credential references resolved",
+              "remediation": null
+            },
+            {
+              "id": "model_availability",
+              "status": "pass",
+              "detail": "1 production model provider(s) configured",
+              "remediation": "Configure at least one non-echo/non-scripted provider and run its provider smoke."
+            },
+            {
+              "id": "assurance.product_manifest",
+              "status": "pass",
+              "detail": "profile=governed_execution",
+              "remediation": null
+            },
+            {
+              "id": "assurance.runtime_snapshot",
+              "status": "pass",
+              "detail": "profile=governed_execution",
+              "remediation": null
+            },
+            {
+              "id": "assurance.tool_terminal_contract",
+              "status": "pass",
+              "detail": "profile=governed_execution",
+              "remediation": null
+            },
+            {
+              "id": "assurance.data_egress_declaration",
+              "status": "pass",
+              "detail": "profile=governed_execution",
+              "remediation": null
+            },
+            {
+              "id": "assurance.config_provenance",
+              "status": "pass",
+              "detail": "profile=governed_execution",
+              "remediation": null
+            },
+            {
+              "id": "assurance.execution_evidence",
+              "status": "fail",
+              "detail": "profile=governed_execution",
+              "remediation": "Enable bounded execution Evidence output for the capability path."
+            }
+          ],
+          "summary": {
+            "pass": 16,
+            "warn": 1,
+            "fail": 1
+          },
+          "fix_commands": [
+            "Add job_lifecycle submit/status/cancel declarations or regenerate with integration init --template async-job.",
+            "Enable bounded execution Evidence output for the capability path."
+          ]
+        }
+      }
+    },
+    {
+      "case": "A03",
+      "title": "tenant / scope / product 边界",
+      "status": "passed",
+      "evidence_kind": "live_topology",
+      "observed": "边界拒绝与正确租户路径均符合预期",
+      "detail": {
+        "exit_code": 1,
+        "cases": [
+          "N0_baseline_correct",
+          "N2_forged_tenant",
+          "N4_wrong_allowed_product",
+          "N5_missing_product_context",
+          "X1_token_without_frontdesk_message_rejected"
+        ],
+        "passed": 5,
+        "total": 5,
+        "baseline_run_status": "failed",
+        "unmet": [
+          "N0_baseline_correct"
+        ],
+        "results": [
+          {
+            "case": "N0_baseline_correct",
+            "ok": false,
+            "expect": "accept",
+            "got": "accepted",
+            "detail": {
+              "http": "accepted",
+              "run_status": "failed"
+            }
+          },
+          {
+            "case": "N2_forged_tenant",
+            "ok": true,
+            "expect": "reject",
+            "got": "rejected",
+            "detail": {
+              "http": "rejected",
+              "status_code": 403,
+              "payload": {
+                "error": "tenant_boundary_denied: request tenant does not match token tenant"
+              }
+            }
+          },
+          {
+            "case": "N4_wrong_allowed_product",
+            "ok": true,
+            "expect": "reject",
+            "got": "rejected",
+            "detail": {
+              "http": "rejected",
+              "status_code": 403,
+              "payload": {
+                "kind": "AIOSProductTokenAdmission",
+                "passed": false,
+                "product_id": "evil_product",
+                "product_operation": "frontdesk.message",
+                "tenant": "aquant-synthetic",
+                "reason": "product_not_allowed_by_token",
+                "allowed_products": [
+                  "aquant_lab"
+                ],
+                "allowed_product_operations": [],
+                "error": "product_not_allowed_by_token"
+              }
+            }
+          },
+          {
+            "case": "N5_missing_product_context",
+            "ok": true,
+            "expect": "reject",
+            "got": "rejected",
+            "detail": {
+              "http": "rejected",
+              "status_code": 409,
+              "payload": {
+                "error": "continuous_assist_request_rejected",
+                "code": "continuous_product_binding_mismatch"
+              }
+            }
+          },
+          {
+            "case": "X1_token_without_frontdesk_message_rejected",
+            "ok": true,
+            "expect": "reject",
+            "got": "rejected",
+            "detail": {
+              "http": "rejected",
+              "status_code": 403,
+              "payload": {
+                "error": "missing required scope(s): frontdesk.message"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "case": "A04",
+      "title": "研究工具真实调用与执行关联",
+      "status": "passed",
+      "evidence_kind": "live_topology",
+      "observed": "研究能力通过 agentctl 返回真实 snapshot、数据和执行关联",
+      "detail": {
+        "research_probe": {
+          "accepted": true,
+          "http_status": 200,
+          "snapshot_observed": true,
+          "data_observed": true,
+          "execution_associated": true,
+          "research_evidence_observed": true,
+          "snapshot": {
+            "snapshot_id": "snap-universe",
+            "as_of_time": "2026-09-14T07:00:00+00:00",
+            "data_mode": "PRODUCTION",
+            "watermark": "REAL MARKET DATA, RECONSTRUCTED POINT-IN-TIME -- NOT VALID FOR FORMAL PIT BACKTESTS"
+          },
+          "data": {
+            "instrument_id": "SH.600519",
+            "display_name": "贵州茅台",
+            "factor_count": 1,
+            "limitation_count": 2
+          },
+          "execution": {
+            "invocation_id": "invoke_62b02f0b357442a7",
+            "trace_id": "q5-a04-trace-e7a6542507",
+            "idempotency_key": "invoke_62b02f0b357442a7",
+            "capability_id": "aquant.research_card.read"
+          },
+          "response": {
+            "capability_id": "aquant.research_card.read",
+            "idempotency_key": "invoke_62b02f0b357442a7",
+            "invocation_id": "invoke_62b02f0b357442a7",
+            "output": {
+              "as_of_time": "2026-09-14T07:00:00+00:00",
+              "board": "MAIN",
+              "data_completeness": "行情覆盖 100.0%",
+              "data_mode": "PRODUCTION",
+              "display_name": "贵州茅台",
+              "exchange": "SSE",
+              "factors": [
+                {
+                  "coverage": 1.0,
+                  "exclusion_label": null,
+                  "exclusion_reason": null,
+                  "factor_id": "F10",
+                  "name": "F10",
+                  "rank_pct": 0.241877,
+                  "value": -0.000597
+                }
+              ],
+              "industry_code": "C15",
+              "industry_name": "C15酒、饮料和精制茶制造业",
+              "instrument_id": "SH.600519",
+              "limitations": [
+                "行业分类版本 CSRC-2012：免费源不提供分类变更历史，因此它无法回答历史时点的行业归属",
+                "不构成投资建议；排名不是概率，也不表示预期收益"
+              ],
+              "listed_on": "2001-08-27",
+              "ok": true,
+              "snapshot_id": "snap-universe",
+              "status": "LISTED",
+              "watermark": "REAL MARKET DATA, RECONSTRUCTED POINT-IN-TIME -- NOT VALID FOR FORMAL PIT BACKTESTS"
+            },
+            "schema_version": "aios.runtime_invocation_result.v0.1",
+            "trace_id": "q5-a04-trace-e7a6542507",
+            "work_item_id": null
+          }
+        },
+        "model_probe": {
+          "positive_completed": false,
+          "failure_semantics_observed": true,
+          "steps": 6,
+          "p1b_ok": false,
+          "p1b_detail": {
+            "status": "failed",
+            "reply": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+            "usage_records": [
+              {
+                "source": "native_runtime",
+                "run_id": "run_fd_16731b598c21c39fea5bc79a5a23785eb2155c55"
+              }
+            ],
+            "warnings": []
+          },
+          "p1c_ok": false
+        }
+      }
+    },
+    {
+      "case": "A05",
+      "title": "恶意材料不触发写能力",
+      "status": "uncovered",
+      "evidence_kind": "not_executed",
+      "observed": "未执行：真实 agentctl 入口被结构性阻断",
+      "detail": {
+        "blocker": true,
+        "blocker_code": "product_entrypoint_not_bound",
+        "required_capabilities": [
+          "aquant.event_evidence.read"
+        ],
+        "missing_capabilities": [],
+        "missing_handlers": [],
+        "declared_handlers": {
+          "aquant.event_evidence.read": "aquant_lab_agentctl_handlers:event_evidence_read"
+        },
+        "manifest_capabilities": [
+          "aquant.event_evidence.read",
+          "aquant.experiment.submit",
+          "aquant.portfolio.read",
+          "aquant.research_card.read",
+          "aquant.simulation_plan.preview"
+        ],
+        "required_entrypoint": "agentctl runtime_capability.invoke -> product-owned event/evidence handler",
+        "reason": "能力与产品 handler 已在 manifest 声明，但本次 runner 尚未通过真实 HTTP 入口执行该用例并核对领域前后状态；声明可装载不能替代真实拓扑验收。"
+      }
+    },
+    {
+      "case": "A06",
+      "title": "模型声明不改变领域状态",
+      "status": "uncovered",
+      "evidence_kind": "not_executed",
+      "observed": "未执行：真实 agentctl 入口被结构性阻断",
+      "detail": {
+        "blocker": true,
+        "blocker_code": "product_entrypoint_not_bound",
+        "required_capabilities": [
+          "aquant.portfolio.read",
+          "aquant.simulation_plan.preview"
+        ],
+        "missing_capabilities": [],
+        "missing_handlers": [],
+        "declared_handlers": {
+          "aquant.portfolio.read": "aquant_lab_agentctl_handlers:portfolio_read",
+          "aquant.simulation_plan.preview": "aquant_lab_agentctl_handlers:simulation_plan_preview"
+        },
+        "manifest_capabilities": [
+          "aquant.event_evidence.read",
+          "aquant.experiment.submit",
+          "aquant.portfolio.read",
+          "aquant.research_card.read",
+          "aquant.simulation_plan.preview"
+        ],
+        "required_entrypoint": "agentctl frontdesk message + product-owned domain state observer",
+        "reason": "能力与产品 handler 已在 manifest 声明，但本次 runner 尚未通过真实 HTTP 入口执行该用例并核对领域前后状态；声明可装载不能替代真实拓扑验收。"
+      }
+    },
+    {
+      "case": "A07",
+      "title": "重复提交幂等",
+      "status": "uncovered",
+      "evidence_kind": "not_executed",
+      "observed": "未执行：真实 agentctl 入口被结构性阻断",
+      "detail": {
+        "blocker": true,
+        "blocker_code": "product_entrypoint_not_bound",
+        "required_capabilities": [
+          "aquant.experiment.submit"
+        ],
+        "missing_capabilities": [],
+        "missing_handlers": [],
+        "declared_handlers": {
+          "aquant.experiment.submit": "aquant_lab_agentctl_handlers:experiment_submit"
+        },
+        "manifest_capabilities": [
+          "aquant.event_evidence.read",
+          "aquant.experiment.submit",
+          "aquant.portfolio.read",
+          "aquant.research_card.read",
+          "aquant.simulation_plan.preview"
+        ],
+        "required_entrypoint": "agentctl runtime_capability.invoke -> product-owned experiment submit handler",
+        "reason": "能力与产品 handler 已在 manifest 声明，但本次 runner 尚未通过真实 HTTP 入口执行该用例并核对领域前后状态；声明可装载不能替代真实拓扑验收。"
+      }
+    },
+    {
+      "case": "A08",
+      "title": "预览不冻结、不成交",
+      "status": "uncovered",
+      "evidence_kind": "not_executed",
+      "observed": "未执行：真实 agentctl 入口被结构性阻断",
+      "detail": {
+        "blocker": true,
+        "blocker_code": "product_entrypoint_not_bound",
+        "required_capabilities": [
+          "aquant.simulation_plan.preview"
+        ],
+        "missing_capabilities": [],
+        "missing_handlers": [],
+        "declared_handlers": {
+          "aquant.simulation_plan.preview": "aquant_lab_agentctl_handlers:simulation_plan_preview"
+        },
+        "manifest_capabilities": [
+          "aquant.event_evidence.read",
+          "aquant.experiment.submit",
+          "aquant.portfolio.read",
+          "aquant.research_card.read",
+          "aquant.simulation_plan.preview"
+        ],
+        "required_entrypoint": "agentctl runtime_capability.invoke -> product-owned simulation preview handler",
+        "reason": "能力与产品 handler 已在 manifest 声明，但本次 runner 尚未通过真实 HTTP 入口执行该用例并核对领域前后状态；声明可装载不能替代真实拓扑验收。"
+      }
+    },
+    {
+      "case": "A09",
+      "title": "陈旧确认被拒绝",
+      "status": "uncovered",
+      "evidence_kind": "not_executed",
+      "observed": "未执行：真实 agentctl 入口被结构性阻断",
+      "detail": {
+        "blocker": true,
+        "blocker_code": "product_entrypoint_not_bound",
+        "required_capabilities": [
+          "aquant.simulation_plan.preview"
+        ],
+        "missing_capabilities": [],
+        "missing_handlers": [],
+        "declared_handlers": {
+          "aquant.simulation_plan.preview": "aquant_lab_agentctl_handlers:simulation_plan_preview"
+        },
+        "manifest_capabilities": [
+          "aquant.event_evidence.read",
+          "aquant.experiment.submit",
+          "aquant.portfolio.read",
+          "aquant.research_card.read",
+          "aquant.simulation_plan.preview"
+        ],
+        "required_entrypoint": "product-owned confirmation/freeze HTTP entrypoint bound to agentctl",
+        "reason": "当前 onboarding 只绑定 frontdesk.message，清单也明确不声明计划冻结；没有可供 agentctl 调用的确认/冻结入口，无法在真实拓扑中提交陈旧确认。"
+      }
+    },
+    {
+      "case": "A10",
+      "title": "模型故障真实失败与降级",
+      "status": "passed",
+      "evidence_kind": "live_topology",
+      "observed": "模型失败分支保留真实失败语义",
+      "detail": {
+        "positive_completed": false,
+        "failure_semantics_observed": true,
+        "steps": 6,
+        "p1b_ok": false,
+        "p1b_detail": {
+          "status": "failed",
+          "reply": "本次任务未完成，请查看执行状态；没有将失败或未知结果视为成功。",
+          "usage_records": [
+            {
+              "source": "native_runtime",
+              "run_id": "run_fd_16731b598c21c39fea5bc79a5a23785eb2155c55"
+            }
+          ],
+          "warnings": []
+        },
+        "p1c_ok": false
+      }
+    },
+    {
+      "case": "A11",
+      "title": "旧时点实验门禁",
+      "status": "uncovered",
+      "evidence_kind": "not_executed",
+      "observed": "未执行",
+      "detail": {}
+    },
+    {
+      "case": "A12",
+      "title": "固定输入回放一致性",
+      "status": "uncovered",
+      "evidence_kind": "not_executed",
+      "observed": "未执行",
+      "detail": {}
+    },
+    {
+      "case": "A13",
+      "title": "取消 / 重复 / 乱序回调",
+      "status": "uncovered",
+      "evidence_kind": "not_executed",
+      "observed": "未执行",
+      "detail": {}
+    },
+    {
+      "case": "A14",
+      "title": "会话重开恢复持久事实",
+      "status": "uncovered",
+      "evidence_kind": "not_executed",
+      "observed": "未执行",
+      "detail": {}
+    },
+    {
+      "case": "A15",
+      "title": "密钥扫描",
+      "status": "passed",
+      "evidence_kind": "offline_contract",
+      "observed": "运行日志、构建产物、最终 evidence 与 report 均无已知密钥模式",
+      "detail": {
+        "runtime_scan": {
+          "scanned_files": 7,
+          "scanned_roots": [
+            "capabilities\\agentctl.capabilities.yaml",
+            "deploy\\agentctl-q0\\runtime.config.yaml",
+            "<runtime>\\agentctl-server.log",
+            "apps\\web\\dist"
+          ],
+          "missing_required": [],
+          "hits": [],
+          "clean": true,
+          "phase": "runtime_artifacts"
+        },
+        "final_artifact_scan": {
+          "scanned_files": 8,
+          "scanned_roots": [
+            "capabilities\\agentctl.capabilities.yaml",
+            "deploy\\agentctl-q0\\runtime.config.yaml",
+            "deploy\\agentctl-q0\\q5-acceptance-evidence.json",
+            "docs\\integration\\q5-acceptance-report.md",
+            "apps\\web\\dist"
+          ],
+          "missing_required": [],
+          "hits": [],
+          "exact_secret_hits": [],
+          "clean": true
+        }
+      }
+    },
+    {
+      "case": "A16",
+      "title": "跨进程故障恢复",
+      "status": "uncovered",
+      "evidence_kind": "not_executed",
+      "observed": "未执行",
+      "detail": {}
+    }
+  ],
+  "errors": [],
+  "summary": {
+    "passed": 4,
+    "failed": 1,
+    "uncovered": 11,
+    "blocker_count": 5,
+    "live_topology_covered": 3
+  }
+}

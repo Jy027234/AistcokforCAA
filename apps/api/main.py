@@ -51,7 +51,7 @@ from aquant.application.workspace_view import build_data_status, build_research_
 from aquant.domain.data.db import apply_migrations, connect
 from aquant.domain.data.ingest import SnapshotBuilder
 from aquant.domain.data.reader import SnapshotReader
-from aquant.domain.data.snapshot import SnapshotError, SnapshotStore
+from aquant.domain.data.snapshot import PublishedSnapshot, SnapshotError, SnapshotStore
 from aquant.domain.portfolio.construction import Candidate, ConstructionParams
 from aquant.domain.portfolio.plan import PlanError, PlanService, confirmer_is_human
 from aquant.domain.research.experiments import (
@@ -61,7 +61,7 @@ from aquant.domain.research.experiments import (
 from aquant.domain.research.f10 import compute_f10_for_snapshot
 from aquant.domain.research.strategies import (  # noqa: E402
     KNOWN_FEATURE_SPECS, StrategyVersionError, ensure_strategy_version,
-    seed_known_versions, strategy_versions,
+    seed_known_versions, strategy_family_gates, strategy_versions,
 )
 from aquant.domain.research.runs import factor_values, factor_values_for_snapshot
 from aquant.operations.scheduler import (
@@ -707,6 +707,119 @@ def _job_view(job: Job) -> dict:
     }
 
 
+def _published_snapshot_view(snapshot: PublishedSnapshot) -> dict:
+    """把领域层的已发布快照摘要映射为 API 的 camelCase 形状。
+
+    目录端点只暴露发布物的选择信息；``status``、内部路径和阻断明细
+    都不属于这个响应，因此不能通过序列化领域行意外泄露给前端。
+    """
+
+    raw = snapshot.as_dict()
+    return {
+        "snapshotId": raw["snapshot_id"],
+        "kind": raw["kind"],
+        "asOfTime": raw["as_of_time"],
+        "inputCutoffAt": raw["input_cutoff_at"],
+        "publishedAt": raw["published_at"],
+        "dataMode": raw["data_mode"],
+        "qualityStatus": raw["quality_status"],
+        "tradingDay": raw["trading_day"],
+        "datasetSummary": [
+            {
+                "name": d["name"],
+                "recordCount": d["record_count"],
+                "coverage": d["coverage_ratio"],
+                "asOfUpperBound": d["as_of_upper_bound"],
+            }
+            for d in raw["dataset_summary"]
+        ],
+        "capabilities": {
+            "s1Decision": {
+                "available": raw["capabilities"]["s1_decision"]["available"],
+                "code": raw["capabilities"]["s1_decision"]["code"],
+                "message": raw["capabilities"]["s1_decision"]["message"],
+                "repairAction": raw["capabilities"]["s1_decision"]["repair_action"],
+            },
+        },
+    }
+
+
+def _manual_trial_readiness(state: "AppState", data_status: dict) -> dict:
+    """计算一次人工 S1 模拟试运行的硬门槛。
+
+    每日调度和外发告警属于持续运行条件，单列为 warning；这里的 ``ready``
+    只回答“现在能否用真实数据、真实费率完成一次人工模拟闭环”。
+    """
+
+    issues: list[dict] = []
+    mode = data_status.get("dataMode")
+    current_id = data_status.get("snapshotId")
+    if data_status.get("readiness") != "READY":
+        issues.append({
+            "code": "DATA_NOT_READY",
+            "message": data_status.get("readinessLabel") or "当前数据未就绪",
+            "repairAction": "先关闭数据状态中的 blockingIssues",
+        })
+    if mode != "PRODUCTION":
+        issues.append({
+            "code": "PRODUCTION_SNAPSHOT_REQUIRED",
+            "message": "人工试运行要求当前快照为 PRODUCTION",
+            "repairAction": "发布真实日终快照并将 current 指针切换到该快照",
+        })
+    else:
+        catalog = state.reader.published_snapshot_catalog()
+        execution = next((item for item in catalog
+                          if item.snapshot_id == current_id), None)
+        decision = None
+        if execution is not None and execution.trading_day:
+            decision = next((item for item in catalog
+                             if item.data_mode == execution.data_mode
+                             and item.snapshot_id != execution.snapshot_id
+                             and item.s1_decision.available
+                             and item.trading_day is not None
+                             and item.trading_day < execution.trading_day
+                             and item.as_of_time < execution.as_of_time), None)
+        if execution is None:
+            issues.append({
+                "code": "CURRENT_SNAPSHOT_NOT_PUBLISHED",
+                "message": "当前快照不在已发布目录中",
+                "repairAction": "修复 current 指针或重新发布当前快照",
+            })
+        elif decision is None:
+            issues.append({
+                "code": "DECISION_EXECUTION_PAIR_MISSING",
+                "message": "没有早于当前执行日且具备 S1 决策能力的已发布快照",
+                "repairAction": "保留当前合格快照，并在下一交易日发布新的 EOD 快照",
+            })
+    if state.fees.commission_source != "USER_CONFIGURED":
+        issues.append({
+            "code": "FEE_VERSION_UNVERIFIED",
+            "message": "尚未配置用户确认的券商佣金",
+            "repairAction": "设置 AQUANT_COMMISSION_RATE 与 AQUANT_COMMISSION_MIN_CENTS 后重启 API",
+        })
+
+    schedule = scheduler_status(state.con)
+    warnings: list[dict] = []
+    if not schedule["schedule"]["enabled"]:
+        warnings.append({
+            "code": "SCHEDULER_DISABLED",
+            "message": "每日任务未启用；人工试运行不受影响，但不会自动刷新",
+            "repairAction": "在设置页启用计划，并启动 tools/scheduler_worker.py",
+        })
+    if not os.environ.get("AQUANT_ALERT_WEBHOOK", "").strip():
+        warnings.append({
+            "code": "ALERT_WEBHOOK_UNCONFIGURED",
+            "message": "失败告警只会落盘，不会外发通知",
+            "repairAction": "需要外发告警时配置 AQUANT_ALERT_WEBHOOK",
+        })
+    return {
+        "mode": "MANUAL_SIMULATION",
+        "ready": not issues,
+        "blockingIssues": issues,
+        "operationalWarnings": warnings,
+    }
+
+
 #: 引用不在原文中的标记。刻意写明"原文中定位不到"而不是"引用无效"：
 #: 定位失败可能是模型改写，也可能是来源文本本身被截断——
 #: 后者是数据问题，不是模型问题。界面不该替使用者下结论。
@@ -1087,6 +1200,26 @@ def create_app(state: AppState | None = None) -> FastAPI:
     def health() -> dict:
         return {"status": "ok"}
 
+    @app.get("/api/v1/snapshots")
+    def snapshot_catalog(s: AppState = Depends(svc)) -> dict:
+        """只读已发布快照目录。
+
+        目录由领域层在 SQL 中按 ``status='PUBLISHED'`` 过滤后构造；
+        因此 DRAFT、REJECTED 与 SUPERSEDED 不会成为前端可选项。
+        """
+
+        snapshots = [
+            _published_snapshot_view(item)
+            for item in s.reader.published_snapshot_catalog()
+        ]
+        return {"count": len(snapshots), "snapshots": snapshots}
+
+    @app.get("/api/v1/snapshots/{snapshot_id}")
+    def snapshot_detail(snapshot_id: str, s: AppState = Depends(svc)) -> dict:
+        """返回一条已发布快照摘要；未发布对象按未知发布物处理。"""
+
+        return _published_snapshot_view(s.reader.published_snapshot(snapshot_id))
+
     @app.get("/api/v1/status")
     def status(s: AppState = Depends(svc)) -> dict:
         """数据状态。**含新鲜度**——快照落后了没有。
@@ -1299,6 +1432,7 @@ def create_app(state: AppState | None = None) -> FastAPI:
 
         status = build_data_status(s.reader, s.current_snapshot()).as_dict()
         jobs = JobStore(s.con).counts_by_status()
+        trial = _manual_trial_readiness(s, status)
         return {
             "ready": status.get("readiness") == "READY",
             "data": {
@@ -1310,8 +1444,10 @@ def create_app(state: AppState | None = None) -> FastAPI:
                 "blockingIssues": status.get("blockingIssues") or [],
             },
             "jobs": jobs,
+            "trial": trial,
             "note": ("就绪是**分维度**的：数据就绪不代表任务积压已清空，"
-                     "反之亦然"),
+                     "反之亦然；trial.ready 只表示可进行一次人工模拟闭环，"
+                     "持续自动运行条件见 operationalWarnings"),
         }
 
     @app.get("/api/v1/jobs/{job_id}")
@@ -1352,6 +1488,7 @@ def create_app(state: AppState | None = None) -> FastAPI:
     @app.get("/api/v1/strategy-versions")
     def list_strategy_versions(s: AppState = Depends(svc)) -> dict:
         return {"strategyVersions": strategy_versions(s.con),
+                "familyGates": strategy_family_gates(),
                 "featureVersions": [
                     {"featureVersion": k, **v}
                     for k, v in KNOWN_FEATURE_SPECS.items()

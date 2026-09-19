@@ -53,9 +53,13 @@
 - **对应**：v0.2.2 §1 全部卡片的总前置
 
 ### T2 版本与基座锁定
-- **交付物**：`adapters/agentctl/LOCKED_BASE`（提交 SHA、锁定日期、diff 摘要）；基线监测规程
+- **交付物**：`src/aquant/adapters/agentctl/LOCKED_BASE`（提交 SHA、锁定日期、diff 摘要）；`tools/check_agentctl_base.py`；基线监测规程
 - **依赖**：无（Q0 已产出事实）
 - **完成判据**：`b5cad04836cf93b35750fb0116ab0c2d936d1f89` 记录在案；升级 = 显式任务且须重跑 A01–A16
+- **当前状态**：锁文件已补齐；2026-09-19 本机 `E:\IT\Agent` 实际为
+  `f10bb6ac42d4a30a9a521194fb27a950e7384456`，相对锁定提交的
+  `src/agentctl` 有 11 个文件变化。当前 Q5 结果只能代表该本机版本；在完成显式
+  升级评审与受影响验收前，不更新锁定提交、不宣称锁定版本兼容。
 - **对应**：v0.2.2 §5
 
 ### T3 可运行骨架（**最高优先，不依赖供应商与模型密钥**）
@@ -114,12 +118,16 @@
   因此尚未满足完成判据。
 - **对应**：主文档 §19 M3、§5
 
-### T8 Q1 适配层与只读能力（**首个能力已完成**）
+### T8 Q1 适配层与只读能力（🟡 **研究读取已实跑，其余能力分批接入**）
 - **交付物**：`src/aquant/adapters/agentctl/`（client/errors/config/onboard）；`capabilities/` manifest + handler
 - **依赖**：T2、T3（合成快照）
-- **完成判据**：**已达成**——模型自主选中 `aquant.research_card.read` 并真实执行；tenant/product/scope 三类负向全部被拒
+- **当前证据**：`aquant.research_card.read` 已经由真实
+  `/frontdesk/capabilities/invoke` 返回 snapshot、研究数据与 invocation/trace/idempotency
+  关联（Q5 A04 通过）；tenant/product/scope 三类负向通过（A03）。新增的事件、组合、
+  预览、实验 handler 已通过 manifest 校验和产品存储单测，但尚未在 Q5 真实拓扑逐项执行。
 - **对应**：v0.2.1 Q1、v0.2.2 §1 Q1、Q0 报告 §4.5–4.6
-- **遗留**：其余七个能力按 T9/T10/T11 分批接入
+- **遗留**：`market_snapshot.read`、`job.status`、`watchlist.add` 尚未进入 manifest；
+  已声明的四项新 handler 仍须关闭 A05–A08 的 live 验收。
 
 ### T9 预览与确认（Q3，**依赖 M2**）
 - **交付物**：`aquant.simulation_plan.preview`、`aquant.portfolio.read`、`aquant.watchlist.add`；产品侧确认入口；幂等去重存储
@@ -128,18 +136,27 @@
   1. **确认冻结**恰好发生一次（计划版本、快照版本、账户状态版本、确认主体、有效期五项复核）
   2. **模拟成交记账**恰好发生一次（这是 M2 的能力，不是确认动作的副产品）
 - **对应**：v0.2.2 §1 Q3
+- **当前状态**：`aquant.portfolio.read` 与 `aquant.simulation_plan.preview` 已声明并接到
+  真实账本/`PlanService.preview`；预览与产品 API 共用费率解析，不能绕过
+  `FEE_VERSION_UNVERIFIED`。A08 尚未通过 live HTTP 核对；A09 的确认/冻结继续由
+  产品自有 HTTP 入口承担，未绑定进 agentctl，也不向模型暴露冻结能力。
 - **修正说明**：v0.2.2 把 Q3 前置写成"Q1 + 合成账户"，但"仅一次入账"是账本属性。**确认 ≠ 成交**；若把二者混为一条断言，会在 M2 尚未交付时产生虚假通过。
 
 ### T10 证据研究（Q2）
 - **交付物**：抽取 handler、结构化输出验证管线、原始输出归档（含内容哈希）、降级路径
 - **依赖**：T5（证据域）+ T8
 - **完成判据**：A05/A06/A10/A15；失败路径不产生伪证据；归档哈希可复算
+- **当前状态**：`aquant.event_evidence.read` 已接真实证据库，按快照时点过滤并遮罩
+  未授权引用；单测证明恶意材料读取不新增作业。A10/A15 已通过，A05/A06 仍缺真实
+  HTTP 调用前后状态证据。
 - **对应**：v0.2.1 Q2、主文档 §18.3（≥200 份人工标注材料）
 
 ### T11 作业与追踪（Q4）
 - **交付物**：`aquant.experiment.submit` / `aquant.job.status`；关联表；七态状态机
 - **依赖**：T5（任务机制）+ T10
 - **完成判据**：A13/A14；七种状态在 UI 与 API 可区分
+- **当前状态**：`aquant.experiment.submit` 已接持久 Research JobStore，并通过重复提交
+  只产生一个 job 的单测；`aquant.job.status`、回调乱序/取消以及会话恢复仍未接入 Q5。
 - **对应**：v0.2.1 Q4
 
 ### T12 双重验收（Q5 / M5）
@@ -197,6 +214,7 @@ Q0 期间出现过一次"把测试接线错误当成产品缺陷"的误判（见
 | ADR-012 | `TextModelProvider` 保留为领域窄接口，agentctl 网关为其**生产实现**之一，离线测试替身不变 | **已采纳**（2026-09-15） | `docs/adr/ADR-012-text-model-provider.md` |
 | ADR-013 | 静态 master 令牌不下发到产品；部署一律 `--token-env`；产品使用独立签发的受限令牌 | **已采纳**（2026-09-15） | `docs/adr/ADR-013-deployment-token-discipline.md` |
 | ADR-014 | 调度配置进产品界面（`run_schedule` + 设置页），执行留在独立 worker；API 只登记运行请求 | **已采纳**（2026-09-19） | `docs/adr/ADR-014-scheduling-ownership.md` |
+| ADR-015 | S2 替代财务源先做字段/PIT/修订/行业/权利 Spike；S2 继续关闭，首期试运行不受阻；降级实验必须使用 `CUSTOM` 新版本 | **已采纳（路线；Token 有效但财务接口无权限）**（2026-09-19） | `docs/adr/ADR-015-s2-alternative-data-provider.md` |
 
 ADR-011 的边界（领域层不得依赖 agentctl）由
 `tests/security/test_agentctl_boundary.py` **强制**，不靠约定。
@@ -243,11 +261,11 @@ ADR-011 的边界（领域层不得依赖 agentctl）由
 | T5 M1 数据与证据底座 | ✅ | 合成 D01–D08；真实全市场快照 `snap-universe`（900 只 / 61 个交易日） |
 | T6 M2 账本与模拟 | ✅ | `tests/golden/test_s01_s10_simulator.py`、`tests/golden/test_dividend_persistence.py`、`tests/integration/t13_multiday.py`（多日 + 跨进程重启） |
 | T7 M3 工作台 | ✅ | 五页导航；写链路可走完；`tools/check_ui_flow.py`（交互 + 数字出处） |
-| T8 Q1 适配层 + 只读能力 | ✅ | Q0 成立；handler 已接 M1 真实存储，见 §8.2 与 §8.6 |
-| T9 Q3 预览与确认 | ✅ | `apps/api` 计划生命周期；`tools/check_real_flow.py`、`tools/check_both_sides.py` |
-| T10 Q2 证据研究 | ✅ | `src/aquant/domain/ai/evidence.py`、`src/aquant/domain/evidence/store.py`、`tools/check_model_egress.py` |
-| T11 Q4 作业与追踪 | ✅ | `src/aquant/operations/research_jobs.py`、`jobs.py`；`tests/api/test_research_jobs.py` |
-| T12 双重验收 | 🟡 | 量化侧双侧验收已成（`tools/check_both_sides.py`）；**Q5 接入侧报告未出** |
+| T8 Q1 适配层 + 只读能力 | 🟡 | 研究卡 live 调用与边界通过；事件、组合、预览、实验 handler 已声明并通过产品存储单测，尚待 A05–A08 live 验收 |
+| T9 Q3 预览与确认 | 🟡 | 计划生命周期与双快照时点绑定已接入；当前真实目录尚无“更早且 S1 就绪的决策快照 + 更晚执行快照”组合，须在下一份日终快照发布后重跑 `tools/check_real_flow.py` |
+| T10 Q2 证据研究 | 🟡 | 领域管线与 event handler 已成，A10/A15 通过；A05/A06 尚无 live 前后状态证据 |
+| T11 Q4 作业与追踪 | 🟡 | Research JobStore 与 experiment submit handler 已成；job.status、A13/A14 尚未关闭 |
+| T12 双重验收 | 🟡 | 量化侧报告已成；最新 Q5 为 4 通过、1 失败、11 未覆盖，真实拓扑 A03/A04/A10 通过，A02 doctor 失败 |
 
 ### 8.2 本基线之后新增的能力（不在 §3 任务表里）
 
@@ -263,6 +281,8 @@ ADR-011 的边界（领域层不得依赖 agentctl）由
 | 本地 Docker 部署 | `Dockerfile`、`docker-compose.yml` | 试运行需要"一个容器起来就能看" |
 | 能力运行期接线 | `src/aquant/adapters/agentctl/runtime.py` | handler 不再自带夹具；默认读取器必须在**运行期**存在，否则"能力已注册"与"能力可用"是两回事 |
 | 能力 handler 契约守卫 | `tests/security/test_agentctl_handler_contract.py` | 基座按 `inspect.signature(fn).bind({})` 装载；这个前提此前**只是假设**，从没被断言过 |
+| 已发布快照目录与 S1 能力 | `/api/v1/snapshots`、`SnapshotReader.published_snapshot_catalog` | 生产预览需要独立决策/执行快照；目录先公布 S1 数据能力，避免把缺前复权价的旧快照交给用户后才在预览阶段失败 |
+| 人工试运行预检 | `/api/v1/readiness` 的 `trial` 维度 | 把真实数据模式、双快照时点对和已确认佣金列为硬门槛；调度与告警列为持续运行提示，避免“数据 READY”被误读为“产品可试运行” |
 
 ### 8.3 事实修正：主规格**未**修订
 
@@ -304,21 +324,34 @@ ADR-011/012/013 也未被它引用。
 ### 8.5 仍未完成的（按重要性）
 
 1. **主规格修订**（§8.3）——文档一致性债。
-2. **Q5 接入侧验收报告**——T12 的另一半，与量化侧报告**分别出具，互不替代**。
-   Q1 的 handler 接线已在 §8.6 关闭，但"接入侧验收"指的是**在真实接入
-   拓扑下重跑一遍并出具报告**，不是"代码写完了"。两者不能相互替代。
-3. **调度 worker 需要长驻**——界面配置已经能写进产品库（ADR-014，
-   `run_schedule` + 设置页 + `/api/v1/schedule`），但"每天到点跑"仍依赖
-   `tools/scheduler_worker.py` 在跑。它不在时，界面上配置**不会**让任何东西
-   自动跑（设置页写明这一句）。推荐挂成"登录时启动"的任务，
-   而不是定点跑一次脚本——后者会让"到点没跑"重新变成没人看得见的失败。
+2. **Q5 接入侧验收仍未关闭**——`docs/integration/q5-acceptance-report.md`
+   已由一次隔离的真实 HTTP 拓扑运行生成，临时令牌已撤销、服务已停止。
+   当前 A03（tenant/product/scope）、A04（真实研究能力调用）和 A10（真实失败语义）
+   通过；A15 只有离线扫描证据；A01 观察到 `mode_compatible=false` 后调用仍被接受；
+   A02 因当前 manifest 未满足基座 `execution_evidence` assurance 而失败；A05–A09、
+   A11–A14、A16 尚未在该拓扑执行。另有基座漂移：锁定 `b5cad…`，当前本机为
+   `f10bb…`，11 个 `src/agentctl` 文件有变化，未完成显式升级评审。
+   该报告与量化领域回归报告**分别出具，互不替代**。
+3. **生产双快照尚缺一个后续日终发布物**——真实目录实测中，
+   `snap-eod-2026-09-18-53df1f23e8754984` 有 899 只证券满足 S1 决策输入；
+   更早的 `snap-universe` 有 898 只证券的完整原始行情窗口缺少
+   `adjusted_close_cents`，已由目录标记为 `ADJUSTED_CLOSE_INCOMPLETE`，不能
+   作为决策快照。发布一份晚于 2026-09-18 的合格 EOD 快照后，9 月 18 日
+   快照才能作为决策端、后续快照作为执行端，随后重跑真实闭环验收。
 4. **失败告警通道**——`AQUANT_ALERT_WEBHOOK` 未配置，告警只落盘。
 5. **券商佣金**——`commission_source=UNCONFIGURED_DEFAULT`，需要使用者填真实费率。
 6. **分红个税（§12.6）**——规格允许 PRE-TAX 标注，当前已如此；未实现完整税制。
-7. **F07/F09 绝对财务值**——需要付费源，见 ADR-005。
+7. **F07/F09 绝对财务值**——BaoStock 当前缺失；Tushare Pro 已确认存在文档层候选字段，且 Token 有效，但当前账户的三项财报接口均返回 `40203` 无权限，尚未取得真实数据；巨潮/交易所原始披露是高成本兜底。S2 仍关闭，见 ADR-005、ADR-015。领域层和 API 已同步阻止新建 `family=S2`，实验登记也会拒绝升级前遗留的 S2 版本，并通过 `familyGates` 返回关闭原因。该项不阻断 S1 首期试运行。
 8. **master 令牌持有人**（§8.4 第三项）。
 9. **上市天数门槛只能判一半**（§8.7）——窗口在 120 个交易日以内的快照
    无法判定窗口外上市的标的，只能记「不足以判定」而不排除。
+
+调度 worker 的本机运维缺口已于 2026-09-19 关闭：Windows 任务
+`AQuant Scheduler Worker` 已注册为登录时启动并处于 `Running`，使用项目配置的
+解释器和 `deploy/universe-snapshot`；另有每 5 分钟一次的恢复触发器，worker
+存活时由 `IgnoreNew` 忽略，异常退出时自动拉起，不会改变产品内配置的采集时间。
+这是本机状态；部署到其他机器时仍须按
+`docs/daily-pipeline.md` 重建对应的系统任务。
 
 ### 8.7 因子从来没有落过库，以及"配置写着却不生效"的第二例
 
@@ -427,4 +460,3 @@ if self.listed_on is not None:
 `build_pool_from_universe.py` 回填进研究池、`t10_universe_snapshot.py` 带进快照。
 在此之前，能力卡片会如实说"缺少上市日期：无法判断历史时点是否已上市"——
 那句限制当时是真的，不是占位文案。
-

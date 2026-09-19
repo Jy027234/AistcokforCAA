@@ -101,14 +101,19 @@ python tools\scheduler_worker.py --now
 python 未必装了它们。用错的后果是每天都失败，而失败信息是
 「baostock 未安装」——看起来像数据源坏了，不像配置写错了。
 
-希望 worker 开机/登录就起来，把它挂成一条**登录时启动**的任务即可
-（不是定点跑脚本——那会让"到点没跑"重新变成没人看得见的失败）：
+希望 worker 开机/登录就起来，使用仓库里的幂等安装脚本。它除了登录触发，还会
+每 5 分钟尝试一次恢复；worker 正常存活时由 `IgnoreNew` 忽略，不会增加采集频率，
+worker 异常退出时则会重新拉起。真正的运行时刻仍由产品库中的计划配置决定：
 
 ```powershell
-$action  = New-ScheduledTaskAction -Execute "E:\IT\Agent\.venv\Scripts\python.exe" `
-  -Argument "tools\scheduler_worker.py" -WorkingDirectory "E:\IT\A股量化交易"
-$trigger = New-ScheduledTaskTrigger -AtLogOn
-Register-ScheduledTask -TaskName "AQuant 调度 worker" -Action $action -Trigger $trigger
+& tools\install_scheduler_task.ps1 `
+  -PythonPath "E:\IT\Agent\.venv\Scripts\python.exe" `
+  -DataDir "E:\IT\A股量化交易\deploy\universe-snapshot"
+
+# 只检查解释器、数据目录和依赖，不修改计划任务
+& tools\install_scheduler_task.ps1 `
+  -PythonPath "E:\IT\Agent\.venv\Scripts\python.exe" `
+  -ValidateOnly
 ```
 
 ### 方式二：系统调度直接跑流水线
@@ -222,9 +227,9 @@ python tools\promote_snapshot.py `
 
 * **失败告警没有接**。脚本只写留痕与退出码，把它接到邮件/IM
   是运维侧的事（本项目不引入消息中间件，见 §14.2）。
-* **调度 worker 默认不在跑**。脚本、界面配置、退出码与留痕都齐了，
-  但"每天到点跑"这件事仍需要一个长驻进程：没有它，界面上配置**不会**
-  让任何东西自动跑（设置页会把这句写出来）。
+* **调度 worker 不是 API 的子进程**。脚本、界面配置、退出码与留痕都齐了，
+  但"每天到点跑"仍依赖独立 worker：没有运行 `tools/install_scheduler_task.ps1`
+  （或在其他系统配置等价的服务）时，界面上的配置**不会**让任何东西自动跑。
 * **财报与公司行为没有进每日流程**。F10 依赖财报缓存，
   而财报按季度更新，不该每天抓。当前是手工在季报季跑一次——
   这是一个**已知的、有意的**手工环节，不是遗漏。但注意：快照必须带上

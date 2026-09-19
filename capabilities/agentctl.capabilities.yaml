@@ -12,9 +12,10 @@ default_tenant_id: aquant-synthetic
 # write_ledger, run_shell, raw_sql, fetch_arbitrary_url and plan freeze. The
 # model has no mechanism to reach them because they are not declared here.
 #
-# Q0 scope: one read-only capability, enough to prove the manifest -> apply ->
-# real invocation path end to end. The remaining seven capabilities from
-# v0.2.1 section 4 are added in Q1-Q3, each with its own handler and tests.
+# Q5 scope: the read/evidence, portfolio, simulation-preview and experiment
+# submit capabilities below are product-owned entry points. They read the
+# published snapshot/ledger and submit through the durable research-job store.
+# Plan freeze and all trading/escape-hatch capabilities remain undeclared.
 
 capabilities:
 - capability_id: aquant.research_card.read
@@ -105,3 +106,268 @@ capabilities:
     arguments:
       instrument_id: SH.600519
       snapshot_id: snap-universe
+
+- capability_id: aquant.event_evidence.read
+  version: 1.0.0
+  title: 读取事件证据
+  description: 读取固定已发布快照内、经过可用时点过滤的事件证据；不抓取来源、不写入事实
+  when_to_use:
+  - 查询证券在快照时点已可用的事件证据
+  - 核对事件的来源授权与引用
+  when_not_to_use:
+  - 要求即时联网检索或读取未发布数据
+  handler: aquant_lab_agentctl_handlers:event_evidence_read
+  input_schema:
+    type: object
+    required:
+    - instrument_id
+    - snapshot_id
+    properties:
+      instrument_id:
+        type: string
+      snapshot_id:
+        type: string
+      located_only:
+        type: boolean
+      limit:
+        type: integer
+        minimum: 1
+        maximum: 100
+    additionalProperties: false
+  output_schema:
+    type: object
+    required:
+    - ok
+    - snapshot_id
+    - as_of_time
+    - instrument_id
+    - evidence
+    properties:
+      ok:
+        type: boolean
+      snapshot_id:
+        type: string
+      as_of_time:
+        type: string
+      data_mode:
+        type: string
+      watermark:
+        type: string
+      instrument_id:
+        type: string
+      count:
+        type: integer
+      evidence:
+        type: array
+      pit_filter:
+        type: string
+  result_object_types:
+  - artifact_ref
+  - evidence_ref
+  side_effect_class: none
+  risk_level: R1
+  data_sensitivity: D1
+  required_scopes:
+  - aquant.research.read
+  confirmation_policy: none
+  idempotency:
+    required: true
+    scope: tenant_actor_capability
+
+- capability_id: aquant.portfolio.read
+  version: 1.0.0
+  title: 读取组合账本
+  description: 读取产品持久化的模拟组合现金与持仓；只读，主体范围由已验证调用上下文提供
+  when_to_use:
+  - 查询模拟组合当前现金与持仓
+  when_not_to_use:
+  - 要求改动现金、持仓或成交记录
+  handler: aquant_lab_agentctl_handlers:portfolio_read
+  input_schema:
+    type: object
+    required:
+    - portfolio_id
+    properties:
+      portfolio_id:
+        type: string
+    additionalProperties: false
+  output_schema:
+    type: object
+    required:
+    - ok
+    - portfolio_id
+    - cash
+    - positions
+    properties:
+      ok:
+        type: boolean
+      portfolio_id:
+        type: string
+      cash:
+        type: object
+      positions:
+        type: array
+      subject_scope:
+        type: string
+      actor_user_id:
+        type: string
+      read_only:
+        type: boolean
+  result_object_types:
+  - artifact_ref
+  side_effect_class: none
+  risk_level: R1
+  data_sensitivity: D1
+  required_scopes:
+  - aquant.portfolio.read
+  confirmation_policy: none
+  idempotency:
+    required: true
+    scope: tenant_actor_capability
+
+- capability_id: aquant.simulation_plan.preview
+  version: 1.0.0
+  title: 预览模拟计划
+  description: 使用已发布快照与产品账本计算模拟计划；只算不冻，不写计划、订单或成交
+  when_to_use:
+  - 在固定决策快照下预览组合调仓
+  when_not_to_use:
+  - 要求冻结计划、提交订单或产生成交
+  handler: aquant_lab_agentctl_handlers:simulation_plan_preview
+  input_schema:
+    type: object
+    required:
+    - portfolio_id
+    - snapshot_id
+    - trading_day
+    properties:
+      portfolio_id:
+        type: string
+      snapshot_id:
+        type: string
+      trading_day:
+        type: string
+      candidates:
+        type: array
+      decision_snapshot_id:
+        type: string
+      decision_cutoff_at:
+        type: string
+      execution_snapshot_id:
+        type: string
+      cash_available_cents:
+        type: integer
+    additionalProperties: false
+  output_schema:
+    type: object
+    required:
+    - ok
+    - plan_id
+    - portfolio_id
+    - snapshot_id
+    - frozen
+    - orders
+    properties:
+      ok:
+        type: boolean
+      plan_id:
+        type: string
+      portfolio_id:
+        type: string
+      snapshot_id:
+        type: string
+      trading_day:
+        type: string
+      frozen:
+        type: boolean
+      frozen_label:
+        type: string
+      orders:
+        type: array
+      targets:
+        type: array
+      estimated_fees_cents:
+        type: integer
+      read_only:
+        type: boolean
+  result_object_types:
+  - artifact_ref
+  side_effect_class: none
+  risk_level: R1
+  data_sensitivity: D1
+  required_scopes:
+  - aquant.simulation.read
+  confirmation_policy: none
+  idempotency:
+    required: true
+    scope: tenant_actor_capability
+
+- capability_id: aquant.experiment.submit
+  version: 1.0.0
+  title: 提交研究实验
+  description: 通过产品 JobStore 提交幂等的研究实验作业；仅创建研究作业，不执行交易或写账本
+  when_to_use:
+  - 提交固定快照上的因子或证据研究作业
+  when_not_to_use:
+  - 要求执行订单、写账本或改变模拟组合
+  handler: aquant_lab_agentctl_handlers:experiment_submit
+  input_schema:
+    type: object
+    required:
+    - job_type
+    - trading_day
+    - snapshot_id
+    properties:
+      job_type:
+        type: string
+      trading_day:
+        type: string
+      snapshot_id:
+        type: string
+      config_version:
+        type: string
+      payload:
+        type: object
+    additionalProperties: false
+  output_schema:
+    type: object
+    required:
+    - ok
+    - jobId
+    - status
+    - idempotencyKey
+    - job_ref
+    properties:
+      ok:
+        type: boolean
+      jobId:
+        type: string
+      created:
+        type: boolean
+      status:
+        type: string
+      snapshotId:
+        type: string
+      idempotencyKey:
+        type: string
+      job_id:
+        type: string
+      idempotency_key:
+        type: string
+      actor_user_id:
+        type: string
+      job_ref:
+        type: object
+  result_object_types:
+  - job_ref
+  - evidence_ref
+  side_effect_class: internal
+  risk_level: R2
+  data_sensitivity: D1
+  required_scopes:
+  - aquant.experiment.submit
+  confirmation_policy: policy
+  async_mode: job
+  idempotency:
+    required: true
+    scope: tenant_actor_capability

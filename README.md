@@ -173,6 +173,17 @@ python tools\scheduler_worker.py --once     # 只处理一轮（cron / 排查）
 python tools\scheduler_worker.py --now      # 立刻跑一次
 ```
 
+Windows 上建议把长驻 worker 注册成带恢复触发器的计划任务：
+
+```powershell
+& tools\install_scheduler_task.ps1 `
+  -PythonPath "E:\IT\Agent\.venv\Scripts\python.exe" `
+  -DataDir "E:\IT\A股量化交易\deploy\universe-snapshot"
+```
+
+该脚本会先验证解释器可导入 `baostock` 与 `pytest`，再注册登录启动和异常退出后的
+5 分钟恢复检查；worker 存活时不会重复启动，也不会改变界面中配置的实际采集时间。
+
 **worker 不在跑时，界面上的配置不会让任何东西自动跑**——这句话写在设置页上。
 界面上的「立刻运行一次」只登记请求，执行仍由 worker 做，因此点按钮与到点自动跑
 走的是同一条路径（并发锁、休市判断、留痕、告警都在那条路上）。

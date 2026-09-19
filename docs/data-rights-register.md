@@ -156,3 +156,19 @@ legacy renegotiation。转载页保留了文号、发布部门、发布日期与
    （该测试会断言"未授权来源仍被拒绝"，因此改错会失败）。
 
 代码里 `ALLOWED` 是**唯一**能让 `can_enter_model_context()` 返回真的值。
+
+---
+
+## 五、S2 替代源预登记（2026-09-19）
+
+`docs/adr/ADR-015-s2-alternative-data-provider.md` 记录了 S2 财务源的字段和验收路线。下列来源目前只进入**候选登记**，没有因接口能返回数据或软件采用开源许可证而放开任何权利：
+
+| 来源 | research_use | local_storage | excerpt_display | model_processing | commercial_use | third_party_redistribution | 依据/状态 |
+|---|---|---|---|---|---|---|---|
+| `tushare-pro` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | Token 已验证有效，但三项财报接口均返回 40203 无权限；服务条款和实际使用范围待核验 |
+| `akshare-upstream` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | AKShare 软件仓库与上游数据源必须分别核验；仓库声明仅供学术研究和参考 |
+| `efinance-upstream` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | 项目 README 有个人学习交流及非商业限制；上游数据权利仍需单独核验 |
+| `easyquotation-upstream` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | 实时行情候选，尚未进入 S2；数据源条款未核验 |
+| `adata-upstream` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | 仅列入候选清单，尚无本项目字段、PIT 与条款验收 |
+
+在上述来源完成条款或书面授权核验前，不得把它们送入模型上下文、作为商用功能的数据源或对外再分发。Spike 可以在本地受限运行，但必须遵守“未知默认不开放”，并将凭证、原始响应和权利结论分别留证。

@@ -103,6 +103,10 @@ export interface PreviewResponse {
   portfolio_id: string;
   snapshot_id: string;
   trading_day: string;
+  decisionSnapshotId: string | null;
+  decisionCutoffAt: string | null;
+  executionSnapshotId: string | null;
+  executionCutoffAt: string | null;
   reference_price_day: string | null;
   plan_version: string;
   account_version: string;
@@ -127,6 +131,43 @@ export interface PreviewResponse {
   excluded: { instrument_id?: string; instrumentId?: string; reason: string; detail?: string }[];
   cash_weight_pct: string;
   notes: string[];
+}
+
+export interface PublishedSnapshot {
+  snapshotId: string;
+  kind: string;
+  asOfTime: string;
+  inputCutoffAt: string;
+  publishedAt: string | null;
+  dataMode: string;
+  qualityStatus: string;
+  /** 执行交易日由服务端根据快照元数据给出，不能由用户自由填写。 */
+  tradingDay: string | null;
+  datasetSummary: {
+    name: string; recordCount: number; coverage: number | null;
+    asOfUpperBound: string;
+  }[];
+  capabilities: {
+    s1Decision: {
+      available: boolean;
+      code: string;
+      message: string;
+      repairAction: string | null;
+    };
+  };
+}
+
+export interface SnapshotCatalogResponse {
+  count: number;
+  snapshots: PublishedSnapshot[];
+}
+
+export interface PlanTimingSelection {
+  decisionSnapshotId: string;
+  decisionCutoffAt: string;
+  executionSnapshotId: string;
+  executionCutoffAt: string;
+  tradingDay: string;
 }
 
 export interface DividendInput {
@@ -384,11 +425,17 @@ export const api = {
 
   status: () => request<DataStatus>("/api/v1/status"),
 
+  snapshots: () => request<SnapshotCatalogResponse>("/api/v1/snapshots"),
+
   candidates: () => request<CandidatesResponse>("/api/v1/candidates"),
 
   events: () => request<EventsResponse>("/api/v1/events"),
 
-  preview: (body: { portfolio_id: string; snapshot_id: string; trading_day: string }) =>
+  preview: (body: {
+    portfolio_id: string; snapshot_id: string; trading_day: string;
+    decision_snapshot_id?: string; decision_cutoff_at?: string;
+    execution_snapshot_id?: string;
+  }) =>
     request<PreviewResponse>("/api/v1/plans/preview", {
       method: "POST", body: JSON.stringify(body),
     }),

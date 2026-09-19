@@ -1,5 +1,7 @@
 import type { WorkspaceData } from "../lib/types";
-import type { PreviewResponse } from "../lib/api";
+import type {
+  PlanTimingSelection, PreviewResponse, PublishedSnapshot,
+} from "../lib/api";
 import { Badge, Callout, Card, Empty, Section } from "../components/ui";
 import { DraftPanel } from "../components/DraftPanel";
 import { LedgerPanel } from "../components/LedgerPanel";
@@ -12,7 +14,7 @@ import { LedgerPanel } from "../components/LedgerPanel";
  */
 export function PortfolioView({
   data, onConfirm, onRequestPreview, livePreview, apiUp, confirming, confirmResult,
-  frozenPlanId,
+  frozenPlanId, snapshots, timing, onTimingChange,
 }: {
   data: WorkspaceData;
   onConfirm: () => void;
@@ -23,10 +25,22 @@ export function PortfolioView({
   confirmResult: { ok: boolean; message: string } | null;
   /** 已成功冻结的计划 ID；为空表示还没有可执行的计划。 */
   frozenPlanId: string | null;
+  snapshots: PublishedSnapshot[];
+  timing: PlanTimingSelection | null;
+  onTimingChange: (role: "decision" | "execution", snapshotId: string) => void;
 }) {
   const source = data.dataSource === "api" ? "api" : "fixture";
-  const productionTimingUnavailable = data.dataSource === "api" &&
-    data.status.dataMode !== "SYNTHETIC";
+  const production = data.dataSource === "api" && data.status.dataMode !== "SYNTHETIC";
+  const productionTimingUnavailable = production && timing === null;
+  const productionSnapshots = snapshots.filter(
+    (snapshot) => snapshot.dataMode === data.status.dataMode,
+  );
+  const decisionSnapshots = productionSnapshots.filter(
+    (snapshot) => snapshot.capabilities.s1Decision.available,
+  );
+  const decisionBlocker = productionSnapshots.find(
+    (snapshot) => !snapshot.capabilities.s1Decision.available,
+  )?.capabilities.s1Decision;
   return (
     <>
       <Section
@@ -64,6 +78,52 @@ export function PortfolioView({
           : <Badge tone="neutral">检测中</Badge>
         }
       >
+        {production && (
+          <Card title="生产时点绑定">
+            <Callout tone="info" title="候选与成交使用不同快照">
+              决策快照决定候选与参考价，执行快照只提供执行日收盘行情。
+              截止时间和交易日都从已发布快照读取，不能手工改写。
+            </Callout>
+            {productionSnapshots.length < 2 ? (
+              <Callout tone="warn" title="已发布快照不足">
+                生产预览至少需要两个同来源的已发布快照：执行日前的决策快照，
+                以及执行日收盘快照。
+              </Callout>
+            ) : decisionSnapshots.length === 0 ? (
+              <Callout tone="warn" title="没有可用的 S1 决策快照">
+                {decisionBlocker?.message ?? "已发布快照不满足 S1 决策数据条件。"}
+                {decisionBlocker?.repairAction ? " 修复：" + decisionBlocker.repairAction : ""}
+              </Callout>
+            ) : (
+              <div className="grid-2" style={{ marginTop: 12 }}>
+                <label>
+                  <span className="note">决策快照</span>
+                  <select className="input mono" value={timing?.decisionSnapshotId ?? ""}
+                    onChange={(event) => onTimingChange("decision", event.target.value)}>
+                    {decisionSnapshots.map((snapshot) => (
+                      <option key={snapshot.snapshotId} value={snapshot.snapshotId}>
+                        {snapshot.tradingDay} · {snapshot.snapshotId}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="note">截止：{timing?.decisionCutoffAt ?? "—"}</span>
+                </label>
+                <label>
+                  <span className="note">执行快照</span>
+                  <select className="input mono" value={timing?.executionSnapshotId ?? ""}
+                    onChange={(event) => onTimingChange("execution", event.target.value)}>
+                    {productionSnapshots.map((snapshot) => (
+                      <option key={snapshot.snapshotId} value={snapshot.snapshotId}>
+                        {snapshot.tradingDay} · {snapshot.snapshotId}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="note">交易日：{timing?.tradingDay ?? "—"} · 收盘：{timing?.executionCutoffAt ?? "—"}</span>
+                </label>
+              </div>
+            )}
+          </Card>
+        )}
         <DraftPanel
           draft={data.draft}
           livePreview={livePreview}
@@ -74,7 +134,7 @@ export function PortfolioView({
           confirmResult={confirmResult}
           previewEnabled={!productionTimingUnavailable}
           previewDisabledReason={productionTimingUnavailable
-            ? "生产计划要求独立的决策快照、执行快照和明确截止时点；当前接口尚未提供快照列表与选择入口。"
+            ? "没有找到具备 S1 决策能力且满足先后顺序的同源快照对；先补齐前复权数据并运行下一次日终流水线。"
             : null}
         />
       </Section>
@@ -94,8 +154,8 @@ export function PortfolioView({
         ) : (
           <LedgerPanel
             portfolioId={data.draft.portfolioId}
-            snapshotId={data.status.snapshotId}
-            tradingDay={data.draft.tradingDay}
+            snapshotId={timing?.executionSnapshotId ?? data.status.snapshotId}
+            tradingDay={timing?.tradingDay ?? data.draft.tradingDay}
             planId={frozenPlanId}
             frozen={frozenPlanId !== null}
           />

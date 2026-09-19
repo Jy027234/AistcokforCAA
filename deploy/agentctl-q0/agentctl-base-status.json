@@ -1,0 +1,22 @@
+{
+  "schema_version": "aquant.agentctl_base_status.v1",
+  "matched": false,
+  "locked_commit": "b5cad04836cf93b35750fb0116ab0c2d936d1f89",
+  "current_commit": "f10bb6ac42d4a30a9a521194fb27a950e7384456",
+  "changed_file_count": 11,
+  "diff_summary": "11 files changed, 206 insertions(+), 56 deletions(-)",
+  "changed_files": [
+    "src/agentctl/aios/control_plane.py",
+    "src/agentctl/cli/main.py",
+    "src/agentctl/cli/selfcheck.py",
+    "src/agentctl/cli/serve.py",
+    "src/agentctl/release/smoke.py",
+    "src/agentctl/server/bridge.py",
+    "src/agentctl/server/http.py",
+    "src/agentctl/server/http_security.py",
+    "src/agentctl/server/mcp_northbound.py",
+    "src/agentctl/server/mcp_official.py",
+    "src/agentctl/server/product_context.py"
+  ],
+  "upgrade_required": true
+}

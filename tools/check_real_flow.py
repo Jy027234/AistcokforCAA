@@ -29,26 +29,163 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
+from typing import Sequence
 
-ROOT = Path(__file__).resolve().parents[1]
 # 本脚本既要发 HTTP 请求、也要直接调用领域代码建底仓，
 # 因此需要把 src 加进 import 路径（服务端子进程另外用 PYTHONPATH 指定）。
+ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-#: 允许指向另一份快照：全市场快照用 snap-universe，
-#: 手工池快照用 snap-real-61d。两者跑的是同一套断言。
+from aquant.domain.data.db import connect
+from aquant.domain.data.reader import SnapshotReader
+from aquant.domain.data.snapshot import (
+    PublishedSnapshot,
+    SnapshotError,
+    SnapshotStore,
+)
+from aquant.operations.snapshot_lifecycle import read_current_pointer
+
+#: 默认使用每日流水实际维护的全市场目录。旧的手工池快照仍可通过
+#: AQUANT_FLOW_SNAPSHOT_DIR 显式指定；ID 通过下方的双快照选择解析。
 SNAPSHOT_DIR = Path(os.environ.get(
-    "AQUANT_FLOW_SNAPSHOT_DIR", str(ROOT / "deploy" / "real-snapshot")))
-SNAPSHOT_ID = os.environ.get("AQUANT_FLOW_SNAPSHOT_ID", "snap-real-61d")
+    "AQUANT_FLOW_SNAPSHOT_DIR", str(ROOT / "deploy" / "universe-snapshot")))
 API_PORT = 8124
 
 checks: list[tuple[str, bool, str]] = []
+skips: list[dict[str, str]] = []
+
+
+@dataclass(frozen=True, slots=True)
+class FlowSnapshotPair:
+    """真实闭环使用的决策/执行快照对。"""
+
+    decision: PublishedSnapshot
+    execution: PublishedSnapshot
+
+
+def _snapshot_day(snapshot: PublishedSnapshot) -> date | None:
+    """取得用于排序和 PIT 校验的交易日。"""
+
+    value = snapshot.trading_day or snapshot.as_of_time[:10]
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _snapshot_time(snapshot: PublishedSnapshot) -> datetime:
+    return datetime.fromisoformat(snapshot.as_of_time)
+
+
+def select_snapshot_pair(
+    snapshots: Sequence[PublishedSnapshot], *,
+    current_snapshot_id: str | None = None,
+    execution_snapshot_id: str | None = None,
+    decision_snapshot_id: str | None = None,
+) -> FlowSnapshotPair:
+    """从已发布目录选择一对同源、无未来信息泄漏的快照。
+
+    执行快照优先使用显式覆盖，其次使用 current 指针，最后使用最新的
+    已发布快照。决策快照必须是执行日前最近的更早快照，并且必须已经
+    通过目录计算出的 S1 决策能力门禁。
+    """
+
+    published = {item.snapshot_id: item for item in snapshots}
+    if not published:
+        raise ValueError("没有已发布快照")
+
+    explicit_execution = (execution_snapshot_id or "").strip()
+    current_id = (current_snapshot_id or "").strip()
+    if explicit_execution:
+        execution = published.get(explicit_execution)
+        if execution is None:
+            raise ValueError(f"执行快照不在已发布目录：{explicit_execution}")
+    elif current_id and current_id in published:
+        execution = published[current_id]
+    else:
+        # current_snapshot.json 可能在人工恢复时短暂指向一份已归档/删除
+        # 的对象；目录本身仍可安全地回退到最新已发布物。
+        candidates = [item for item in published.values()
+                      if _snapshot_day(item) is not None]
+        if not candidates:
+            raise ValueError("已发布快照没有可派生的交易日")
+        execution = max(
+            candidates,
+            key=lambda item: (_snapshot_day(item), _snapshot_time(item),
+                              item.published_at or "", item.snapshot_id),
+        )
+
+    execution_day = _snapshot_day(execution)
+    if execution_day is None:
+        raise ValueError(f"执行快照没有可派生的交易日：{execution.snapshot_id}")
+
+    if decision_snapshot_id:
+        decision = published.get(decision_snapshot_id.strip())
+        if decision is None:
+            raise ValueError(f"决策快照不在已发布目录：{decision_snapshot_id}")
+        if decision.data_mode != execution.data_mode:
+            raise ValueError("决策快照与执行快照的数据模式不一致")
+        if not decision.s1_decision.available:
+            raise ValueError(
+                f"决策快照尚未满足 S1 计算条件：{decision.snapshot_id}"
+                f"（{decision.s1_decision.message}）"
+            )
+        decision_day = _snapshot_day(decision)
+        if (decision_day is None or decision_day >= execution_day or
+                _snapshot_time(decision) >= _snapshot_time(execution)):
+            raise ValueError("决策快照必须早于执行快照")
+    else:
+        eligible = []
+        for item in published.values():
+            if item.snapshot_id == execution.snapshot_id:
+                continue
+            if item.data_mode != execution.data_mode:
+                continue
+            item_day = _snapshot_day(item)
+            if item_day is None or item_day >= execution_day:
+                continue
+            if _snapshot_time(item) >= _snapshot_time(execution):
+                continue
+            if not item.s1_decision.available:
+                continue
+            eligible.append(item)
+        if not eligible:
+            raise ValueError("没有早于执行日且满足 S1 计算条件的决策快照")
+        decision = max(
+            eligible,
+            key=lambda item: (_snapshot_day(item), _snapshot_time(item),
+                              item.published_at or "", item.snapshot_id),
+        )
+
+    return FlowSnapshotPair(decision=decision, execution=execution)
+
+
+def load_published_snapshots(snapshot_dir: Path) -> tuple[list[PublishedSnapshot], str | None]:
+    """只读加载快照目录及当前指针，不修改快照数据库。"""
+
+    con = connect(snapshot_dir / "meta.sqlite", read_only=True)
+    try:
+        reader = SnapshotReader(SnapshotStore(con, snapshot_dir / "api"))
+        snapshots = reader.published_snapshot_catalog()
+        pointer = read_current_pointer(snapshot_dir)
+        return snapshots, pointer.snapshot_id if pointer is not None else None
+    finally:
+        con.close()
+
+
 
 
 def check(name: str, ok: bool, detail: str = "") -> None:
     checks.append((name, bool(ok), detail))
     print(("  PASS  " if ok else "  FAIL  ") + name + (("  -- " + detail) if detail else ""))
+
+
+def skip(name: str, detail: str) -> None:
+    skips.append({"name": name, "detail": detail})
+    print("  SKIP  " + name + "  -- " + detail)
 
 
 class Client:
@@ -73,21 +210,39 @@ class Client:
                 return exc.code, {"raw": raw}
 
 
-def _load_dividend(snapshot_dir: Path, instrument_id: str) -> dict | None:
-    """从快照库里取一条真实分红。"""
+def _load_dividend(snapshot_dir: Path, instrument_id: str,
+                   snapshot_id: str | None = None) -> dict | None:
+    """从指定已发布快照的数据集取一条真实分红。"""
 
     import sqlite3
 
     con = sqlite3.connect(snapshot_dir / "meta.sqlite")
     con.row_factory = sqlite3.Row
     try:
-        row = con.execute(
-            "SELECT * FROM corporate_action WHERE instrument_id=? "
-            "AND action_type='CASH_DIVIDEND' ORDER BY ex_date LIMIT 1",
-            (instrument_id,)).fetchone()
-        if row is None:
-            return None
-        record = dict(row)
+        if snapshot_id:
+            dataset = con.execute(
+                "SELECT path FROM snapshot_dataset WHERE snapshot_id=? AND name=?",
+                (snapshot_id, "corporate_actions"),
+            ).fetchone()
+            if dataset is None:
+                return None
+            payload = json.loads(
+                (snapshot_dir / "api" / dataset["path"]).read_text(encoding="utf-8")
+            )
+            records = [row for row in payload
+                       if row.get("instrument_id") == instrument_id
+                       and row.get("action_type") == "CASH_DIVIDEND"]
+            if not records:
+                return None
+            record = min(records, key=lambda row: row.get("ex_date") or "")
+        else:
+            row = con.execute(
+                "SELECT * FROM corporate_action WHERE instrument_id=? "
+                "AND action_type='CASH_DIVIDEND' ORDER BY ex_date LIMIT 1",
+                (instrument_id,)).fetchone()
+            if row is None:
+                return None
+            record = dict(row)
     finally:
         con.close()
 
@@ -101,6 +256,20 @@ def _load_dividend(snapshot_dir: Path, instrument_id: str) -> dict | None:
                                ("source_announcement_id", "evidence", "source_title")
                                if k in ca})
     return record
+
+
+def _eod_snapshot_for_day(
+    snapshots: Sequence[PublishedSnapshot], *, day: str, data_mode: str,
+) -> PublishedSnapshot | None:
+    """找出同源、同交易日的已发布 EOD 快照。"""
+
+    matches = [item for item in snapshots
+               if item.kind == "EOD" and item.data_mode == data_mode
+               and item.trading_day == day]
+    if not matches:
+        return None
+    return max(matches, key=lambda item: (
+        _snapshot_time(item), item.published_at or "", item.snapshot_id))
 
 
 def _seed_position(data_dir: Path, portfolio: str, instrument_id: str,
@@ -144,12 +313,18 @@ def _seed_position(data_dir: Path, portfolio: str, instrument_id: str,
         con.close()
 
 
-def _run_plan(client: "Client", portfolio: str, trading_day: str) -> tuple[int, dict]:
-    """在指定账户与交易日跑一轮 预览 -> 确认 -> 冻结 -> 执行。"""
+def _run_plan(client: "Client", portfolio: str,
+              pair: FlowSnapshotPair) -> tuple[int, dict]:
+    """在双快照绑定下跑一轮 预览 -> 确认 -> 冻结 -> 执行。"""
 
     status, pv = client.call("POST", "/api/v1/plans/preview", body={
-        "portfolio_id": portfolio, "snapshot_id": SNAPSHOT_ID,
-        "trading_day": trading_day})
+        "portfolio_id": portfolio,
+        "snapshot_id": pair.decision.snapshot_id,
+        "trading_day": pair.execution.trading_day,
+        "decision_snapshot_id": pair.decision.snapshot_id,
+        "decision_cutoff_at": pair.decision.as_of_time,
+        "execution_snapshot_id": pair.execution.snapshot_id,
+    })
     if status != 200:
         return status, pv
     plan_id = pv["planId"]
@@ -175,12 +350,99 @@ def _wait_http(url: str, *, timeout: float = 60.0) -> bool:
     return False
 
 
+def _write_result(*, pair: FlowSnapshotPair | None, trading_day: str | None,
+                  portfolio: str | None, conclusion: str) -> Path:
+    """写一份不把未完成阶段误标成 PASS 的验收留痕。"""
+
+    out = ROOT / "deploy" / "agentctl-q0" / "real-flow-result.json"
+    payload = {
+        "decision_snapshot_id": pair.decision.snapshot_id if pair else None,
+        "execution_snapshot_id": pair.execution.snapshot_id if pair else None,
+        "trading_day": trading_day,
+        "portfolio_id": portfolio,
+        "checks": [{"name": n, "ok": o, "detail": d}
+                   for n, o, d in checks],
+        "skips": skips,
+        "conclusion": conclusion,
+    }
+    out.write_bytes(json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"))
+    print(f"报告：{out}")
+    return out
+
+
 def main() -> int:
+    checks.clear()
+    skips.clear()
     if not (SNAPSHOT_DIR / "meta.sqlite").exists():
         print(f"缺少快照：{SNAPSHOT_DIR}")
         print("手工池快照：python -m tests.integration.t6_real_snapshot")
         print("全市场快照：python -m tests.integration.t10_universe_snapshot")
         return 2
+
+    try:
+        published, current_id = load_published_snapshots(SNAPSHOT_DIR)
+        execution_override = (
+            os.environ.get("AQUANT_FLOW_EXECUTION_SNAPSHOT_ID", "").strip()
+            or os.environ.get("AQUANT_FLOW_SNAPSHOT_ID", "").strip()
+            or None
+        )
+        decision_override = (
+            os.environ.get("AQUANT_FLOW_DECISION_SNAPSHOT_ID", "").strip()
+            or None
+        )
+        pair = select_snapshot_pair(
+            published,
+            current_snapshot_id=current_id,
+            execution_snapshot_id=execution_override,
+            decision_snapshot_id=decision_override,
+        )
+    except (OSError, ValueError, SnapshotError) as exc:
+        print(f"环境未就绪：无法选择满足 S1 门禁的已发布快照对：{exc}")
+        return 2
+
+    if pair.execution.data_mode != "PRODUCTION":
+        print(f"环境未就绪：真实闭环要求 PRODUCTION，实际为 {pair.execution.data_mode}")
+        return 2
+    if not pair.execution.trading_day:
+        print(f"环境未就绪：执行快照没有交易日：{pair.execution.snapshot_id}")
+        return 2
+
+    SNAPSHOT_ID = pair.execution.snapshot_id
+    trading_day = pair.execution.trading_day
+    portfolio = "pf-real-m"
+    dividend = _load_dividend(
+        SNAPSHOT_DIR, "SH.600519", snapshot_id=pair.execution.snapshot_id
+    )
+    dividend_pair: FlowSnapshotPair | None = None
+    dividend_skip_reason: str | None = None
+    if dividend is None:
+        dividend_skip_reason = (
+            "执行快照没有 SH.600519 的真实 CASH_DIVIDEND；"
+            "独立验证见 tests/golden/test_dividend_persistence.py"
+        )
+    else:
+        dividend_eod = _eod_snapshot_for_day(
+            published, day=str(dividend.get("ex_date") or ""),
+            data_mode=pair.execution.data_mode,
+        )
+        if dividend_eod is None:
+            dividend_skip_reason = (
+                f"没有 {dividend.get('ex_date')} 对应的同源已发布 EOD 快照；"
+                "独立验证见 tests/golden/test_dividend_persistence.py"
+            )
+        else:
+            try:
+                dividend_pair = select_snapshot_pair(
+                    published, execution_snapshot_id=dividend_eod.snapshot_id,
+                )
+            except ValueError as exc:
+                dividend_skip_reason = (
+                    f"分红执行快照缺少早于除权日且 S1 就绪的决策快照：{exc}；"
+                    "独立验证见 tests/golden/test_dividend_persistence.py"
+                )
+    print("已选择快照：")
+    print(f"  决策：{pair.decision.snapshot_id} @ {pair.decision.as_of_time}")
+    print(f"  执行：{pair.execution.snapshot_id} @ {pair.execution.as_of_time} / {trading_day}")
 
     # 用真实快照的**副本**跑：验收不应改动被复核的那份数据。
     work = Path(tempfile.mkdtemp(prefix="aquant-realflow-"))
@@ -190,19 +452,18 @@ def main() -> int:
     env["PYTHONPATH"] = str(ROOT / "src")
     env["AQUANT_DATA_DIR"] = str(work / "data")
     env["AQUANT_SNAPSHOT_ID"] = SNAPSHOT_ID
-    # 真实数据必须用**经验证**的费率表（§12.6）：合成费率在这条路径上
-    # 会被 PlanService 直接拒绝。未配置券商佣金时用示例费率，并把这一点
-    # 打印出来——否则报告里的金额会看起来像有依据的。
-    if not env.get("AQUANT_COMMISSION_RATE"):
-        env["AQUANT_COMMISSION_RATE"] = "0.00025"
-        env["AQUANT_COMMISSION_MIN_CENTS"] = "500"
-        print("[费率] 未配置 AQUANT_COMMISSION_RATE，使用**示例**费率 "
-              "（佣金万分之 2.5 / 最低 5 元）。这是一个假设，不是你的券商费率。")
-    else:
+    commission_ready = bool(env.get("AQUANT_COMMISSION_RATE", "").strip())
+    if commission_ready:
         print(f"[费率] 使用配置的券商佣金：{env['AQUANT_COMMISSION_RATE']}")
+    else:
+        print("[费率] 未配置 AQUANT_COMMISSION_RATE；只运行只读与时点检查，"
+              "跳过预览、冻结、执行、估值和分红写路径。")
 
-    # 底仓必须在 API 启动之前写入：避免两个连接并发写同一个库
-    _seed_position(work / "data", "pf-real-div", "SH.600519", 1000, "2026-06-25")
+    # 分红底仓同样必须在 API 启动前建立；只有对应 EOD 快照和同源决策
+    # 快照都存在时才准备它，避免没有证据时靠手工日期制造一条“通过”。
+    if commission_ready and dividend_pair is not None and dividend is not None:
+        _seed_position(work / "data", "pf-real-div", "SH.600519", 1000,
+                       str(dividend["record_date"]))
 
     api = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "main:app", "--app-dir", "apps/api",
@@ -243,14 +504,26 @@ def main() -> int:
               any(not c.get("simulatable") for c in cands) or len(cands) == len(simulatable),
               "GEM/STAR 应不可模拟")
 
-        # 用快照最后一个交易日执行：参考价必须来自它**之前**的交易日
-        trading_day = "2026-09-14"
-        portfolio = "pf-real-m"
+        # 用执行快照的最后一个交易日：参考价必须来自它**之前**的交易日。
+        # 决策截止时点和执行快照 ID 均由同一个已发布目录选择结果传入。
+        if not commission_ready:
+            check("真实佣金已配置", False,
+                  "AQUANT_COMMISSION_RATE 未配置，真实写路径未验收")
+            skip("真实分红闭环",
+                 "未运行：真实佣金未配置；独立验证见 "
+                 "tests/golden/test_dividend_persistence.py")
+            _write_result(pair=pair, trading_day=trading_day,
+                          portfolio=portfolio, conclusion="ENV_NOT_READY")
+            return 2
 
         print(f"\n[3] 预览（执行日 {trading_day}）")
         status, pv = client.call("POST", "/api/v1/plans/preview", body={
-            "portfolio_id": portfolio, "snapshot_id": SNAPSHOT_ID,
+            "portfolio_id": portfolio,
+            "snapshot_id": pair.decision.snapshot_id,
             "trading_day": trading_day,
+            "decision_snapshot_id": pair.decision.snapshot_id,
+            "decision_cutoff_at": pair.decision.as_of_time,
+            "execution_snapshot_id": pair.execution.snapshot_id,
         })
         check("预览成功", status == 200, json.dumps(pv, ensure_ascii=False)[:200])
         if status != 200:
@@ -289,7 +562,8 @@ def main() -> int:
 
         print("\n[6] 日终估值")
         status, val = client.call("POST", "/api/v1/valuations", body={
-            "portfolio_id": portfolio, "snapshot_id": SNAPSHOT_ID,
+            "portfolio_id": portfolio,
+            "snapshot_id": pair.execution.snapshot_id,
             "trading_day": trading_day,
         })
         check("估值成功", status == 200, json.dumps(val, ensure_ascii=False)[:200])
@@ -318,10 +592,12 @@ def main() -> int:
 
         # ------------------------------------------------ 真实分红全链路
         print("\n[8] 真实分红：从归档公告到账面现金")
-        div = _load_dividend(SNAPSHOT_DIR, "SH.600519")
-        if div is None:
-            check("快照含真实分红", False, "未找到 SH.600519 的分红记录")
+        if dividend_skip_reason is not None or dividend_pair is None or dividend is None:
+            skip("真实分红闭环", dividend_skip_reason or
+                 "缺少分红所需的同源快照对；独立验证见 "
+                 "tests/golden/test_dividend_persistence.py")
         else:
+            div = dividend
             check("分红来自归档公告", bool(div.get("source_announcement_id")),
                   str(div.get("source_announcement_id")))
             check("分红带原文证据", bool(div.get("evidence")),
@@ -344,8 +620,13 @@ def main() -> int:
                   f"{shares} 股，登记日 {record_day}")
 
             status, body = client.call("POST", "/api/v1/plans/preview", body={
-                "portfolio_id": pf, "snapshot_id": SNAPSHOT_ID,
-                "trading_day": ex_day})
+                "portfolio_id": pf,
+                "snapshot_id": dividend_pair.decision.snapshot_id,
+                "trading_day": dividend_pair.execution.trading_day,
+                "decision_snapshot_id": dividend_pair.decision.snapshot_id,
+                "decision_cutoff_at": dividend_pair.decision.as_of_time,
+                "execution_snapshot_id": dividend_pair.execution.snapshot_id,
+            })
             check("除权日可预览", status == 200,
                   str(status) + " " + json.dumps(body, ensure_ascii=False)[:400])
 
@@ -395,16 +676,13 @@ def main() -> int:
         print(f"真实数据闭环验收 {len(checks) - len(failed)}/{len(checks)} 通过")
         for name, _, detail in failed:
             print("  - " + name + "  " + detail)
-        out = ROOT / "deploy" / "agentctl-q0" / "real-flow-result.json"
-        out.write_bytes(json.dumps({
-            "snapshot_id": SNAPSHOT_ID,
-            "trading_day": trading_day,
-            "portfolio_id": portfolio,
-            "checks": [{"name": n, "ok": o, "detail": d} for n, o, d in checks],
-            "conclusion": "PASS" if not failed else "FAIL",
-        }, ensure_ascii=False, indent=2).encode("utf-8"))
-        print(f"报告：{out}")
-        return 1 if failed else 0
+        for item in skips:
+            print("  - SKIP " + item["name"] + "  " + item["detail"])
+        conclusion = ("FAIL" if failed else
+                      "PASS_WITH_SKIPS" if skips else "PASS")
+        _write_result(pair=pair, trading_day=trading_day,
+                      portfolio=portfolio, conclusion=conclusion)
+        return 1 if (failed or skips) else 0
     finally:
         api.terminate()
         try:

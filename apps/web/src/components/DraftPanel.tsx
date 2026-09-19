@@ -232,6 +232,10 @@ export function DraftPanel({
           <Callout tone="info" title="服务端预览结果">
             <dl className="kv">
               <dt>计划 ID</dt><dd className="mono">{livePreview.planId}</dd>
+              <dt>决策快照</dt><dd className="mono">{livePreview.decisionSnapshotId ?? livePreview.snapshot_id}</dd>
+              <dt>决策截止</dt><dd className="mono">{livePreview.decisionCutoffAt ?? "—"}</dd>
+              <dt>执行快照</dt><dd className="mono">{livePreview.executionSnapshotId ?? livePreview.snapshot_id}</dd>
+              <dt>执行收盘</dt><dd className="mono">{livePreview.executionCutoffAt ?? "—"}</dd>
               <dt>参考价日</dt>
               <dd>{livePreview.reference_price_day ?? "—"}
                 <span className="note">（执行日之前，不使用当日价格）</span></dd>

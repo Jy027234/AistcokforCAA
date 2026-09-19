@@ -205,6 +205,17 @@ def test_default_registry_has_independent_quote_sources():
     assert len(ids) >= 3, ids
 
 
+def test_tushare_financials_stays_gated_until_real_provider_validation():
+    """文档字段齐全不等于真实账户、历史覆盖与 PIT 已经验收。"""
+
+    source = default_registry().get("tushare-pro")
+    assert Domain.FINANCIALS in source.domains
+    assert source.requires_credentials is True
+    assert source.integration_state is IntegrationState.CREDENTIALS_CONFIGURED
+    assert source.pit_available == "PARTIAL"
+    assert source.rights_open_for("research_use") is False
+
+
 def test_default_registry_rights_are_unknown():
     """在人工确认条款之前，所有源都不得进入模型外发链路。"""
 

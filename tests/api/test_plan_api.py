@@ -744,8 +744,14 @@ def test_readiness_reports_dimensions_separately(client):
     assert r.status_code == 200, r.text
     body = r.json()
     assert "data" in body and "jobs" in body
+    assert "trial" in body
     assert body["data"]["snapshotId"]
     assert isinstance(body["jobs"], dict)
+    assert body["trial"]["mode"] == "MANUAL_SIMULATION"
+    assert body["trial"]["ready"] is False
+    assert {item["code"] for item in body["trial"]["blockingIssues"]} >= {
+        "PRODUCTION_SNAPSHOT_REQUIRED", "FEE_VERSION_UNVERIFIED",
+    }
 
 
 def test_job_endpoints_are_read_only_shapes(client):

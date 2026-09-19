@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import date
 from enum import Enum
 
-REGISTER_VERSION = "2026-09-15"
+REGISTER_VERSION = "2026-09-19"
 
 #: 使用者授权日期。与 REGISTER_VERSION 分开记录：
 #: 登记表整体更新与某一项被授权是两件事，混在一起日后无法追溯。
@@ -167,6 +167,10 @@ def default_rights() -> RightsRegistry:
         _entry("eastmoney-direct", allowed=_TERMS_ALLOWED,
                basis=Basis.USER_AUTHORIZED,
                note="2026-09-15 使用者授权四项（含模型处理）；条款未做法律审阅"),
+        _entry("tushare-pro", allowed=(),
+               basis=Basis.TERMS_NOT_REVIEWED,
+               note=("S2 财务候选源；Token 已配置但财务接口返回 40203 无访问权限；"
+                     "尚未完成真实数据验收或条款审阅，所有用途保持 UNKNOWN")),
         _entry("synthetic-fixture", allowed=_FIELDS,
                basis=Basis.WRITTEN_LICENSE,
                note="本资料包自带的合成数据，可用于任何用途包括模型处理"),

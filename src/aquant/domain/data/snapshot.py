@@ -73,6 +73,81 @@ class DatasetRef:
         return "sha256:" + h.hexdigest()
 
 
+@dataclass(frozen=True, slots=True)
+class SnapshotDatasetSummary:
+    """对外只读目录所需的数据集摘要。
+
+    这是发布物的元数据视图，不包含数据集正文，也不把 ``path`` 暴露给
+    HTTP 调用方。路径是服务端内部实现细节；目录消费者只需要知道数据集
+    名称、规模、覆盖率和时点上界。
+    """
+
+    name: str
+    record_count: int
+    coverage_ratio: float | None
+    as_of_upper_bound: str | None
+
+    def as_dict(self) -> dict:
+        return {
+            "name": self.name,
+            "record_count": self.record_count,
+            "coverage_ratio": self.coverage_ratio,
+            "as_of_upper_bound": self.as_of_upper_bound,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotCapability:
+    """一项快照用途是否具备数据条件，以及不可用时的可操作原因。"""
+
+    available: bool
+    code: str
+    message: str
+    repair_action: str | None = None
+
+    def as_dict(self) -> dict:
+        return {
+            "available": self.available,
+            "code": self.code,
+            "message": self.message,
+            "repair_action": self.repair_action,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedSnapshot:
+    """可供研究/前端选择的已发布快照摘要。
+
+    ``status`` 刻意不在这个领域对象里：调用方拿到的目录只包含
+    ``PUBLISHED``，无需把 DRAFT/REJECTED/SUPERSEDED 暴露成可选择状态。
+    """
+
+    snapshot_id: str
+    kind: str
+    data_mode: str
+    as_of_time: str
+    input_cutoff_at: str
+    published_at: str | None
+    quality_status: str
+    trading_day: str | None
+    dataset_summary: tuple[SnapshotDatasetSummary, ...]
+    s1_decision: SnapshotCapability
+
+    def as_dict(self) -> dict:
+        return {
+            "snapshot_id": self.snapshot_id,
+            "kind": self.kind,
+            "data_mode": self.data_mode,
+            "as_of_time": self.as_of_time,
+            "input_cutoff_at": self.input_cutoff_at,
+            "published_at": self.published_at,
+            "quality_status": self.quality_status,
+            "trading_day": self.trading_day,
+            "dataset_summary": [d.as_dict() for d in self.dataset_summary],
+            "capabilities": {"s1_decision": self.s1_decision.as_dict()},
+        }
+
+
 @dataclass(slots=True)
 class SnapshotDraft:
     snapshot_id: str
@@ -246,6 +321,38 @@ class SnapshotStore:
             "SELECT * FROM snapshot WHERE snapshot_id=?", (snapshot_id,)
         ).fetchone()
         return dict(row) if row is not None else None
+
+    def list_published(self) -> list[dict]:
+        """列出可作为研究输入的快照元数据。
+
+        过滤条件写在 SQL 里而不是由调用方筛选，避免未来新增一个目录
+        消费者时不小心把 DRAFT/REJECTED 当成可读输入。排序也固定下来，
+        让同一数据库在多次请求中返回稳定的目录顺序。
+        """
+
+        rows = self.con.execute(
+            "SELECT * FROM snapshot WHERE status=? "
+            "ORDER BY COALESCE(as_of_time,input_cutoff_at) DESC, "
+            "published_at DESC, snapshot_id DESC",
+            (SnapshotStatus.PUBLISHED.value,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    # 语义更明确的别名，供调用方按领域语言选择名称；两者都经过同一
+    # 个 SQL 闸门，不能因为换了方法名而绕过 PUBLISHED 过滤。
+    published_snapshots = list_published
+
+    def published_snapshot(self, snapshot_id: str) -> dict:
+        """读取一条已发布快照；未发布对象不泄露其内部状态。"""
+
+        found = self._find(snapshot_id)
+        if found is None or found["status"] != SnapshotStatus.PUBLISHED.value:
+            raise SnapshotError(
+                "DATA_NOT_READY", f"unknown published snapshot {snapshot_id!r}",
+                snapshot_id,
+                "list published snapshots and use an existing published id",
+            )
+        return found
 
     def get(self, snapshot_id: str) -> dict:
         found = self._find(snapshot_id)

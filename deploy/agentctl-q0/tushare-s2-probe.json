@@ -1,0 +1,217 @@
+{
+  "probe": {
+    "source_id": "tushare-pro",
+    "endpoint": "https://api.tushare.pro",
+    "started_at": "2026-09-19T07:57:01.110509+00:00",
+    "finished_at": "2026-09-19T07:57:01.608216+00:00",
+    "samples": [
+      "600519.SH",
+      "601398.SH",
+      "000333.SZ"
+    ],
+    "periods": [
+      "20251231",
+      "20260331",
+      "20260630"
+    ],
+    "max_requests": 27,
+    "request_count": 3,
+    "stop_reason": null,
+    "credentials_valid": true,
+    "permission": "denied",
+    "permission_denied": true,
+    "coverage_scope": "sampled_only",
+    "token_present": true
+  },
+  "apis": {
+    "income": {
+      "permission": "denied",
+      "requests": 1,
+      "successful_requests": 0,
+      "row_count": 0,
+      "observed_fields": [],
+      "field_observation_counts": {},
+      "required_fields": [
+        "ann_date",
+        "comp_type",
+        "end_date",
+        "f_ann_date",
+        "n_income",
+        "n_income_attr_p",
+        "report_type",
+        "ts_code",
+        "update_flag"
+      ],
+      "missing_required_fields": [
+        "ann_date",
+        "comp_type",
+        "end_date",
+        "f_ann_date",
+        "n_income",
+        "n_income_attr_p",
+        "report_type",
+        "revenue|total_revenue",
+        "ts_code",
+        "update_flag"
+      ],
+      "sample_coverage_only": true
+    },
+    "balancesheet": {
+      "permission": "denied",
+      "requests": 1,
+      "successful_requests": 0,
+      "row_count": 0,
+      "observed_fields": [],
+      "field_observation_counts": {},
+      "required_fields": [
+        "ann_date",
+        "comp_type",
+        "end_date",
+        "f_ann_date",
+        "report_type",
+        "total_hldr_eqy_exc_min_int",
+        "ts_code",
+        "update_flag"
+      ],
+      "missing_required_fields": [
+        "ann_date",
+        "comp_type",
+        "end_date",
+        "f_ann_date",
+        "report_type",
+        "total_hldr_eqy_exc_min_int",
+        "ts_code",
+        "update_flag"
+      ],
+      "sample_coverage_only": true
+    },
+    "cashflow": {
+      "permission": "denied",
+      "requests": 1,
+      "successful_requests": 0,
+      "row_count": 0,
+      "observed_fields": [],
+      "field_observation_counts": {},
+      "required_fields": [
+        "ann_date",
+        "comp_type",
+        "end_date",
+        "f_ann_date",
+        "n_cashflow_act",
+        "report_type",
+        "ts_code",
+        "update_flag"
+      ],
+      "missing_required_fields": [
+        "ann_date",
+        "comp_type",
+        "end_date",
+        "f_ann_date",
+        "n_cashflow_act",
+        "report_type",
+        "ts_code",
+        "update_flag"
+      ],
+      "sample_coverage_only": true
+    }
+  },
+  "observations": [
+    {
+      "api_name": "income",
+      "sample": "600519.SH",
+      "period": "20251231",
+      "code": 40203,
+      "message": "抱歉，您没有接口(income)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "fields": [],
+      "row_count": 0,
+      "request_ok": false,
+      "error": null
+    },
+    {
+      "api_name": "balancesheet",
+      "sample": "600519.SH",
+      "period": "20251231",
+      "code": 40203,
+      "message": "抱歉，您没有接口(balancesheet)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "fields": [],
+      "row_count": 0,
+      "request_ok": false,
+      "error": null
+    },
+    {
+      "api_name": "cashflow",
+      "sample": "600519.SH",
+      "period": "20251231",
+      "code": 40203,
+      "message": "抱歉，您没有接口(cashflow)访问权限，权限的具体详情访问：https://tushare.pro/document/1?doc_id=108。",
+      "fields": [],
+      "row_count": 0,
+      "request_ok": false,
+      "error": null
+    }
+  ],
+  "normalization": {
+    "bundle_pairs_checked": 9,
+    "normalized_rows": 0,
+    "rejected_pairs": 1,
+    "rejection_reasons": {
+      "api_request_not_successful": 1
+    },
+    "checks": [
+      {
+        "sample": "600519.SH",
+        "period": "20251231",
+        "status": "rejected",
+        "reason": "api_request_not_successful"
+      },
+      {
+        "sample": "600519.SH",
+        "period": "20260331",
+        "status": "not_probed",
+        "reason": "not_all_interfaces_observed"
+      },
+      {
+        "sample": "600519.SH",
+        "period": "20260630",
+        "status": "not_probed",
+        "reason": "not_all_interfaces_observed"
+      },
+      {
+        "sample": "601398.SH",
+        "period": "20251231",
+        "status": "not_probed",
+        "reason": "not_all_interfaces_observed"
+      },
+      {
+        "sample": "601398.SH",
+        "period": "20260331",
+        "status": "not_probed",
+        "reason": "not_all_interfaces_observed"
+      },
+      {
+        "sample": "601398.SH",
+        "period": "20260630",
+        "status": "not_probed",
+        "reason": "not_all_interfaces_observed"
+      },
+      {
+        "sample": "000333.SZ",
+        "period": "20251231",
+        "status": "not_probed",
+        "reason": "not_all_interfaces_observed"
+      },
+      {
+        "sample": "000333.SZ",
+        "period": "20260331",
+        "status": "not_probed",
+        "reason": "not_all_interfaces_observed"
+      },
+      {
+        "sample": "000333.SZ",
+        "period": "20260630",
+        "status": "not_probed",
+        "reason": "not_all_interfaces_observed"
+      }
+    ]
+  }
+}

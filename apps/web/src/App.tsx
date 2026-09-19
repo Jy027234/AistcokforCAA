@@ -6,7 +6,7 @@ import { formatRelative } from "./lib/format";
 import { TopBar, StatusDrawer, type Tab } from "./components/TopBar";
 import {
   api, AquantApiError, type CandidateResponseRow, type EventResponseRow,
-  type PreviewResponse,
+  type PlanTimingSelection, type PreviewResponse, type PublishedSnapshot,
 } from "./lib/api";
 import { ErrorState, Loading } from "./components/ui";
 import { EvidenceDrawer } from "./components/ResearchCard";
@@ -53,6 +53,44 @@ function emptyApiDraft(status: DataStatus, portfolioId: string): Draft {
       revalidate: ["计划版本", "快照版本", "账户状态版本", "确认主体", "有效期"],
     },
   };
+}
+
+function timingFrom(
+  decision: PublishedSnapshot | undefined,
+  execution: PublishedSnapshot | undefined,
+): PlanTimingSelection | null {
+  if (!decision || !execution || decision.snapshotId === execution.snapshotId) return null;
+  if (!decision.capabilities.s1Decision.available) return null;
+  if (!decision.tradingDay || !execution.tradingDay) return null;
+  if (decision.dataMode !== execution.dataMode) return null;
+  if (decision.asOfTime >= execution.asOfTime || decision.tradingDay >= execution.tradingDay) {
+    return null;
+  }
+  return {
+    decisionSnapshotId: decision.snapshotId,
+    decisionCutoffAt: decision.asOfTime,
+    executionSnapshotId: execution.snapshotId,
+    executionCutoffAt: execution.asOfTime,
+    tradingDay: execution.tradingDay,
+  };
+}
+
+function defaultProductionTiming(
+  snapshots: PublishedSnapshot[], currentSnapshotId: string,
+): PlanTimingSelection | null {
+  const ordered = [...snapshots].sort((a, b) => a.asOfTime.localeCompare(b.asOfTime));
+  const execution = ordered.find((item) => item.snapshotId === currentSnapshotId) ??
+    ordered.at(-1);
+  if (!execution || !execution.tradingDay) return null;
+  const executionDay = execution.tradingDay;
+  const decision = ordered.filter(
+    (item) => item.dataMode === execution.dataMode &&
+      item.capabilities.s1Decision.available &&
+      item.snapshotId !== execution.snapshotId &&
+      item.asOfTime < execution.asOfTime && item.tradingDay !== null &&
+      item.tradingDay < executionDay,
+  ).at(-1);
+  return timingFrom(decision, execution);
 }
 
 function mapCandidate(row: CandidateResponseRow, status: DataStatus, note: string) {
@@ -134,6 +172,8 @@ export default function App() {
   const [livePreview, setLivePreview] = useState<PreviewResponse | null>(null);
   const [apiUp, setApiUp] = useState<boolean | null>(null);
   const [frozenPlanId, setFrozenPlanId] = useState<string | null>(null);
+  const [snapshots, setSnapshots] = useState<PublishedSnapshot[]>([]);
+  const [timing, setTiming] = useState<PlanTimingSelection | null>(null);
 
   const setTab = useCallback((next: Tab) => {
     setTabState(next);
@@ -159,6 +199,7 @@ export default function App() {
   const load = useCallback(async () => {
     setState({ kind: "loading" });
     setNotice(null); setLivePreview(null); setConfirmResult(null);
+    setSnapshots([]); setTiming(null); setFrozenPlanId(null);
     if (demoMode) {
       try {
         const res = await fetch(WS_URL, { cache: "no-store" });
@@ -172,8 +213,8 @@ export default function App() {
       return;
     }
     try {
-      const [status, candidateResponse, eventResponse] = await Promise.all([
-        api.status(), api.candidates(), api.events(),
+      const [status, candidateResponse, eventResponse, snapshotResponse] = await Promise.all([
+        api.status(), api.candidates(), api.events(), api.snapshots(),
       ]);
       const expected = status.snapshotId;
       if (candidateResponse.snapshotId !== expected || eventResponse.snapshotId !== expected) {
@@ -183,6 +224,14 @@ export default function App() {
           "，events=" + eventResponse.snapshotId,
         );
       }
+      if (!snapshotResponse.snapshots.some((item) => item.snapshotId === expected)) {
+        throw new Error("当前快照不在已发布快照目录中：" + expected);
+      }
+      setSnapshots(snapshotResponse.snapshots);
+      setTiming(status.dataMode === "SYNTHETIC" ? null : defaultProductionTiming(
+        snapshotResponse.snapshots.filter((item) => item.dataMode === status.dataMode),
+        expected,
+      ));
       setApiUp(true);
       setState({ kind: "ready", data: buildApiWorkspace(
         status, candidateResponse.candidates, candidateResponse.note, eventResponse.events,
@@ -223,36 +272,48 @@ export default function App() {
 
   const onRequestPreview = useCallback(async () => {
     if (!data || demoMode) return;
-    // production 计划必须绑定两个不同快照和两个明确时点；当前前端没有
-    // 快照列表/选择接口，不能把一个 current snapshot 冒充两种时点。
-    if (data.status.dataMode !== "SYNTHETIC") {
-      setNotice("生产预览已禁用：服务端要求独立的决策快照、执行快照及其截止时点；当前 API 尚未提供快照列表与选择入口。");
+    const production = data.status.dataMode !== "SYNTHETIC";
+    if (production && !timing) {
+      setNotice("生产预览需要两个满足先后顺序的同源已发布快照。");
       return;
     }
     setNotice(null); setConfirmResult(null);
     try {
       const pv = await api.preview({
-        portfolio_id: data.draft.portfolioId, snapshot_id: data.status.snapshotId,
-        trading_day: data.draft.tradingDay,
+        portfolio_id: data.draft.portfolioId,
+        snapshot_id: timing?.decisionSnapshotId ?? data.status.snapshotId,
+        trading_day: timing?.tradingDay ?? data.draft.tradingDay,
+        ...(timing ? {
+          decision_snapshot_id: timing.decisionSnapshotId,
+          decision_cutoff_at: timing.decisionCutoffAt,
+          execution_snapshot_id: timing.executionSnapshotId,
+        } : {}),
       });
-      if (pv.snapshot_id !== data.status.snapshotId) {
+      const expectedDecision = timing?.decisionSnapshotId ?? data.status.snapshotId;
+      if (pv.snapshot_id !== expectedDecision) {
         throw new Error("服务端预览使用了不同快照：" + pv.snapshot_id);
       }
       setLivePreview(pv);
       setNotice("服务端预览已生成：" + pv.orders.length + " 笔订单，参考价日 " +
                 (pv.reference_price_day ?? "—") + "（执行日之前）。仍未冻结。");
     } catch (err) { setNotice("预览失败：" + explain(err)); }
-  }, [data, demoMode, explain]);
+  }, [data, demoMode, explain, timing]);
 
   const onConfirm = useCallback(async () => {
-    if (!data || demoMode || data.status.dataMode !== "SYNTHETIC") return;
+    if (!data || demoMode || (data.status.dataMode !== "SYNTHETIC" && !timing)) return;
     setConfirming(true); setConfirmResult(null);
     try {
       let pv = livePreview;
       if (!pv) {
         pv = await api.preview({
-          portfolio_id: data.draft.portfolioId, snapshot_id: data.status.snapshotId,
-          trading_day: data.draft.tradingDay,
+          portfolio_id: data.draft.portfolioId,
+          snapshot_id: timing?.decisionSnapshotId ?? data.status.snapshotId,
+          trading_day: timing?.tradingDay ?? data.draft.tradingDay,
+          ...(timing ? {
+            decision_snapshot_id: timing.decisionSnapshotId,
+            decision_cutoff_at: timing.decisionCutoffAt,
+            execution_snapshot_id: timing.executionSnapshotId,
+          } : {}),
         });
         setLivePreview(pv);
       }
@@ -264,7 +325,41 @@ export default function App() {
         "。冻结后不可修改；可在下方「账本」区执行本交易日。" });
     } catch (err) { setConfirmResult({ ok: false, message: explain(err) }); }
     finally { setConfirming(false); }
-  }, [data, demoMode, livePreview, explain]);
+  }, [data, demoMode, livePreview, explain, timing]);
+
+  const onTimingChange = useCallback((role: "decision" | "execution", snapshotId: string) => {
+    setTiming((previous) => {
+      const selected = snapshots.find((item) => item.snapshotId === snapshotId);
+      if (!selected) return null;
+      if (role === "decision") {
+        if (!selected.capabilities.s1Decision.available) return null;
+        const currentExecution = snapshots.find(
+          (item) => item.snapshotId === previous?.executionSnapshotId,
+        );
+        const compatibleExecution = currentExecution && timingFrom(selected, currentExecution)
+          ? currentExecution
+          : [...snapshots].filter(
+              (item) => item.dataMode === selected.dataMode &&
+                item.tradingDay !== null && selected.tradingDay !== null &&
+                item.tradingDay > selected.tradingDay && item.asOfTime > selected.asOfTime,
+            ).sort((a, b) => a.asOfTime.localeCompare(b.asOfTime)).at(-1);
+        return timingFrom(selected, compatibleExecution);
+      }
+      const currentDecision = snapshots.find(
+        (item) => item.snapshotId === previous?.decisionSnapshotId,
+      );
+      const compatibleDecision = currentDecision && timingFrom(currentDecision, selected)
+        ? currentDecision
+        : [...snapshots].filter(
+            (item) => item.dataMode === selected.dataMode &&
+              item.capabilities.s1Decision.available &&
+              item.tradingDay !== null && selected.tradingDay !== null &&
+              item.tradingDay < selected.tradingDay && item.asOfTime < selected.asOfTime,
+          ).sort((a, b) => a.asOfTime.localeCompare(b.asOfTime)).at(-1);
+      return timingFrom(compatibleDecision, selected);
+    });
+    setLivePreview(null); setFrozenPlanId(null); setConfirmResult(null);
+  }, [snapshots]);
 
   const evidenceCard = useMemo(
     () => (data && evidenceFor
@@ -326,7 +421,8 @@ export default function App() {
               onRequestResearch={onOpenResearch} loadingResearchId={researchLoadingId} />}
             {tab === "portfolio" && <PortfolioView data={data} onConfirm={onConfirm}
               onRequestPreview={onRequestPreview} livePreview={livePreview} apiUp={apiUp}
-              confirming={confirming} confirmResult={confirmResult} frozenPlanId={frozenPlanId} />}
+              confirming={confirming} confirmResult={confirmResult} frozenPlanId={frozenPlanId}
+              snapshots={snapshots} timing={timing} onTimingChange={onTimingChange} />}
             {tab === "workspace" && <WorkspaceView apiUp={apiUp}
               portfolioId={data.draft.portfolioId} tradingDay={data.draft.tradingDay} />}
             {tab === "experiments" && <ExperimentsView data={data} />}

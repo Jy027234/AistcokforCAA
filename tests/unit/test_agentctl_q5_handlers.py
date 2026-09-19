@@ -1,0 +1,180 @@
+"""最小 Q5 agentctl handler 接线测试。
+
+这些用例把能力接到产品自己的 SQLite 快照、证据、账本和 JobStore；
+handler 模块本身不提供合成字典或测试专用写路径。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import importlib.util
+import sys
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
+from aquant.adapters.agentctl.snapshot_card_reader import SnapshotCardReader  # noqa: E402
+from aquant.domain.data.db import apply_migrations, connect  # noqa: E402
+from aquant.domain.data.ingest import SnapshotBuilder  # noqa: E402
+from aquant.domain.data.reader import SnapshotReader  # noqa: E402
+from aquant.domain.data.snapshot import SnapshotStore  # noqa: E402
+from tests.integration.test_m1_ingest_e2e import build_snapshot  # noqa: E402
+
+
+def _handlers():
+    path = ROOT / "capabilities" / "aquant_lab_agentctl_handlers.py"
+    spec = importlib.util.spec_from_file_location("q5_handlers", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.fixture()
+def world(tmp_path):
+    con = connect(tmp_path / "meta.sqlite")
+    apply_migrations(con)
+    root = tmp_path / "api"
+    root.mkdir()
+    store = SnapshotStore(con, root)
+    build_snapshot(con, SnapshotBuilder(con, root / "datasets"), store)
+    reader = SnapshotReader(store)
+    cards = SnapshotCardReader(con, reader)
+    yield con, reader, cards
+    con.close()
+
+
+def _invoke(function, arguments, **kwargs):
+    return asyncio.run(function({"validated_arguments": arguments}, **kwargs))
+
+
+def test_event_evidence_reads_pit_data_and_never_submits_a_job(world):
+    con, reader, _cards = world
+    handlers = _handlers()
+    before = con.execute("SELECT COUNT(*) FROM job").fetchone()[0]
+
+    out = _invoke(
+        handlers.event_evidence_read,
+        {"instrument_id": "SYN.A.600519", "snapshot_id": "snap-syn-001"},
+        reader=reader,
+    )
+
+    assert out["ok"] is True, out
+    assert out["snapshot_id"] == "snap-syn-001"
+    assert out["pit_filter"] == "available_at <= as_of_time"
+    assert out["evidence"]
+    malicious = out["evidence"][0]
+    assert malicious["verificationStatus"] == "UNVERIFIED"
+    assert malicious["authorization_blocked"] is True
+    assert malicious["quote"] is None
+    assert con.execute("SELECT COUNT(*) FROM job").fetchone()[0] == before
+
+
+def test_portfolio_read_uses_product_ledger_and_actor_context(world):
+    con, _reader, _cards = world
+    handlers = _handlers()
+    con.execute(
+        "INSERT INTO portfolio (portfolio_id,kind,initial_cash_cents,opened_at) "
+        "VALUES ('pf-agentctl','M',100000,'2026-09-11T00:00:00Z')"
+    )
+    con.execute(
+        "INSERT INTO cash_entry (entry_id,portfolio_id,entry_type,amount_cents,"
+        "trading_day,occurred_at) VALUES (?,?,?,?,?,?)",
+        ("cash-agentctl", "pf-agentctl", "INITIAL_DEPOSIT", 100000,
+         "2026-09-11", "2026-09-11T00:00:00Z"),
+    )
+
+    out = asyncio.run(handlers.portfolio_read(
+        {"validated_arguments": {"portfolio_id": "pf-agentctl"},
+         "metadata": {"actor_user_id": "user:alice"}},
+        con=con,
+    ))
+
+    assert out["ok"] is True, out
+    assert out["cash"]["cents"] == 100000
+    assert out["positions"] == []
+    assert out["actor_user_id"] == "user:alice"
+    assert out["read_only"] is True
+
+
+def test_experiment_submit_uses_durable_job_idempotency(world):
+    con, _reader, _cards = world
+    handlers = _handlers()
+    args = {
+        "job_type": "FACTOR_COMPUTE",
+        "trading_day": "2026-09-11",
+        "snapshot_id": "snap-syn-001",
+    }
+
+    first = _invoke(handlers.experiment_submit, args, con=con)
+    second = _invoke(handlers.experiment_submit, args, con=con)
+
+    assert first["ok"] is True, first
+    assert first["created"] is True
+    assert second["created"] is False
+    assert first["jobId"] == second["jobId"]
+    assert first["idempotencyKey"] == second["idempotencyKey"]
+    assert first["job_ref"]["job_id"] == first["jobId"]
+    assert first["job_ref"]["status"] == "pending"
+    assert con.execute("SELECT COUNT(*) FROM job").fetchone()[0] == 1
+
+
+def test_simulation_preview_stops_on_missing_real_s1_inputs_without_writes(
+    world, monkeypatch
+):
+    con, _reader, cards = world
+    handlers = _handlers()
+    from aquant.domain.simulation.fees import synthetic_fee_table
+    from aquant.domain.simulation import verified_fees
+
+    fee_resolution_calls = 0
+
+    def resolve_fees():
+        nonlocal fee_resolution_calls
+        fee_resolution_calls += 1
+        return synthetic_fee_table(), "test"
+
+    monkeypatch.setattr(verified_fees, "fee_table_from_env", resolve_fees)
+    con.execute(
+        "INSERT INTO portfolio (portfolio_id,kind,initial_cash_cents,opened_at) "
+        "VALUES ('pf-preview','M',100000,'2026-09-11T00:00:00Z')"
+    )
+    con.execute(
+        "INSERT INTO cash_entry (entry_id,portfolio_id,entry_type,amount_cents,"
+        "trading_day,occurred_at) VALUES (?,?,?,?,?,?)",
+        ("cash-preview", "pf-preview", "INITIAL_DEPOSIT", 100000,
+         "2026-09-11", "2026-09-11T00:00:00Z"),
+    )
+    before = {
+        name: con.execute(
+            f'SELECT COUNT(*) FROM "{name}"'
+        ).fetchone()[0]
+        for name in ("simulation_plan", "order", "fill", "cash_entry")
+    }
+
+    out = _invoke(
+        handlers.simulation_plan_preview,
+        {
+            "portfolio_id": "pf-preview",
+            "snapshot_id": "snap-syn-001",
+            "trading_day": "2026-09-08",
+        },
+        reader=cards,
+    )
+
+    # The checked-in synthetic snapshot intentionally has only five bars, so
+    # an S1 preview cannot be honestly completed. The capability reports that
+    # product data blocker and leaves all durable plan/ledger tables unchanged.
+    assert out["ok"] is False, out
+    assert out["error"]["code"] == "DATA_NOT_READY", out
+    assert fee_resolution_calls == 1
+    after = {
+        name: con.execute(
+            f'SELECT COUNT(*) FROM "{name}"'
+        ).fetchone()[0]
+        for name in before
+    }
+    assert after == before

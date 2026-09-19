@@ -1,0 +1,10 @@
+{
+  "schema_version": "aquant.agentctl_base_lock.v1",
+  "repository": "agentctl",
+  "locked_commit": "b5cad04836cf93b35750fb0116ab0c2d936d1f89",
+  "locked_at": "2026-09-14",
+  "comparison_base": "7e94058f96a4de4b27552a3c46c4529043e1d7e1",
+  "diff_summary_at_lock": "8 files changed, 830 insertions(+), 55 deletions(-)",
+  "source": "docs/integration/q0-readiness-report.md",
+  "upgrade_rule": "Changing locked_commit is an explicit base upgrade and requires rereading affected changes plus rerunning the affected A01-A16 acceptance cases."
+}

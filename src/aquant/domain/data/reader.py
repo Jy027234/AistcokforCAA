@@ -22,7 +22,23 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
-from .snapshot import SnapshotError, SnapshotStore
+from .snapshot import (
+    PublishedSnapshot,
+    SnapshotCapability,
+    SnapshotDatasetSummary,
+    SnapshotError,
+    SnapshotStore,
+)
+
+
+def _valid_iso_date(value: object) -> bool:
+    """判断目录中的交易日是否为可排序的 ISO 日期。"""
+
+    try:
+        date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return False
+    return True
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +111,148 @@ class SnapshotReader:
             watermark=snap["watermark"],
         )
 
+    def published_snapshot(self, snapshot_id: str) -> PublishedSnapshot:
+        """读取一条已发布快照的只读目录摘要。
+
+        与研究数据读取共用 ``SnapshotStore.published_snapshot``，因此这条
+        路径不会把 DRAFT、REJECTED 或 SUPERSEDED 变成目录项。交易日优先
+        来自快照自己的 trading_calendar；行情数据集存在而日历缺失时，
+        才从 daily_quotes 派生最后一个交易日。
+        """
+
+        snap = self.store.published_snapshot(snapshot_id)
+        as_of = snap["as_of_time"] or snap["input_cutoff_at"]
+        datasets = self.store.datasets(snapshot_id)
+        dataset_summary = tuple(
+            SnapshotDatasetSummary(
+                name=d["name"],
+                record_count=int(d["record_count"]),
+                coverage_ratio=(
+                    float(d["coverage_ratio"])
+                    if d["coverage_ratio"] is not None else None
+                ),
+                as_of_upper_bound=d["as_of_upper_bound"],
+            )
+            for d in datasets
+        )
+        return PublishedSnapshot(
+            snapshot_id=snapshot_id,
+            kind=snap["kind"],
+            data_mode=snap["data_mode"],
+            as_of_time=as_of,
+            input_cutoff_at=snap["input_cutoff_at"],
+            published_at=snap["published_at"],
+            quality_status=snap["quality_status"],
+            trading_day=self._published_trading_day(
+                snapshot_id, as_of=as_of, dataset_names={d["name"] for d in datasets}
+            ),
+            dataset_summary=dataset_summary,
+            s1_decision=self._s1_decision_capability(
+                snapshot_id, as_of=as_of,
+                dataset_names={d["name"] for d in datasets},
+            ),
+        )
+
+    def published_snapshot_catalog(self) -> list[PublishedSnapshot]:
+        """返回稳定排序的已发布快照目录。"""
+
+        return [
+            self.published_snapshot(row["snapshot_id"])
+            for row in self.store.list_published()
+        ]
+
+    # 供服务层使用的简短别名；实现仍只有一份，避免目录和详情口径漂移。
+    published_snapshots = published_snapshot_catalog
+
+    def _s1_decision_capability(self, snapshot_id: str, *, as_of: str,
+                                dataset_names: set[str]) -> SnapshotCapability:
+        """判定快照能否作为 S1 决策输入。
+
+        这里复用候选计算的关键数据门槛：证券必须有行业分类，价格因子需要
+        61 根前复权收盘价；已经有 61 根原始行情却缺复权价属于数据损坏，
+        不能把这类证券悄悄排除。目录先公布能力，调用方便不会把一个注定
+        返回 ``DATA_NOT_READY`` 的快照组合成生产计划。
+        """
+
+        required = {"instruments", "daily_quotes"}
+        missing = sorted(required - dataset_names)
+        if missing:
+            return SnapshotCapability(
+                available=False,
+                code="DATASET_MISSING",
+                message="缺少 S1 决策所需数据集：" + ", ".join(missing),
+                repair_action="重新采集并发布包含证券主数据和日行情的快照",
+            )
+
+        point = datetime.fromisoformat(as_of)
+        industries = {
+            row.get("instrument_id")
+            for row in self.instruments(snapshot_id, as_of=point)
+            if row.get("instrument_id") and row.get("industry_code")
+        }
+        raw_counts: dict[str, int] = {}
+        adjusted_counts: dict[str, int] = {}
+        missing_adjusted: set[str] = set()
+        for row in self.daily_quotes(snapshot_id, as_of=point):
+            iid = row.instrument_id
+            if iid not in industries:
+                continue
+            raw_counts[iid] = raw_counts.get(iid, 0) + 1
+            if row.adjusted_close_cents is None:
+                missing_adjusted.add(iid)
+            else:
+                adjusted_counts[iid] = adjusted_counts.get(iid, 0) + 1
+
+        incomplete = sorted(
+            iid for iid, count in raw_counts.items()
+            if count >= 61 and iid in missing_adjusted
+        )
+        if incomplete:
+            sample = ", ".join(incomplete[:5])
+            return SnapshotCapability(
+                available=False,
+                code="ADJUSTED_CLOSE_INCOMPLETE",
+                message=(f"{len(incomplete)} 只证券具备原始行情窗口但缺少完整前复权价"
+                         f"（示例：{sample}）"),
+                repair_action="重新采集并发布包含 adjusted_close_cents 的快照",
+            )
+
+        eligible = sum(1 for count in adjusted_counts.values() if count >= 61)
+        if eligible == 0:
+            return SnapshotCapability(
+                available=False,
+                code="S1_WINDOW_INSUFFICIENT",
+                message="没有证券同时具备行业分类与 61 根前复权收盘价",
+                repair_action="补齐行业分类和前复权历史窗口后重新发布快照",
+            )
+        return SnapshotCapability(
+            available=True,
+            code="READY",
+            message=f"{eligible} 只证券具备 S1 决策输入",
+        )
+
+    def _published_trading_day(self, snapshot_id: str, *, as_of: str,
+                               dataset_names: set[str]) -> str | None:
+        """取得快照最后一个交易日；无法可靠派生时返回 ``None``。"""
+
+        if "trading_calendar" in dataset_names:
+            days = self.trading_calendar(
+                snapshot_id, as_of=datetime.fromisoformat(as_of)
+            )
+            valid = [str(day) for day in days if _valid_iso_date(day)]
+            if valid:
+                return max(valid)
+
+        # 部分早期/专用快照只有行情数据。只在确认日历数据集不存在或为空
+        # 时回退，数据集存在但哈希错误仍由 reader 的正常校验抛出。
+        if "daily_quotes" in dataset_names:
+            rows = self.daily_quotes(
+                snapshot_id, as_of=datetime.fromisoformat(as_of)
+            )
+            if rows:
+                return max(row.trading_day for row in rows).isoformat()
+        return None
+
     def _assert_as_of_within_snapshot(self, snapshot_id: str, as_of: datetime) -> None:
         """as_of 必须**恰好**是快照自身的时间点。
 
@@ -107,7 +265,11 @@ class SnapshotReader:
             raise SnapshotError("PIT_UNVERIFIED", "as_of must be timezone-aware (§7.1)",
                                 snapshot_id, "pass a timezone-aware UTC datetime")
         snap = self.store.require_published(snapshot_id)
-        as_of_time = datetime.fromisoformat(snap["as_of_time"])
+        # 早期发布物可能没有单独的 as_of_time；此时 input_cutoff_at
+        # 是同一份快照的有效时点，必须与 ref() 和目录 API 使用同一回退口径。
+        as_of_time = datetime.fromisoformat(
+            snap["as_of_time"] or snap["input_cutoff_at"]
+        )
         if as_of != as_of_time:
             relation = "later than" if as_of > as_of_time else "earlier than"
             raise SnapshotError(
