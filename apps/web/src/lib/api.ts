@@ -358,6 +358,32 @@ export interface DecisionRow {
   submitted_at: string;
 }
 
+export interface StrategyVersionRow {
+  strategy_version: string;
+  family: string;
+  frozen_at: string;
+  spec_hash: string;
+  notes: string | null;
+}
+
+export interface StrategyFamilyGate {
+  family: string;
+  registrationAvailable: boolean;
+  error: { code: string; message: string; repair_action: string };
+  trialImpact: {
+    blocksInitialS1Trial: boolean;
+    blockedCapabilities: string[];
+    availableCapabilities: string[];
+  } | null;
+}
+
+export interface StrategyVersionsResponse {
+  strategyVersions: StrategyVersionRow[];
+  familyGates: StrategyFamilyGate[];
+  featureVersions: { featureVersion: string; factor_id?: string }[];
+  note: string;
+}
+
 export interface FactorRowValue {
   instrument_id: string;
   factor_id: string;
@@ -570,6 +596,9 @@ export const api = {
 
   experiments: () =>
     request<{ count: number; experiments: ExperimentRow[]; note: string }>("/api/v1/experiments"),
+
+  strategyVersions: () =>
+    request<StrategyVersionsResponse>("/api/v1/strategy-versions"),
 
   /** 每日任务的调度配置与运行状态（§14.2）。 */
   schedule: () => request<ScheduleStatus>("/api/v1/schedule"),

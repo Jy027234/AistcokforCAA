@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   api, AquantApiError, type DecisionRow, type ExperimentRow,
-  type FactorRowValue, type ResearchRunResponse, type WatchItem,
+  type FactorRowValue, type ResearchRunResponse, type StrategyVersionsResponse,
+  type WatchItem,
 } from "../lib/api";
 import type { ResearchCard } from "../lib/types";
 import { Badge, Callout, Card, Empty, Section } from "../components/ui";
@@ -32,6 +33,7 @@ export function WorkspaceView({
   const [cardError, setCardError] = useState<string | null>(null);
   const [decisions, setDecisions] = useState<DecisionRow[] | null>(null);
   const [experiments, setExperiments] = useState<ExperimentRow[] | null>(null);
+  const [strategyStatus, setStrategyStatus] = useState<StrategyVersionsResponse | null>(null);
 
   const explain = (err: unknown): string => {
     if (err instanceof AquantApiError) {
@@ -59,13 +61,16 @@ export function WorkspaceView({
     () => api.decisions(portfolioId), (r) => setDecisions(r.decisions)), [portfolioId]);
   const loadExperiments = useCallback(() => step("载入实验",
     () => api.experiments(), (r) => setExperiments(r.experiments)), []);
+  const loadStrategies = useCallback(() => step("载入策略能力",
+    () => api.strategyVersions(), setStrategyStatus), []);
 
   useEffect(() => {
     if (apiUp !== true) return;
     void loadWatch();
     void loadDecisions();
     void loadExperiments();
-  }, [apiUp, loadWatch, loadDecisions, loadExperiments]);
+    void loadStrategies();
+  }, [apiUp, loadWatch, loadDecisions, loadExperiments, loadStrategies]);
 
   /** 看某只证券的研究卡。此时不再只看排名，而是看数值、证据、反证与限制。 */
   const onOpenCard = (instrumentId: string) => {
@@ -161,6 +166,40 @@ export function WorkspaceView({
                 </tbody>
               </table>
             </div>
+          )}
+        </Card>
+      </Section>
+
+      {/* -------------------------------------------- 策略能力 */}
+      <Section title="策略能力" hint="缺失的数据只关闭受影响的策略族" dataSource="api">
+        <Card>
+          {strategyStatus === null ? (
+            <p className="note">正在载入策略能力…</p>
+          ) : (
+            <>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                {strategyStatus.strategyVersions.map((version) => (
+                  <Badge key={version.strategy_version} tone="ok">
+                    {version.family} · {version.strategy_version}
+                  </Badge>
+                ))}
+              </div>
+              {strategyStatus.familyGates.map((gate) => (
+                <Callout key={gate.family} tone="warn"
+                  title={`${gate.family} 未启用 · ${gate.error.code}`}>
+                  {gate.family === "S2" ? (
+                    <>
+                      F07–F09 财务输入尚未通过数据源权限、PIT、修订链和覆盖率验收。
+                      这会阻断 S2 登记、S1/S2 对照及质量因子增益结论，
+                      <strong>不会阻断 S1 价格研究和首期人工模拟试运行</strong>。
+                    </>
+                  ) : gate.error.message}
+                  <div className="note" style={{ marginTop: 6 }}>
+                    修复路径：{gate.error.repair_action}
+                  </div>
+                </Callout>
+              ))}
+            </>
           )}
         </Card>
       </Section>

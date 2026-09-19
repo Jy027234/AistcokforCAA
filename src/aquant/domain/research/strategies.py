@@ -42,6 +42,24 @@ _CLOSED_FAMILIES: dict[str, dict[str, str]] = {
     },
 }
 
+_FAMILY_TRIAL_IMPACT: dict[str, dict] = {
+    "S2": {
+        "blocksInitialS1Trial": False,
+        "blockedCapabilities": [
+            "S2_STRATEGY_REGISTRATION",
+            "S1_VS_S2_COMPARISON",
+            "QUALITY_FACTOR_INCREMENT_CLAIMS",
+        ],
+        "availableCapabilities": [
+            "S1_PRICE_RESEARCH",
+            "DAILY_SNAPSHOTS",
+            "RESEARCH_CARDS",
+            "MANUAL_SIMULATION",
+            "PORTFOLIO_LEDGER",
+        ],
+    },
+}
+
 
 class StrategyVersionError(Exception):
     def __init__(self, code: str, message: str, object_id: str,
@@ -106,6 +124,7 @@ def strategy_family_gates() -> list[dict]:
                 "message": gate["message"],
                 "repair_action": gate["repair_action"],
             },
+            "trialImpact": _FAMILY_TRIAL_IMPACT.get(family),
         }
         for family, gate in sorted(_CLOSED_FAMILIES.items())
     ]

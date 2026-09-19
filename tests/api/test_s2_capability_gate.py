@@ -59,6 +59,9 @@ def test_s2_registration_is_rejected_with_machine_readable_reason(api) -> None:
     gate = next(item for item in listed["familyGates"] if item["family"] == "S2")
     assert gate["registrationAvailable"] is False
     assert gate["error"]["code"] == "SOURCE_PERMISSION_MISSING"
+    assert gate["trialImpact"]["blocksInitialS1Trial"] is False
+    assert "S1_VS_S2_COMPARISON" in gate["trialImpact"]["blockedCapabilities"]
+    assert "MANUAL_SIMULATION" in gate["trialImpact"]["availableCapabilities"]
 
 
 def test_legacy_s2_version_cannot_be_used_to_register_an_experiment(api) -> None:
