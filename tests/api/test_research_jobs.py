@@ -134,6 +134,45 @@ def test_rerunning_a_finished_job_reuses_the_result(ctx):
         f"重跑产生了新的研究运行：{runs_after_first} -> {runs_after_second}")
 
 
+def test_expired_worker_is_recovered_and_real_outputs_remain_idempotent(ctx):
+    """A16：真实因子 worker 跨租约恢复后只保留一份确定性产物。"""
+
+    from aquant.operations.jobs import JobStore
+
+    client, con = ctx
+    job = submit(client).json()
+    crashed = JobStore(con).claim(
+        "crashed-worker", lease_seconds=0, job_id=job["jobId"]
+    )
+    assert crashed is not None and crashed.attempt_count == 1
+
+    recovered = client.post(
+        f"/api/v1/research/jobs/{job['jobId']}/run", headers=USER
+    ).json()
+    assert recovered["status"] == "SUCCEEDED", recovered
+    assert JobStore(con).get(job["jobId"]).attempt_count == 2
+    run_id = recovered["result"]["researchRunId"]
+    first_counts = tuple(con.execute(
+        "SELECT "
+        "(SELECT COUNT(*) FROM research_run WHERE research_run_id=?),"
+        "(SELECT COUNT(*) FROM feature_value WHERE research_run_id=?)",
+        (run_id, run_id),
+    ).fetchone())
+    assert first_counts[0] == 1 and first_counts[1] > 0
+
+    retried = client.post(
+        f"/api/v1/research/jobs/{job['jobId']}/run", headers=USER
+    ).json()
+    assert retried["reused"] is True
+    second_counts = tuple(con.execute(
+        "SELECT "
+        "(SELECT COUNT(*) FROM research_run WHERE research_run_id=?),"
+        "(SELECT COUNT(*) FROM feature_value WHERE research_run_id=?)",
+        (run_id, run_id),
+    ).fetchone())
+    assert second_counts == first_counts
+
+
 def test_running_an_unknown_job_is_404(ctx):
     client, _con = ctx
     r = client.post("/api/v1/research/jobs/job_does_not_exist/run", headers=USER)

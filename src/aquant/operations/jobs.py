@@ -35,7 +35,9 @@ class JobStatus(str, Enum):
 
 #: 允许的状态转移。任何未列出的转移都拒绝——状态不倒退（A13）。
 _ALLOWED: dict[JobStatus, frozenset[JobStatus]] = {
-    JobStatus.PENDING: frozenset({JobStatus.RUNNING, JobStatus.BLOCKED}),
+    # PENDING -> RUNNING is owned exclusively by claim(), which also records
+    # the lease owner and expiry.  finish() must never manufacture RUNNING.
+    JobStatus.PENDING: frozenset({JobStatus.BLOCKED}),
     JobStatus.RUNNING: frozenset({JobStatus.SUCCEEDED, JobStatus.FAILED,
                                   JobStatus.BLOCKED, JobStatus.PENDING}),
     # 终态不可再转移（重跑必须产生新作业，见 §8.4 幂等键含配置版本）
@@ -284,11 +286,13 @@ class JobStore:
 
     # ------------------------------------------------------------ lease
     def claim(self, worker_id: str, *, lease_seconds: int = 300,
-              job_types: list[str] | None = None) -> Job | None:
+              job_types: list[str] | None = None,
+              job_id: str | None = None) -> Job | None:
         """领取一个待执行作业。
 
         只领取 PENDING，或租约**已过期**的 RUNNING——后者意味着上一个 worker 崩了。
         这正是 A16"跨进程故障后恢复"的实现点。
+        ``job_id`` 用于点名领取；省略时按创建时间领取第一条符合条件的作业。
         """
 
         now = datetime.now(timezone.utc)
@@ -302,8 +306,12 @@ class JobStore:
         if job_types:
             sql += " AND job_type IN (" + ",".join("?" * len(job_types)) + ")"
             params.extend(job_types)
+        if job_id is not None:
+            sql += " AND job_id=?"
+            params.append(job_id)
         sql += " ORDER BY created_at LIMIT 1"
 
+        claimed: Job | None = None
         with write_tx(self.con):
             row = self.con.execute(sql, params).fetchone()
             if row is None:
@@ -314,16 +322,22 @@ class JobStore:
                 (JobStatus.RUNNING.value, worker_id, _iso(expires), _iso(now), _iso(now),
                  row["job_id"]),
             )
-        return self.get(row["job_id"])
+            # Capture the row before releasing the write transaction.  A
+            # zero/short lease may be reclaimed immediately after COMMIT; the
+            # caller must still receive the lease it actually acquired rather
+            # than a later worker's state.
+            claimed = self.get(row["job_id"])
+        return claimed
 
-    def heartbeat(self, job_id: str, worker_id: str, *, lease_seconds: int = 300) -> None:
+    def heartbeat(self, job_id: str, worker_id: str, attempt_count: int, *,
+                  lease_seconds: int = 300) -> None:
         now = datetime.now(timezone.utc)
         with write_tx(self.con):
             cur = self.con.execute(
                 "UPDATE job SET heartbeat_at=?, lease_expires_at=?, updated_at=? "
-                "WHERE job_id=? AND lease_owner=? AND status=?",
+                "WHERE job_id=? AND lease_owner=? AND attempt_count=? AND status=?",
                 (_iso(now), _iso(now + timedelta(seconds=lease_seconds)), _iso(now),
-                 job_id, worker_id, JobStatus.RUNNING.value),
+                 job_id, worker_id, attempt_count, JobStatus.RUNNING.value),
             )
             if cur.rowcount == 0:
                 raise JobError(
@@ -332,19 +346,69 @@ class JobStore:
                     "re-claim the job; the lease may have expired or been taken over",
                 )
 
-    # ------------------------------------------------------------ finish
-    def finish(self, job_id: str, status: JobStatus, *, result: dict | None = None,
-               error_code: str | None = None, error_detail: str | None = None) -> None:
+    def assert_lease(self, job_id: str, worker_id: str,
+                     attempt_count: int) -> None:
+        """Fence a domain write to the current, unexpired job attempt.
+
+        Call this from inside the same ``write_tx`` as the domain mutation.
+        The IMMEDIATE transaction then prevents a reclaim between this check
+        and the guarded writes.  ``attempt_count`` is the fencing token: a
+        scheduler may reuse its worker id across attempts.
+        """
+
         current = self.get(job_id)
-        if status not in _ALLOWED[current.status]:
+        now = datetime.now(timezone.utc)
+        active = (
+            current.status is JobStatus.RUNNING
+            and current.lease_owner == worker_id
+            and current.attempt_count == attempt_count
+            and current.lease_expires_at is not None
+            and current.lease_expires_at >= now
+        )
+        if not active:
             raise JobError(
                 "DATA_NOT_READY",
-                f"illegal transition {current.status.value} -> {status.value}", job_id,
-                f"allowed from {current.status.value}: "
-                f"{sorted(s.value for s in _ALLOWED[current.status])}",
+                f"job {job_id} lease attempt is no longer current",
+                job_id,
+                "discard the stale result and let the current lease holder continue",
             )
+
+    # ------------------------------------------------------------ finish
+    def finish(self, job_id: str, status: JobStatus, *,
+               worker_id: str | None = None,
+               attempt_count: int | None = None,
+               result: dict | None = None,
+               error_code: str | None = None, error_detail: str | None = None) -> None:
+        """Apply one transition and reject callbacks from stale workers.
+
+        A RUNNING job belongs to its current lease holder.  The state read,
+        ownership check and write share one IMMEDIATE transaction so a reclaim
+        and a late completion cannot interleave between those steps.
+        """
+
         now = datetime.now(timezone.utc)
         with write_tx(self.con):
+            current = self.get(job_id)
+            if status not in _ALLOWED[current.status]:
+                raise JobError(
+                    "DATA_NOT_READY",
+                    f"illegal transition {current.status.value} -> {status.value}", job_id,
+                    f"allowed from {current.status.value}: "
+                    f"{sorted(s.value for s in _ALLOWED[current.status])}",
+                )
+            if current.status is JobStatus.RUNNING and (
+                not worker_id
+                or worker_id != current.lease_owner
+                or attempt_count != current.attempt_count
+                or current.lease_expires_at is None
+                or current.lease_expires_at < now
+            ):
+                raise JobError(
+                    "DATA_NOT_READY",
+                    f"job {job_id} is not held by {worker_id!r}",
+                    job_id,
+                    "discard the stale callback; only the current lease holder may finish",
+                )
             self.con.execute(
                 "UPDATE job SET status=?, result_json=?, error_code=?, error_detail=?, "
                 "lease_owner=NULL, lease_expires_at=NULL, updated_at=? WHERE job_id=?",
@@ -352,18 +416,29 @@ class JobStore:
                  error_code, error_detail, _iso(now), job_id),
             )
 
-    def release(self, job_id: str, worker_id: str, *, reason: str | None = None) -> None:
+    def release(self, job_id: str, worker_id: str, *,
+                attempt_count: int | None = None,
+                reason: str | None = None) -> None:
         """主动释放回 PENDING（例如资源不足）。取消是请求，不是状态已恢复的证明（§12.1）。"""
 
-        current = self.get(job_id)
-        if current.status is not JobStatus.RUNNING:
-            raise JobError("DATA_NOT_READY", f"job {job_id} is not RUNNING", job_id,
-                           "release only a RUNNING job")
-        if current.lease_owner != worker_id:
-            raise JobError("DATA_NOT_READY", f"job {job_id} not held by {worker_id!r}",
-                           job_id, "only the lease holder may release")
         now = datetime.now(timezone.utc)
         with write_tx(self.con):
+            current = self.get(job_id)
+            if current.status is not JobStatus.RUNNING:
+                raise JobError("DATA_NOT_READY", f"job {job_id} is not RUNNING", job_id,
+                               "release only a RUNNING job")
+            if (
+                current.lease_owner != worker_id
+                or attempt_count != current.attempt_count
+                or current.lease_expires_at is None
+                or current.lease_expires_at < now
+            ):
+                raise JobError(
+                    "DATA_NOT_READY",
+                    f"job {job_id} not held by {worker_id!r}",
+                    job_id,
+                    "only the current unexpired lease attempt may release",
+                )
             self.con.execute(
                 "UPDATE job SET status=?, lease_owner=NULL, lease_expires_at=NULL, "
                 "error_detail=?, updated_at=? WHERE job_id=?",

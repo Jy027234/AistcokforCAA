@@ -19,6 +19,7 @@ import re
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Callable
 
 from aquant.domain.data.db import write_tx
 
@@ -125,7 +126,8 @@ def record_evidence(con: sqlite3.Connection, *,
                     prompt_version: str | None = None,
                     raw_output_hash: str | None = None,
                     extra: dict | None = None,
-                    research_run_id: str | None = None) -> EvidenceBundle:
+                    research_run_id: str | None = None,
+                    write_guard: Callable[[], None] | None = None) -> EvidenceBundle:
     """写入一次证据：一份文档 + 一个事件 + 若干可定位引用。
 
     available_at 是 PIT 门禁的唯一判据（§7.1），必须由调用方
@@ -149,6 +151,8 @@ def record_evidence(con: sqlite3.Connection, *,
     extra = extra or {}
     bundle = EvidenceBundle(event_id=event_id, document_id=document_id)
     with write_tx(con):
+        if write_guard is not None:
+            write_guard()
         con.execute(
             "INSERT OR IGNORE INTO document (document_id,origin,url,is_original,"
             "fetched_at,source_published_date,timestamp_precision,content_hash,"

@@ -1,6 +1,6 @@
 # Q5 接入侧验收报告
 
-> 生成时间：2026-09-19T10:05:46.662909+00:00
+> 生成时间：2026-09-19T10:54:12.586883+00:00
 > 本报告只引用本次 runner 新启动的 server 与新生成的去敏证据；历史 Q0/Q5 文件不作为本次结论输入。
 
 ## 实测范围
@@ -30,12 +30,12 @@
 | A10 | passed | live_topology | 模型失败分支保留真实失败语义 |
 | A11 | uncovered | not_executed | 未执行 |
 | A12 | uncovered | not_executed | 未执行 |
-| A13 | uncovered | not_executed | 未执行 |
+| A13 | passed | live_topology | 跨进程取消、迟到、重复与乱序回调均被状态机拒绝，非作业表未变化 |
 | A14 | uncovered | not_executed | 未执行 |
 | A15 | passed | offline_contract | 运行日志、构建产物、最终 evidence 与 report 均无已知密钥模式 |
-| A16 | uncovered | not_executed | 未执行 |
+| A16 | passed | live_topology | 崩溃租约由新进程接管并完成真实因子写入；重复提交与执行未改变产品库 |
 
-真实拓扑覆盖：6/8 通过；未覆盖：A01, A06, A09, A11, A12, A13, A14, A16；已执行失败：A02。
+真实拓扑覆盖：8/10 通过；未覆盖：A01, A06, A09, A11, A12, A14；已执行失败：A02。
 
 ## 证据与限制
 
@@ -43,7 +43,7 @@
 - A01 只有 mode_compatible=false 且 live invoke 收到服务端 HTTP 4xx 才记为明确拒绝；状态标记、客户端异常、网络错误或 5xx 均不算拒绝。
 - A04 通过真实 `/frontdesk/capabilities/invoke` 调用研究 handler；只有返回真实 snapshot、数据和 invocation/trace/idempotency 关联时才算覆盖。
 - A05–A09 的真实拓扑结论按上方覆盖矩阵记录；仅未覆盖项依据实际 manifest 与 onboarding 事实记录阻断，离线领域测试或样例数据不能冒充 agentctl 真实拓扑通过。
-- A10–A16 的离线领域测试不被本报告自动升级为 agentctl 真实拓扑覆盖；它们需要后续在对应 handler、持久 store 和跨进程演练完成后重跑。
+- A10–A16 仅按各行本次证据计级；其中跨进程状态演练必须同时经过持久 JobStore 与 live job.status，离线领域测试不会被自动升级。
 - 本报告与量化领域回归报告分开，不能互相替代。
 
 ## A05–A09 真实拓扑阻断

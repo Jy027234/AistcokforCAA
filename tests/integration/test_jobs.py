@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from aquant.domain.data.db import apply_migrations, connect
+from aquant.domain.data.db import apply_migrations, connect, write_tx
 from aquant.operations.jobs import (
     JobError,
     JobStatus,
@@ -120,7 +120,8 @@ def test_happy_path(store):
     assert job is not None and job.job_id == job_id
     assert job.status is JobStatus.RUNNING
     assert job.attempt_count == 1
-    store.finish(job_id, JobStatus.SUCCEEDED, result={"ok": True})
+    store.finish(job_id, JobStatus.SUCCEEDED, worker_id="worker-1", attempt_count=1,
+                 result={"ok": True})
     assert store.get(job_id).status is JobStatus.SUCCEEDED
 
 
@@ -129,10 +130,10 @@ def test_terminal_states_cannot_transition(store):
 
     job_id, _ = submit(store)
     store.claim("w")
-    store.finish(job_id, JobStatus.SUCCEEDED)
+    store.finish(job_id, JobStatus.SUCCEEDED, worker_id="w", attempt_count=1)
     for target in (JobStatus.RUNNING, JobStatus.FAILED, JobStatus.PENDING):
         with pytest.raises(JobError) as exc:
-            store.finish(job_id, target)
+            store.finish(job_id, target, worker_id="w")
         assert "illegal transition" in exc.value.message
 
 
@@ -142,10 +143,22 @@ def test_pending_cannot_jump_to_succeeded(store):
         store.finish(job_id, JobStatus.SUCCEEDED)
 
 
+def test_finish_cannot_manufacture_running_without_a_lease(store):
+    job_id, _ = submit(store)
+
+    with pytest.raises(JobError):
+        store.finish(job_id, JobStatus.RUNNING, worker_id="rogue")
+
+    assert store.get(job_id).status is JobStatus.PENDING
+    claimed = store.claim("real-worker", job_id=job_id)
+    assert claimed is not None and claimed.lease_owner == "real-worker"
+
+
 def test_failure_records_error_code(store):
     job_id, _ = submit(store)
     store.claim("w")
-    store.finish(job_id, JobStatus.FAILED, error_code="DATA_NOT_READY",
+    store.finish(job_id, JobStatus.FAILED, worker_id="w", attempt_count=1,
+                 error_code="DATA_NOT_READY",
                  error_detail="snapshot missing")
     job = store.get(job_id)
     assert job.status is JobStatus.FAILED
@@ -157,7 +170,8 @@ def test_blocked_can_be_requeued(store):
 
     job_id, _ = submit(store)
     store.claim("w")
-    store.finish(job_id, JobStatus.BLOCKED, error_code="DATA_NOT_READY")
+    store.finish(job_id, JobStatus.BLOCKED, worker_id="w", attempt_count=1,
+                 error_code="DATA_NOT_READY")
     store.finish(job_id, JobStatus.PENDING)
     assert store.get(job_id).status is JobStatus.PENDING
 
@@ -174,9 +188,9 @@ def test_claim_only_returns_one_job_per_worker(store):
 def test_heartbeat_requires_lease_ownership(store):
     job_id, _ = submit(store)
     store.claim("worker-a")
-    store.heartbeat(job_id, "worker-a")
+    store.heartbeat(job_id, "worker-a", 1)
     with pytest.raises(JobError) as exc:
-        store.heartbeat(job_id, "worker-b")
+        store.heartbeat(job_id, "worker-b", 1)
     assert "not held by" in exc.value.message
 
 
@@ -192,6 +206,95 @@ def test_expired_lease_is_reclaimable(store):
     assert reclaimed.attempt_count == 2, "重领必须累加尝试次数，便于诊断反复失败"
 
 
+def test_reclaimed_job_rejects_stale_worker_callback(store):
+    """A13/A16：租约被重领后，旧进程的迟到回调不能覆盖新持有者。"""
+
+    job_id, _ = submit(store)
+    store.claim("worker-a", lease_seconds=0, job_id=job_id)
+    reclaimed = store.claim("worker-b", job_id=job_id)
+    assert reclaimed is not None and reclaimed.lease_owner == "worker-b"
+
+    with pytest.raises(JobError) as exc:
+        store.finish(job_id, JobStatus.SUCCEEDED,
+                     worker_id="worker-a", attempt_count=1)
+    assert "not held by" in exc.value.message
+    current = store.get(job_id)
+    assert current.status is JobStatus.RUNNING
+    assert current.lease_owner == "worker-b"
+
+    store.finish(job_id, JobStatus.SUCCEEDED,
+                 worker_id="worker-b", attempt_count=2)
+    assert store.get(job_id).status is JobStatus.SUCCEEDED
+
+
+def test_expired_owner_cannot_finish_before_reclaim(store):
+    job_id, _ = submit(store)
+    store.claim("worker-a", lease_seconds=0, job_id=job_id)
+
+    with pytest.raises(JobError):
+        store.finish(job_id, JobStatus.SUCCEEDED,
+                     worker_id="worker-a", attempt_count=1)
+
+    assert store.get(job_id).status is JobStatus.RUNNING
+    assert store.claim("worker-b", job_id=job_id) is not None
+
+
+def test_reclaimed_job_fences_stale_domain_write(store):
+    """A16：领域写入与 lease fencing 必须处于同一写事务。"""
+
+    store.con.execute("CREATE TABLE guarded_effect (value TEXT NOT NULL)")
+    job_id, _ = submit(store)
+    stale = store.claim("worker-a", lease_seconds=0, job_id=job_id)
+    assert stale is not None
+    reclaimed = store.claim("worker-b", job_id=job_id)
+    assert reclaimed is not None
+
+    with pytest.raises(JobError):
+        with write_tx(store.con):
+            store.assert_lease(job_id, "worker-a", stale.attempt_count)
+            store.con.execute("INSERT INTO guarded_effect VALUES ('stale')")
+
+    assert store.con.execute("SELECT COUNT(*) FROM guarded_effect").fetchone()[0] == 0
+    with write_tx(store.con):
+        store.assert_lease(job_id, "worker-b", reclaimed.attempt_count)
+        store.con.execute("INSERT INTO guarded_effect VALUES ('current')")
+    assert store.con.execute("SELECT value FROM guarded_effect").fetchone()[0] == "current"
+
+
+def test_attempt_token_fences_reused_worker_id(store):
+    job_id, _ = submit(store)
+    first = store.claim("shared-worker", lease_seconds=0, job_id=job_id)
+    second = store.claim("shared-worker", job_id=job_id)
+    assert first is not None and second is not None
+    assert (first.attempt_count, second.attempt_count) == (1, 2)
+
+    with pytest.raises(JobError):
+        store.finish(
+            job_id, JobStatus.SUCCEEDED,
+            worker_id="shared-worker", attempt_count=first.attempt_count,
+        )
+    with pytest.raises(JobError):
+        store.release(
+            job_id, "shared-worker", attempt_count=first.attempt_count,
+        )
+    with pytest.raises(JobError):
+        store.heartbeat(job_id, "shared-worker", first.attempt_count)
+
+    current = store.get(job_id)
+    assert current.status is JobStatus.RUNNING
+    assert current.attempt_count == second.attempt_count
+
+
+def test_claim_can_target_one_job(store):
+    first, _ = submit(store, trading_day="2026-09-07")
+    second, _ = submit(store, trading_day="2026-09-08")
+
+    claimed = store.claim("worker", job_id=second)
+
+    assert claimed is not None and claimed.job_id == second
+    assert store.get(first).status is JobStatus.PENDING
+
+
 def test_live_lease_is_not_reclaimable(store):
     submit(store)
     store.claim("worker-a", lease_seconds=3600)
@@ -201,7 +304,8 @@ def test_live_lease_is_not_reclaimable(store):
 def test_release_returns_job_to_pending(store):
     job_id, _ = submit(store)
     store.claim("worker-a")
-    store.release(job_id, "worker-a", reason="quota exhausted")
+    store.release(job_id, "worker-a", attempt_count=1,
+                  reason="quota exhausted")
     job = store.get(job_id)
     assert job.status is JobStatus.PENDING
     assert job.lease_owner is None
@@ -212,7 +316,21 @@ def test_release_requires_ownership(store):
     job_id, _ = submit(store)
     store.claim("worker-a")
     with pytest.raises(JobError):
-        store.release(job_id, "worker-b")
+        store.release(job_id, "worker-b", attempt_count=1)
+
+
+def test_stale_release_cannot_clear_reclaimed_lease(store):
+    job_id, _ = submit(store)
+    store.claim("worker-a", lease_seconds=0, job_id=job_id)
+    reclaimed = store.claim("worker-b", job_id=job_id)
+    assert reclaimed is not None and reclaimed.lease_owner == "worker-b"
+
+    with pytest.raises(JobError):
+        store.release(job_id, "worker-a", attempt_count=1)
+
+    current = store.get(job_id)
+    assert current.status is JobStatus.RUNNING
+    assert current.lease_owner == "worker-b"
 
 
 def test_features_and_blocked_job_are_distinguishable(store):
@@ -222,9 +340,10 @@ def test_features_and_blocked_job_are_distinguishable(store):
     b, _ = submit(store, trading_day="2026-09-08")
     c, _ = submit(store, trading_day="2026-09-09")
     store.claim("w")                       # a -> RUNNING
-    store.finish(a, JobStatus.FAILED)
+    store.finish(a, JobStatus.FAILED, worker_id="w", attempt_count=1)
     store.claim("w")                       # b -> RUNNING
-    store.finish(b, JobStatus.BLOCKED, error_code="DATA_NOT_READY")
+    store.finish(b, JobStatus.BLOCKED, worker_id="w", attempt_count=1,
+                 error_code="DATA_NOT_READY")
     counts = store.counts_by_status()
     assert counts.get("FAILED") == 1
     assert counts.get("BLOCKED") == 1

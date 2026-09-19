@@ -21,6 +21,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Callable
 
 from ..data.reader import SnapshotReader
 from ..fundamentals.pit import FinancialsStore, earning_yield_f10
@@ -35,7 +36,8 @@ FEATURE_VERSION = "f10-v1"
 def compute_f10_for_snapshot(*, con: sqlite3.Connection,
                              reader: SnapshotReader, snapshot_id: str,
                              as_of: datetime,
-                             limit: int = 0) -> dict:
+                             limit: int = 0,
+                             write_guard: Callable[[], None] | None = None) -> dict:
     """在整个快照的证券上计算 F10，落库并返回摘要。"""
 
     instruments = reader.instruments(snapshot_id, as_of=as_of)
@@ -91,8 +93,11 @@ def compute_f10_for_snapshot(*, con: sqlite3.Connection,
     run_id = create_research_run(
         con, snapshot_id=snapshot_id, as_of_time=as_of,
         code_version="0.1.0", feature_version=FEATURE_VERSION,
-        notes="F10 盈利收益率；财报可用性按 ADR-005 的保守规则推导")
-    summary = store_factor_values(con, research_run_id=run_id, values=values)
+        notes="F10 盈利收益率；财报可用性按 ADR-005 的保守规则推导",
+        write_guard=write_guard)
+    summary = store_factor_values(
+        con, research_run_id=run_id, values=values,
+        write_guard=write_guard)
 
     return {
         **summary,

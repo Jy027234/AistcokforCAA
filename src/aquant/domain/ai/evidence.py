@@ -27,6 +27,7 @@ import json
 import re
 import sqlite3
 from datetime import date, datetime, timezone
+from typing import Callable
 
 from aquant.domain.ai.model import ModelUnavailable
 from aquant.domain.data.reader import SnapshotReader
@@ -56,7 +57,8 @@ _DATE_FIELD = {"record_date": "record_date", "ex_date": "ex_date", "pay_date": "
 
 
 def research_evidence(con: sqlite3.Connection, reader: SnapshotReader,
-                      job: Job, *, provider: object | None = None) -> dict:
+                      job: Job, *, provider: object | None = None,
+                      write_guard: Callable[[], None] | None = None) -> dict:
     """执行一次证据研究作业。
 
     provider 可由调用方注入：生产是 DeepSeekProvider，
@@ -117,7 +119,8 @@ def research_evidence(con: sqlite3.Connection, reader: SnapshotReader,
             # 全部用在思考上，正文为空——JSON 被 token 上限截没了。
             # 而"正文为空"在解析层表现为"模型没给引用"，
             # 于是一次截断看起来像模型不听话。
-            max_output_tokens=8192)
+            max_output_tokens=8192,
+            write_guard=write_guard)
 
         parsed = _parse_output(out["text"])
         if not parsed.get("fields"):
@@ -150,7 +153,8 @@ def research_evidence(con: sqlite3.Connection, reader: SnapshotReader,
             extra={"announced_on": action.get("announced_on"),
                    "structured": comparison["structured"],
                    "citations": comparison["citations"]},
-            research_run_id=job.job_id)
+            research_run_id=job.job_id,
+            write_guard=write_guard)
         results.append({
             "actionId": action["action_id"], "eventId": bundle.event_id,
             "documentId": bundle.document_id, "modelCallId": out["modelCallId"],

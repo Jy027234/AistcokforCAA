@@ -160,6 +160,8 @@ def test_job_status_reads_durable_store_and_preserves_domain_state(world):
     store.finish(
         job_id,
         JobStatus.FAILED,
+        worker_id="test-worker",
+        attempt_count=1,
         error_code="DATA_NOT_READY",
         error_detail="worker could not obtain the published input",
     )

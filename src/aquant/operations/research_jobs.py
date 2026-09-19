@@ -24,6 +24,7 @@ import json
 import sqlite3
 import uuid
 from datetime import datetime, timezone
+from typing import Callable
 
 from aquant.domain.data.reader import SnapshotReader
 from aquant.domain.research.f10 import compute_f10_for_snapshot
@@ -71,18 +72,19 @@ def run_research_job(con: sqlite3.Connection, reader: SnapshotReader, *,
     job = store.get(job_id)
     if job.status is JobStatus.SUCCEEDED:
         return _already_done(job)
-    if job.status is not JobStatus.PENDING:
+    if job.status not in {JobStatus.PENDING, JobStatus.RUNNING}:
         raise JobError(
             "DATA_NOT_READY",
-            f"job {job_id} is {job.status.value}, not PENDING",
-            job_id, "only a PENDING job can be run; list jobs for runnable ones")
+            f"job {job_id} is {job.status.value}, not claimable",
+            job_id, "only a PENDING or lease-expired RUNNING job can be run")
     # 走正常领取路径：租约与状态转移由 JobStore 保证，
     # 不在这里手写 UPDATE，否则会绕过状态机（A13）。
-    claimed = store.claim(worker_id, job_types=[job.job_type])
+    claimed = store.claim(worker_id, job_types=[job.job_type], job_id=job_id)
     if claimed is None or claimed.job_id != job_id:
         # 同一类型下先领到了别的作业：领错了就放回去，不要顺手执行它
         if claimed is not None:
             store.release(claimed.job_id, worker_id,
+                          attempt_count=claimed.attempt_count,
                           reason="claimed for a different job id")
         raise JobError("DATA_NOT_READY",
                        f"job {job_id} could not be claimed", job_id,
@@ -133,10 +135,23 @@ def _execute(con: sqlite3.Connection, reader: SnapshotReader,
     if job.status is JobStatus.SUCCEEDED:
         return _already_done(job)
 
+    if not job.lease_owner:
+        raise JobError(
+            "DATA_NOT_READY", f"job {job.job_id} has no lease owner", job.job_id,
+            "claim the job before executing it")
+    worker_id = job.lease_owner
+    attempt_count = job.attempt_count
+
+    def write_guard() -> None:
+        store.assert_lease(job.job_id, worker_id, attempt_count)
+
     try:
-        result = _dispatch(con, reader, job, provider=provider)
+        result = _dispatch(
+            con, reader, job, provider=provider, write_guard=write_guard
+        )
     except ResearchJobError as exc:
-        store.finish(job.job_id, JobStatus.FAILED,
+        store.finish(job.job_id, JobStatus.FAILED, worker_id=job.lease_owner,
+                     attempt_count=job.attempt_count,
                      error_code=exc.code, error_detail=f"{exc.message}｜修复：{exc.repair_action}")
         return {"jobId": job.job_id, "jobType": job.job_type,
                 "status": JobStatus.FAILED.value,
@@ -146,7 +161,8 @@ def _execute(con: sqlite3.Connection, reader: SnapshotReader,
     except Exception as exc:                              # noqa: BLE001
         # 未预期的异常也要落成 FAILED：让作业停在 RUNNING 会让它
         # 一直占着租约直到超时，而失败原因彻底丢失。
-        store.finish(job.job_id, JobStatus.FAILED,
+        store.finish(job.job_id, JobStatus.FAILED, worker_id=job.lease_owner,
+                     attempt_count=job.attempt_count,
                      error_code="DATA_NOT_READY",
                      error_detail=f"{type(exc).__name__}: {str(exc)[:300]}")
         return {"jobId": job.job_id, "jobType": job.job_type,
@@ -155,7 +171,9 @@ def _execute(con: sqlite3.Connection, reader: SnapshotReader,
                           "message": f"{type(exc).__name__}: {exc}"},
                 "reused": False}
 
-    store.finish(job.job_id, JobStatus.SUCCEEDED, result=result)
+    store.finish(job.job_id, JobStatus.SUCCEEDED,
+                 worker_id=job.lease_owner,
+                 attempt_count=job.attempt_count, result=result)
     return {"jobId": job.job_id, "jobType": job.job_type,
             "status": JobStatus.SUCCEEDED.value, "result": result, "reused": False}
 
@@ -178,9 +196,10 @@ def run_pending(con: sqlite3.Connection, reader: SnapshotReader, *,
 
 
 def _dispatch(con: sqlite3.Connection, reader: SnapshotReader, job: Job, *,
-              provider: object | None = None) -> dict:
+              provider: object | None = None,
+              write_guard: Callable[[], None] | None = None) -> dict:
     if job.job_type == JOB_FACTOR_COMPUTE:
-        return _compute_factors(con, reader, job)
+        return _compute_factors(con, reader, job, write_guard=write_guard)
     if job.job_type == JOB_EVIDENCE_RESEARCH:
         # 推迟到调用时 import：模型客户端是可选依赖，
         # 模块级 import 会让"只想算因子"的路径也依赖它。
@@ -191,14 +210,17 @@ def _dispatch(con: sqlite3.Connection, reader: SnapshotReader, job: Job, *,
                 "DATA_NOT_READY",
                 f"evidence research is not available: {exc}",
                 "provide the model provider adapter (see ADR-012)") from exc
-        return research_evidence(con, reader, job, provider=provider)
+        return research_evidence(
+            con, reader, job, provider=provider, write_guard=write_guard
+        )
     raise ResearchJobError(
         "DATA_NOT_READY",
         f"unknown job type {job.job_type!r}",
         f"use one of {list(KNOWN_JOB_TYPES)}")
 
 
-def _compute_factors(con: sqlite3.Connection, reader: SnapshotReader, job: Job) -> dict:
+def _compute_factors(con: sqlite3.Connection, reader: SnapshotReader, job: Job,
+                     *, write_guard: Callable[[], None] | None = None) -> dict:
     snapshot_id = job.input_snapshot_id
     if not snapshot_id:
         raise ResearchJobError("DATA_NOT_READY", "job has no input snapshot",
@@ -207,7 +229,8 @@ def _compute_factors(con: sqlite3.Connection, reader: SnapshotReader, job: Job) 
     ref = reader.ref(snapshot_id)
     out = compute_f10_for_snapshot(
         con=con, reader=reader, snapshot_id=snapshot_id,
-        as_of=ref.as_of_time, limit=payload.get("limit"))
+        as_of=ref.as_of_time, limit=payload.get("limit"),
+        write_guard=write_guard)
     return {
         "researchRunId": out.get("researchRunId"),
         "factorId": out.get("factorId"),

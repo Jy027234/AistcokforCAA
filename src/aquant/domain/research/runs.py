@@ -26,6 +26,7 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import Callable
 
 from ..data.db import write_tx
 
@@ -87,7 +88,8 @@ def create_research_run(con: sqlite3.Connection, *, snapshot_id: str,
                         feature_version: str,
                         strategy_version: str | None = None,
                         experiment_id: str | None = None,
-                        notes: str | None = None) -> str:
+                        notes: str | None = None,
+                        write_guard: Callable[[], None] | None = None) -> str:
     """开一次研究运行。绑定快照与时点——缺了它们排名无法解释。"""
 
     known = con.execute("SELECT 1 FROM snapshot WHERE snapshot_id=?",
@@ -100,6 +102,8 @@ def create_research_run(con: sqlite3.Connection, *, snapshot_id: str,
         .encode()).hexdigest()[:24]
 
     with write_tx(con):
+        if write_guard is not None:
+            write_guard()
         con.execute(
             "INSERT OR REPLACE INTO research_run (research_run_id,experiment_id,"
             "snapshot_id,as_of_time,code_version,strategy_version,feature_version,"
@@ -110,7 +114,8 @@ def create_research_run(con: sqlite3.Connection, *, snapshot_id: str,
 
 
 def store_factor_values(con: sqlite3.Connection, *, research_run_id: str,
-                        values: list[FactorValue]) -> dict:
+                        values: list[FactorValue],
+                        write_guard: Callable[[], None] | None = None) -> dict:
     """落库因子值，并**在同一次写入内**算好横截面排名。
 
     排名只对有值的标的计算：把"算不出"的标的也放进排名，
@@ -128,6 +133,16 @@ def store_factor_values(con: sqlite3.Connection, *, research_run_id: str,
             ranks[(factor_id, instrument_id)] = rank
 
     with write_tx(con):
+        if write_guard is not None:
+            write_guard()
+        # A deterministic research_run_id may be recomputed after a recovered
+        # attempt or with a narrower explicit universe.  Replace the complete
+        # result set so rows absent from the new run cannot survive as stale
+        # factor values from an earlier attempt.
+        con.execute(
+            "DELETE FROM feature_value WHERE research_run_id=?",
+            (research_run_id,),
+        )
         for v in values:
             con.execute(
                 "INSERT OR REPLACE INTO feature_value (research_run_id,"

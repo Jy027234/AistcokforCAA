@@ -584,10 +584,21 @@ def _revoke_credentials(config_path: Path, lease: RuntimeLease) -> None:
     for token_id in (lease.product_token_id, lease.low_scope_token_id):
         if not token_id:
             continue
-        try:
-            revoke_lite_token(config_path, token_id=token_id)
-        except Exception as exc:  # noqa: BLE001 - cleanup must be reported
-            failures.append(type(exc).__name__)
+        last_error: Exception | None = None
+        # The just-stopped HTTP process may release its SQLite handle a few
+        # milliseconds after process exit on Windows.  Cleanup is idempotent,
+        # so retry only the transient lock window before reporting failure.
+        for attempt in range(5):
+            try:
+                revoke_lite_token(config_path, token_id=token_id)
+                last_error = None
+                break
+            except sqlite3.OperationalError as exc:
+                last_error = exc
+                if attempt < 4:
+                    time.sleep(0.1 * (attempt + 1))
+        if last_error is not None:
+            failures.append(type(last_error).__name__)
     lease.revoked = not failures
     if failures:
         raise RuntimeError("temporary token revocation failed: " + ", ".join(failures))
@@ -1747,6 +1758,316 @@ def _a07_live_probe(
     }
 
 
+def _run_job_process(
+    meta_path: Path,
+    job_id: str,
+    action: str,
+    *,
+    worker_id: str = "",
+    lease_seconds: int = 300,
+    status: str | None = None,
+    data_dir: Path | None = None,
+    attempt_count: int | None = None,
+) -> dict[str, Any]:
+    """Run one JobStore operation in a fresh hidden process."""
+
+    command = [
+        sys.executable,
+        str(ROOT / "tests" / "acceptance" / "q5_job_process.py"),
+        "--meta-path",
+        str(meta_path),
+        "--job-id",
+        job_id,
+        "--action",
+        action,
+        "--lease-seconds",
+        str(lease_seconds),
+    ]
+    if worker_id:
+        command.extend(["--worker-id", worker_id])
+    if status:
+        command.extend(["--status", status])
+    if data_dir is not None:
+        command.extend(["--data-dir", str(data_dir)])
+    if attempt_count is not None:
+        command.extend(["--attempt-count", str(attempt_count)])
+    kwargs: dict[str, Any] = {
+        "cwd": str(ROOT),
+        "stdin": subprocess.DEVNULL,
+        "capture_output": True,
+        "text": True,
+        "encoding": "utf-8",
+        "timeout": PROBE_TIMEOUT,
+        "check": False,
+    }
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = subprocess.SW_HIDE
+        kwargs["startupinfo"] = startupinfo
+    completed = subprocess.run(command, **kwargs)
+    try:
+        payload = json.loads(completed.stdout) if completed.stdout.strip() else None
+    except json.JSONDecodeError:
+        payload = None
+    return {
+        "exit_code": completed.returncode,
+        "payload": _json_safe(payload),
+        "stderr_present": bool(completed.stderr.strip()),
+    }
+
+
+def _submit_acceptance_job(
+    base_url: str,
+    token: str,
+    capabilities: Path,
+    case: str,
+) -> dict[str, Any]:
+    arguments = {
+        **EXPERIMENT_DEFAULT_ARGUMENTS,
+        "config_version": f"q5-{case.lower()}-{uuid.uuid4().hex[:12]}",
+    }
+    suffix = uuid.uuid4().hex[:12]
+    return _capability_http_probe(
+        base_url,
+        token,
+        capabilities,
+        EXPERIMENT_CAPABILITY_ID,
+        arguments=arguments,
+        request_prefix=f"q5-{case.lower()}-submit",
+        idempotency_key=f"q5-{case.lower()}-runtime-{suffix}",
+        work_item_id=f"q5-{case.lower()}-work-{suffix}",
+        policy_decision_ref={
+            "kind": "q5_acceptance_policy",
+            "decision": "allow_research_job",
+            "reference": f"q5-{case.lower()}",
+        },
+    )
+
+
+def _job_id_from_probe(probe: dict[str, Any]) -> str:
+    response = probe.get("response") if isinstance(probe.get("response"), dict) else {}
+    output = response.get("output") if isinstance(response.get("output"), dict) else {}
+    return str(output.get("jobId") or "")
+
+
+def _process_payload(step: dict[str, Any]) -> dict[str, Any]:
+    payload = step.get("payload")
+    return payload if isinstance(payload, dict) else {}
+
+
+def _a13_callback_chaos_probe(
+    base_url: str,
+    token: str,
+    capabilities: Path,
+    product_data: dict[str, Any],
+) -> dict[str, Any]:
+    """Exercise cancellation, stale, duplicate and out-of-order callbacks."""
+
+    meta_path = Path(product_data["meta_path"])
+    before = _product_state_fingerprint(meta_path)
+    submit_probe = _submit_acceptance_job(base_url, token, capabilities, "A13")
+    job_id = _job_id_from_probe(submit_probe)
+    if not job_id:
+        return {"passed": False, "submit_probe": submit_probe}
+    steps = [
+        _run_job_process(meta_path, job_id, "claim", worker_id="q5-a13-old", lease_seconds=0),
+        _run_job_process(meta_path, job_id, "claim", worker_id="q5-a13-new"),
+        _run_job_process(
+            meta_path, job_id, "finish-expect-rejected",
+            worker_id="q5-a13-old", attempt_count=1, status="SUCCEEDED",
+        ),
+        _run_job_process(
+            meta_path, job_id, "release",
+            worker_id="q5-a13-new", attempt_count=2,
+        ),
+        _run_job_process(
+            meta_path, job_id, "finish-expect-rejected",
+            worker_id="q5-a13-new", attempt_count=2, status="SUCCEEDED",
+        ),
+        _run_job_process(meta_path, job_id, "claim", worker_id="q5-a13-final"),
+        _run_job_process(
+            meta_path, job_id, "finish", worker_id="q5-a13-final", status="SUCCEEDED",
+            attempt_count=3,
+        ),
+        _run_job_process(
+            meta_path, job_id, "finish-expect-rejected",
+            worker_id="q5-a13-final", attempt_count=3, status="SUCCEEDED",
+        ),
+        _run_job_process(
+            meta_path, job_id, "finish-expect-rejected",
+            worker_id="q5-a13-final", attempt_count=3, status="FAILED",
+        ),
+    ]
+    status_probe = _capability_http_probe(
+        base_url, token, capabilities, JOB_STATUS_CAPABILITY_ID,
+        arguments={"job_id": job_id}, request_prefix="q5-a13-status",
+    )
+    status_output = ((status_probe.get("response") or {}).get("output") or {})
+    after = _product_state_fingerprint(meta_path)
+    rejected = [
+        _process_payload(step).get("rejected") is True
+        for step in steps
+        if _process_payload(step).get("action") == "finish-expect-rejected"
+    ]
+    passed = bool(
+        submit_probe.get("accepted") is True
+        and all(step.get("exit_code") == 0 for step in steps)
+        and len(rejected) == 4
+        and all(rejected)
+        and status_probe.get("accepted") is True
+        and status_output.get("status") == "SUCCEEDED"
+        and status_output.get("attemptCount") == 3
+        and _non_job_tables_unchanged(before["tables"], after["tables"])
+    )
+    return {
+        "job_id": job_id,
+        "submit_accepted": submit_probe.get("accepted") is True,
+        "process_steps": steps,
+        "rejected_callback_count": sum(rejected),
+        "cancellation_release_observed": (
+            _process_payload(steps[3]).get("status") == "PENDING"
+        ),
+        "final_status": status_output.get("status"),
+        "attempt_count": status_output.get("attemptCount"),
+        "live_status_verified": status_probe.get("accepted") is True,
+        "non_job_tables_unchanged": _non_job_tables_unchanged(
+            before["tables"], after["tables"]
+        ),
+        "state_sha256_before": before["sha256"],
+        "state_sha256_after": after["sha256"],
+        "status_probe": status_probe,
+        "passed": passed,
+    }
+
+
+def _a16_crash_recovery_probe(
+    base_url: str,
+    token: str,
+    capabilities: Path,
+    product_data: dict[str, Any],
+) -> dict[str, Any]:
+    """Recover and execute a real factor job, then prove its retry is inert."""
+
+    meta_path = Path(product_data["meta_path"])
+    data_dir = Path(product_data["data_dir"])
+    before = _product_state_fingerprint(meta_path)
+    submit_probe = _submit_acceptance_job(base_url, token, capabilities, "A16")
+    job_id = _job_id_from_probe(submit_probe)
+    if not job_id:
+        return {"passed": False, "submit_probe": submit_probe}
+    arguments = dict(submit_probe.get("arguments") or {})
+    steps = [
+        _run_job_process(meta_path, job_id, "claim", worker_id="q5-a16-crashed", lease_seconds=0),
+        _run_job_process(
+            meta_path,
+            job_id,
+            "run-research",
+            worker_id="q5-a16-recovery",
+            data_dir=data_dir,
+        ),
+    ]
+    recovered_payload = _process_payload(steps[1])
+    run_id = str(recovered_payload.get("research_run_id") or "")
+    after_recovery = _product_state_fingerprint(meta_path)
+    instrument_payload = json.loads(
+        (
+            data_dir
+            / "api"
+            / "datasets"
+            / str(arguments.get("snapshot_id") or "")
+            / "instruments.json"
+        ).read_text(encoding="utf-8")
+    )
+    expected_feature_count = len(instrument_payload)
+    con = sqlite3.connect(meta_path)
+    try:
+        run_count = con.execute(
+            "SELECT COUNT(*) FROM research_run WHERE research_run_id=?", (run_id,)
+        ).fetchone()[0] if run_id else 0
+        feature_count = con.execute(
+            "SELECT COUNT(*) FROM feature_value WHERE research_run_id=?", (run_id,)
+        ).fetchone()[0] if run_id else 0
+    finally:
+        con.close()
+    retry_probe = _capability_http_probe(
+        base_url,
+        token,
+        capabilities,
+        EXPERIMENT_CAPABILITY_ID,
+        arguments=arguments,
+        request_prefix="q5-a16-retry",
+        idempotency_key="q5-a16-retry-" + uuid.uuid4().hex[:12],
+        work_item_id="q5-a16-retry-work-" + uuid.uuid4().hex[:12],
+        policy_decision_ref={
+            "kind": "q5_acceptance_policy",
+            "decision": "allow_research_job",
+            "reference": "q5-a16",
+        },
+    )
+    retry_execution = _run_job_process(
+        meta_path,
+        job_id,
+        "run-research",
+        worker_id="q5-a16-retry",
+        data_dir=data_dir,
+    )
+    final_probe = _capability_http_probe(
+        base_url, token, capabilities, JOB_STATUS_CAPABILITY_ID,
+        arguments={"job_id": job_id}, request_prefix="q5-a16-final",
+    )
+    retry_output = ((retry_probe.get("response") or {}).get("output") or {})
+    final_output = ((final_probe.get("response") or {}).get("output") or {})
+    after = _product_state_fingerprint(meta_path)
+    passed = bool(
+        submit_probe.get("accepted") is True
+        and all(step.get("exit_code") == 0 for step in steps)
+        and recovered_payload.get("status") == "SUCCEEDED"
+        and recovered_payload.get("attempt_count") == 2
+        and bool(run_id)
+        and run_count == 1
+        and feature_count == expected_feature_count
+        and retry_probe.get("accepted") is True
+        and retry_output.get("jobId") == job_id
+        and retry_output.get("created") is False
+        and retry_execution.get("exit_code") == 0
+        and _process_payload(retry_execution).get("reused") is True
+        and final_probe.get("accepted") is True
+        and final_output.get("status") == "SUCCEEDED"
+        and final_output.get("attemptCount") == 2
+        and after == after_recovery
+    )
+    return {
+        "job_id": job_id,
+        "process_steps": steps,
+        "recovered_status": recovered_payload.get("status"),
+        "recovered_attempt_count": recovered_payload.get("attempt_count"),
+        "research_run_id": run_id,
+        "research_run_count": run_count,
+        "feature_value_count": feature_count,
+        "expected_feature_value_count": expected_feature_count,
+        "retry_same_job": retry_output.get("jobId") == job_id,
+        "retry_created": retry_output.get("created"),
+        "retry_execution": retry_execution,
+        "retry_reused": _process_payload(retry_execution).get("reused"),
+        "final_status": final_output.get("status"),
+        "final_attempt_count": final_output.get("attemptCount"),
+        "real_outputs_written": (
+            run_count == 1 and feature_count == expected_feature_count
+        ),
+        "retry_left_product_store_unchanged": after == after_recovery,
+        "state_sha256_before": before["sha256"],
+        "state_sha256_after_recovery": after_recovery["sha256"],
+        "state_sha256_after": after["sha256"],
+        "retry_probe": retry_probe,
+        "final_status_probe": final_probe,
+        "state_recovery_observed": passed,
+        "domain_execution_fencing_observed": passed,
+        "passed": passed,
+    }
+
+
 def _a08_capability_spec(capabilities: Path) -> dict[str, Any] | None:
     """Read the manifest-owned A08 capability and its version."""
 
@@ -2357,7 +2678,7 @@ def render_report(report: dict[str, Any]) -> str:
         "- A01 只有 mode_compatible=false 且 live invoke 收到服务端 HTTP 4xx 才记为明确拒绝；状态标记、客户端异常、网络错误或 5xx 均不算拒绝。",
         "- A04 通过真实 `/frontdesk/capabilities/invoke` 调用研究 handler；只有返回真实 snapshot、数据和 invocation/trace/idempotency 关联时才算覆盖。",
         "- A05–A09 的真实拓扑结论按上方覆盖矩阵记录；仅未覆盖项依据实际 manifest 与 onboarding 事实记录阻断，离线领域测试或样例数据不能冒充 agentctl 真实拓扑通过。",
-        "- A10–A16 的离线领域测试不被本报告自动升级为 agentctl 真实拓扑覆盖；它们需要后续在对应 handler、持久 store 和跨进程演练完成后重跑。",
+        "- A10–A16 仅按各行本次证据计级；其中跨进程状态演练必须同时经过持久 JobStore 与 live job.status，离线领域测试不会被自动升级。",
         "- 本报告与量化领域回归报告分开，不能互相替代。",
         "",
         "## A05–A09 真实拓扑阻断",
@@ -2684,6 +3005,44 @@ def run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
                     "adjusted_bar_count": a08_fixture["adjusted_bar_count"],
                 },
             },
+        )
+        a13_probe = _a13_callback_chaos_probe(
+            base_url,
+            lease.product_token,
+            args.capabilities,
+            product_data,
+        )
+        _set_check(
+            checks,
+            "A13",
+            status="passed" if a13_probe.get("passed") else "failed",
+            evidence_kind="live_topology",
+            observed=(
+                "跨进程取消、迟到、重复与乱序回调均被状态机拒绝，非作业表未变化"
+                if a13_probe.get("passed")
+                else "回调乱序演练未形成完整状态与账本不回退证据"
+            ),
+            detail=a13_probe,
+        )
+        a16_probe = _a16_crash_recovery_probe(
+            base_url,
+            lease.product_token,
+            args.capabilities,
+            product_data,
+        )
+        _set_check(
+            checks,
+            "A16",
+            status=(
+                "passed" if a16_probe.get("passed") else "failed"
+            ),
+            evidence_kind="live_topology",
+            observed=(
+                "崩溃租约由新进程接管并完成真实因子写入；重复提交与执行未改变产品库"
+                if a16_probe.get("passed")
+                else "跨进程恢复与不重复入账证据不完整"
+            ),
+            detail=a16_probe,
         )
         if positive_summary.get("failure_semantics_observed"):
             _set_check(

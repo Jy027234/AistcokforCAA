@@ -22,6 +22,7 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Callable
 
 from aquant.domain.ai.egress import EgressDenied, EgressItem, assert_egress_allowed, build_model_context
 from aquant.domain.ai.model import ModelRequest, ModelUnavailable, TextModelProvider
@@ -98,7 +99,8 @@ def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
                   research_run_id: str | None = None,
                   instructions: str = ASSISTANT_INSTRUCTIONS_V1,
                   max_output_tokens: int = 8192,
-                  snapshot_context: dict | None = None) -> dict:
+                  snapshot_context: dict | None = None,
+                  write_guard: Callable[[], None] | None = None) -> dict:
     """把材料发给模型并留档。失败同样留档（outcome=ERROR/REJECTED）。
 
     snapshot_context：本回答所依据的快照状态（id / 数据模式 / 截止时点）。
@@ -166,7 +168,8 @@ def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
                      prompt_version=prompt_version, outcome="REJECTED",
                      error_code="SOURCE_PERMISSION_MISSING", content_hash=None,
                      input_tokens=None, output_tokens=None,
-                     detail=json.dumps(exc.blockers, ensure_ascii=False))
+                     detail=json.dumps(exc.blockers, ensure_ascii=False),
+                     write_guard=write_guard)
         raise AssistantError(
             "SOURCE_PERMISSION_MISSING", str(exc), exc.repair_action,
             blockers=exc.blockers) from exc
@@ -175,7 +178,8 @@ def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
         _record_call(con, provider, job_id=job_id, research_run_id=research_run_id,
                      prompt_version=prompt_version, outcome="REJECTED",
                      error_code="SOURCE_PERMISSION_MISSING", content_hash=None,
-                     input_tokens=None, output_tokens=None, detail=unknown)
+                     input_tokens=None, output_tokens=None, detail=unknown,
+                     write_guard=write_guard)
         raise AssistantError(
             "SOURCE_PERMISSION_MISSING",
             "有材料来自**未登记**的来源，闸门拒绝整批外发：" + unknown,
@@ -200,7 +204,8 @@ def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
         _record_call(con, provider, job_id=job_id, research_run_id=research_run_id,
                      prompt_version=prompt_version, outcome="ERROR",
                      error_code=exc.code, content_hash=None, input_tokens=None,
-                     output_tokens=None, detail=str(exc))
+                     output_tokens=None, detail=str(exc),
+                     write_guard=write_guard)
         raise AssistantError(exc.code, str(exc), exc.repair_action) from exc
 
     # ⑤ 留档
@@ -209,7 +214,7 @@ def ask_assistant(con: sqlite3.Connection, provider: TextModelProvider, *,
         prompt_version=prompt_version, outcome="OK", error_code=None,
         content_hash=response.content_hash,
         input_tokens=response.input_tokens, output_tokens=response.output_tokens,
-        detail=None)
+        detail=None, write_guard=write_guard)
 
     return {
         "modelCallId": call_id,
@@ -255,7 +260,8 @@ def _record_call(con: sqlite3.Connection, provider: TextModelProvider, *,
                  job_id: str | None, research_run_id: str | None,
                  prompt_version: str, outcome: str, error_code: str | None,
                  content_hash: str | None, input_tokens: int | None,
-                 output_tokens: int | None, detail: str | None) -> str:
+                 output_tokens: int | None, detail: str | None,
+                 write_guard: Callable[[], None] | None = None) -> str:
     """留档一次模型调用。**失败的也留**——否则预算与责任都无法核对。"""
 
     called_at = datetime.now(timezone.utc)
@@ -263,6 +269,8 @@ def _record_call(con: sqlite3.Connection, provider: TextModelProvider, *,
                      outcome, content_hash or "", called_at.isoformat()])
     call_id = "mc-" + hashlib.sha256(seed.encode()).hexdigest()[:20]
     with write_tx(con):
+        if write_guard is not None:
+            write_guard()
         con.execute(
             "INSERT OR REPLACE INTO model_call (model_call_id,job_id,research_run_id,"
             "provider,model,prompt_version,contract_version,content_hash,input_tokens,"
