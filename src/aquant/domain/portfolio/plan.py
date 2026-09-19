@@ -31,7 +31,7 @@ from zoneinfo import ZoneInfo
 
 from ..data.db import write_tx
 from ..data.reader import SnapshotReader, QuoteRow
-from ..data.snapshot import SnapshotError
+from ..data.snapshot import SnapshotError, publication_precedes_execution_open
 from ..portfolio.construction import (
     Candidate,
     ConstructionParams,
@@ -835,6 +835,15 @@ class PlanService:
                     f"the {trading_day.isoformat()} execution open",
                     decision_id,
                     "use an EOD or pre-open decision snapshot",
+                )
+            if not publication_precedes_execution_open(
+                    decision_ref.published_at, trading_day):
+                raise PlanError(
+                    "PIT_UNVERIFIED",
+                    f"decision snapshot {decision_id} was not published before "
+                    f"the {trading_day.isoformat()} execution open",
+                    decision_id,
+                    "use a decision snapshot that was actually published before execution open",
                 )
             if not _is_execution_day_close(execution_ref.as_of_time, trading_day):
                 raise PlanError(

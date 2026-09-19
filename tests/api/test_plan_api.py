@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -81,6 +81,45 @@ def test_preview_api_passes_explicit_decision_and_execution_timing(client):
     )
     assert response.status_code == 422, response.text
     assert response.json()["error"]["code"] == "PIT_UNVERIFIED"
+
+
+def test_production_preview_rejects_decision_published_after_execution_open(client):
+    """旧 as_of 不能掩盖快照其实是在执行日开盘后才补发的事实。"""
+
+    state = client.app.state.aquant
+    decision_id = "snap-production-backfilled"
+    execution_id = "snap-production-execution"
+    with write_tx(state.con):
+        for snapshot_id, stamp, published_at in (
+            (decision_id, "2026-09-17T15:00:00+08:00",
+             "2026-09-18T11:00:00+08:00"),
+            (execution_id, "2026-09-18T15:00:00+08:00",
+             "2026-09-18T16:00:00+08:00"),
+        ):
+            state.con.execute(
+                "INSERT INTO snapshot (snapshot_id,kind,data_mode,status,"
+                "input_cutoff_at,as_of_time,published_at,created_at,code_version,"
+                "data_version,quality_status) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (snapshot_id, "EOD", "PRODUCTION", "PUBLISHED", stamp, stamp,
+                 published_at, published_at, "test", "test", "OK"),
+            )
+
+    with pytest.raises(PlanError, match="was not published before") as exc:
+        state.service.preview(
+            portfolio_id="pf-syn-m",
+            snapshot_id=decision_id,
+            trading_day=date(2026, 9, 18),
+            as_of=datetime.fromisoformat("2026-09-17T15:00:00+08:00"),
+            candidates=[],
+            cash_available_cents=1_000_000,
+            lots=[],
+            confirm_subject="user:alice",
+            decision_snapshot_id=decision_id,
+            decision_cutoff_at=datetime.fromisoformat(
+                "2026-09-17T15:00:00+08:00"),
+            execution_snapshot_id=execution_id,
+        )
+    assert exc.value.code == "PIT_UNVERIFIED"
 
 
 def test_research_card_carries_no_probability_field(client):

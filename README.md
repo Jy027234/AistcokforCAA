@@ -299,6 +299,10 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/readiness | ConvertTo-Json -Depth
 `USER_CONFIGURED` / `FEE_VERSION_UNVERIFIED` 为准。`python tools\check_real_flow.py` 也要求两个变量成对出现；
 不完整时只做只读与时点检查并明确跳过真实写路径。
 
+决策快照除了 `asOfTime` 必须早于执行日，还必须在执行日 09:30（北京时间）之前已经实际发布。
+事后补发的历史重建快照会保留 `RECONSTRUCTED` 水印，可用于工程复核，但不会被 `trial.ready`
+或 `tools/check_real_flow.py` 当成当时可用的决策证据。
+
 ## 界面上的数字从哪来
 
 每个区块用 `data-source` 声明来源（`apps/web/src/components/ui.tsx`）：

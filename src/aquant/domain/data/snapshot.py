@@ -17,9 +17,10 @@ import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from enum import Enum
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from .db import write_tx
 
@@ -112,6 +113,43 @@ class SnapshotCapability:
             "message": self.message,
             "repair_action": self.repair_action,
         }
+
+
+_A_SHARE_MARKET_TZ = ZoneInfo("Asia/Shanghai")
+_A_SHARE_OPEN = time(9, 30)
+
+
+def publication_precedes_execution_open(
+    published_at: str | datetime | None, execution_day: str | date,
+) -> bool:
+    """Return whether a snapshot was actually available before execution open.
+
+    ``as_of_time`` says which market observations a snapshot represents. A
+    historical reconstruction can have an old ``as_of_time`` while only being
+    published today, so comparing the two as-of timestamps alone would admit
+    future information. The publication timestamp is the product's auditable
+    availability boundary for a snapshot-level decision.
+    """
+
+    try:
+        day = (execution_day if isinstance(execution_day, date)
+               else date.fromisoformat(execution_day))
+        published = (published_at if isinstance(published_at, datetime)
+                     else datetime.fromisoformat(
+                         (published_at or "").replace("Z", "+00:00")))
+    except (TypeError, ValueError):
+        return False
+    if published.tzinfo is None or published.utcoffset() is None:
+        return False
+    market_open = datetime.combine(day, _A_SHARE_OPEN, tzinfo=_A_SHARE_MARKET_TZ)
+    return published.astimezone(_A_SHARE_MARKET_TZ) < market_open
+
+
+def published_before_execution_open(decision: "PublishedSnapshot",
+                                    execution: "PublishedSnapshot") -> bool:
+    execution_day = execution.trading_day or execution.as_of_time[:10]
+    return publication_precedes_execution_open(
+        decision.published_at, execution_day)
 
 
 @dataclass(frozen=True, slots=True)

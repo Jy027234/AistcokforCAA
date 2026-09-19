@@ -19,7 +19,8 @@ from aquant.domain.data.snapshot import (  # noqa: E402
 
 
 def _snapshot(snapshot_id: str, day: str, *, ready: bool = True,
-              mode: str = "PRODUCTION", kind: str = "EOD") -> PublishedSnapshot:
+              mode: str = "PRODUCTION", kind: str = "EOD",
+              published_at: str | None = None) -> PublishedSnapshot:
     stamp = f"{day}T07:00:00+00:00"
     return PublishedSnapshot(
         snapshot_id=snapshot_id,
@@ -27,7 +28,7 @@ def _snapshot(snapshot_id: str, day: str, *, ready: bool = True,
         data_mode=mode,
         as_of_time=stamp,
         input_cutoff_at=stamp,
-        published_at=f"{day}T08:00:00+00:00",
+        published_at=published_at or f"{day}T08:00:00+00:00",
         quality_status="OK",
         trading_day=day,
         dataset_summary=(),
@@ -104,3 +105,22 @@ def test_explicit_decision_must_be_earlier_and_s1_ready():
             execution_snapshot_id="s-decision",
             decision_snapshot_id="s-execution",
         )
+
+
+def test_reconstructed_decision_published_after_execution_open_is_rejected():
+    snapshots = [
+        _snapshot(
+            "s-backfilled", "2026-09-14",
+            published_at="2026-09-18T03:00:00+00:00",
+        ),
+        _snapshot("s-execution", "2026-09-18"),
+    ]
+
+    with pytest.raises(ValueError, match="开盘前实际发布"):
+        select_snapshot_pair(
+            snapshots,
+            execution_snapshot_id="s-execution",
+            decision_snapshot_id="s-backfilled",
+        )
+    with pytest.raises(ValueError, match="开盘前实际发布"):
+        select_snapshot_pair(snapshots, current_snapshot_id="s-execution")

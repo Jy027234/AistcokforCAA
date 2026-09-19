@@ -273,7 +273,7 @@ ADR-011 的边界（领域层不得依赖 agentctl）由
 | T6 M2 账本与模拟 | ✅ | `tests/golden/test_s01_s10_simulator.py`、`tests/golden/test_dividend_persistence.py`、`tests/integration/t13_multiday.py`（多日 + 跨进程重启） |
 | T7 M3 工作台 | ✅ | 五页导航；写链路可走完；`tools/check_ui_flow.py`（交互 + 数字出处） |
 | T8 Q1 适配层 + 只读能力 | 🟡 | 研究卡、事件证据、实验提交、模拟预览均已 live 实跑；A05/A07/A08 通过，A06 因模型请求未完成而未覆盖 |
-| T9 Q3 预览与确认 | 🟡 | 计划生命周期与双快照时点绑定已接入；当前真实目录尚无“更早且 S1 就绪的决策快照 + 更晚执行快照”组合，须在下一份日终快照发布后重跑 `tools/check_real_flow.py` |
+| T9 Q3 预览与确认 | 🟡 | 计划生命周期与双快照时点绑定已接入；决策快照还须在执行日 09:30 前实际发布，事后回填不能冒充当时可用；须在下一份日终快照发布后重跑 `tools/check_real_flow.py` |
 | T10 Q2 证据研究 | 🟡 | A05/A10/A15 通过；A12 产品侧固定输入回放与产物哈希通过（offline contract）；A06 已有组合前后状态证据，但模型请求未完成，尚未形成完整 live 证据 |
 | T11 Q4 作业与追踪 | 🟡 | experiment.submit/job.status 已接同一 JobStore；A07/A13/A16 live 通过；A14 产品接线已完成，待 Platform Core replay 传输 |
 | T12 双重验收 | 🟡 | 量化侧报告已成；最新 Q5 为 13 通过、0 失败、3 未覆盖，10 项 live 通过；A02/A09 已关闭，A01/A06/A14 未覆盖 |
@@ -289,10 +289,11 @@ ADR-011 的边界（领域层不得依赖 agentctl）由
 | 助手消息与外发闸门 | `src/aquant/application/assistant.py`、`domain/ai/egress.py` | §5.5 与 §17.2 |
 | 费率溯源 | `src/aquant/domain/simulation/verified_fees.py`、`tools/fetch_fee_sources.py` | 合成费率曾在真实数据上被静默使用 |
 | 数字出处检查 | `apps/web/tools/check_number_provenance.mjs` | 界面上的数字必须说得出自己从哪来 |
-| 本地 Docker 部署 | `Dockerfile`、`docker-compose.yml` | 试运行需要"一个容器起来就能看" |
+| 本地 Docker 部署 | `Dockerfile`、`docker-compose.yml` | 试运行需要"一个容器起来就能看"；2026-09-19 隔离 Compose 实测健康、前端可读、固定主体 200/其他主体 403，测试栈已清理 |
 | 能力运行期接线 | `src/aquant/adapters/agentctl/runtime.py` | handler 不再自带夹具；默认读取器必须在**运行期**存在，否则"能力已注册"与"能力可用"是两回事 |
 | 能力 handler 契约守卫 | `tests/security/test_agentctl_handler_contract.py` | 基座按 `inspect.signature(fn).bind({})` 装载；这个前提此前**只是假设**，从没被断言过 |
 | 已发布快照目录与 S1 能力 | `/api/v1/snapshots`、`SnapshotReader.published_snapshot_catalog` | 生产预览需要独立决策/执行快照；目录先公布 S1 数据能力，避免把缺前复权价的旧快照交给用户后才在预览阶段失败 |
+| 快照实际可用时点门禁 | `published_before_execution_open`、`PlanService.preview`、`/api/v1/readiness`、`tools/check_real_flow.py` | `as_of_time` 早不代表当时已可用；补发快照的 `published_at` 晚于执行日开盘时拒绝真实试运行 |
 | 人工试运行预检 | `/api/v1/readiness` 的 `trial` 维度 | 把身份模式、真实数据模式、双快照时点对和已确认佣金列为硬门槛；调度与告警列为持续运行提示，避免“数据 READY”被误读为“产品可试运行” |
 
 ### 8.3 事实修正：主规格**未**修订
@@ -359,8 +360,10 @@ ADR-011/012/013 也未被它引用。
    `snap-eod-2026-09-18-53df1f23e8754984` 有 899 只证券满足 S1 决策输入；
    更早的 `snap-universe` 有 898 只证券的完整原始行情窗口缺少
    `adjusted_close_cents`，已由目录标记为 `ADJUSTED_CLOSE_INCOMPLETE`，不能
-   作为决策快照。发布一份晚于 2026-09-18 的合格 EOD 快照后，9 月 18 日
-   快照才能作为决策端、后续快照作为执行端，随后重跑真实闭环验收。
+   作为决策快照。现有缓存可以补发 9 月 14 日的 S1-ready 重建快照，但其
+   `published_at` 晚于 9 月 18 日开盘，只能用于工程回放，不能作为真实试运行决策证据。
+   发布一份晚于 2026-09-18 的合格 EOD 快照后，9 月 18 日快照才能作为决策端、
+   后续快照作为执行端，随后重跑真实闭环验收。
 4. **生产 API 身份认证**——本机 Compose 已绑定 `127.0.0.1`，并用
    `LOCAL_LOOPBACK_DEMO` + 固定单用户标签形成明确的本地试运行边界；未声明或开发自报头模式会
    阻断 `trial.ready`。这仍不是生产认证，跨机器或公网部署前必须接入服务端验证的凭证到主体映射。

@@ -45,6 +45,7 @@ from aquant.domain.data.snapshot import (
     PublishedSnapshot,
     SnapshotError,
     SnapshotStore,
+    published_before_execution_open,
 )
 from aquant.operations.snapshot_lifecycle import read_current_pointer
 
@@ -137,6 +138,8 @@ def select_snapshot_pair(
         if (decision_day is None or decision_day >= execution_day or
                 _snapshot_time(decision) >= _snapshot_time(execution)):
             raise ValueError("决策快照必须早于执行快照")
+        if not published_before_execution_open(decision, execution):
+            raise ValueError("决策快照必须在执行日开盘前实际发布")
     else:
         eligible = []
         for item in published.values():
@@ -151,9 +154,13 @@ def select_snapshot_pair(
                 continue
             if not item.s1_decision.available:
                 continue
+            if not published_before_execution_open(item, execution):
+                continue
             eligible.append(item)
         if not eligible:
-            raise ValueError("没有早于执行日且满足 S1 计算条件的决策快照")
+            raise ValueError(
+                "没有在执行日开盘前实际发布且满足 S1 计算条件的决策快照"
+            )
         decision = max(
             eligible,
             key=lambda item: (_snapshot_day(item), _snapshot_time(item),

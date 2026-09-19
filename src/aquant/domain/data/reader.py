@@ -47,6 +47,7 @@ class SnapshotRef:
 
     snapshot_id: str
     as_of_time: datetime
+    published_at: datetime | None
     data_mode: str
     watermark: str | None
 
@@ -54,6 +55,8 @@ class SnapshotRef:
         return {
             "snapshot_id": self.snapshot_id,
             "as_of_time": self.as_of_time.isoformat(),
+            "published_at": (
+                self.published_at.isoformat() if self.published_at else None),
             "data_mode": self.data_mode,
             "watermark": self.watermark,
         }
@@ -107,6 +110,9 @@ class SnapshotReader:
         return SnapshotRef(
             snapshot_id=snapshot_id,
             as_of_time=datetime.fromisoformat(as_of),
+            published_at=(
+                datetime.fromisoformat(snap["published_at"])
+                if snap["published_at"] else None),
             data_mode=snap["data_mode"],
             watermark=snap["watermark"],
         )

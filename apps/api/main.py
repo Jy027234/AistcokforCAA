@@ -53,7 +53,10 @@ from aquant.application.workspace_view import build_data_status, build_research_
 from aquant.domain.data.db import apply_migrations, connect
 from aquant.domain.data.ingest import SnapshotBuilder
 from aquant.domain.data.reader import SnapshotReader
-from aquant.domain.data.snapshot import PublishedSnapshot, SnapshotError, SnapshotStore
+from aquant.domain.data.snapshot import (
+    PublishedSnapshot, SnapshotError, SnapshotStore,
+    published_before_execution_open,
+)
 from aquant.domain.portfolio.construction import Candidate, ConstructionParams
 from aquant.domain.portfolio.plan import PlanError, PlanService, confirmer_is_human
 from aquant.domain.research.experiments import (
@@ -975,7 +978,8 @@ def _manual_trial_readiness(state: "AppState", data_status: dict,
                              and item.s1_decision.available
                              and item.trading_day is not None
                              and item.trading_day < execution.trading_day
-                             and item.as_of_time < execution.as_of_time), None)
+                             and item.as_of_time < execution.as_of_time
+                             and published_before_execution_open(item, execution)), None)
         if execution is None:
             issues.append({
                 "code": "CURRENT_SNAPSHOT_NOT_PUBLISHED",
@@ -985,8 +989,8 @@ def _manual_trial_readiness(state: "AppState", data_status: dict,
         elif decision is None:
             issues.append({
                 "code": "DECISION_EXECUTION_PAIR_MISSING",
-                "message": "没有早于当前执行日且具备 S1 决策能力的已发布快照",
-                "repairAction": "保留当前合格快照，并在下一交易日发布新的 EOD 快照",
+                "message": "没有在当前执行日开盘前发布且具备 S1 决策能力的更早快照",
+                "repairAction": "保留当前合格快照，并在下一交易日收盘后发布新的 EOD 快照",
             })
     if state.fees.commission_source != "USER_CONFIGURED":
         issues.append({
