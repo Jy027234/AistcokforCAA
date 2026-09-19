@@ -360,7 +360,6 @@ capabilities:
         type: object
   result_object_types:
   - job_ref
-  - evidence_ref
   side_effect_class: internal
   risk_level: R2
   data_sensitivity: D1
@@ -368,6 +367,83 @@ capabilities:
   - aquant.experiment.submit
   confirmation_policy: policy
   async_mode: job
+  job_lifecycle:
+    role: submit
+    status_capability_id: aquant.job.status
+  idempotency:
+    required: true
+    scope: tenant_actor_capability
+
+- capability_id: aquant.job.status
+  version: 1.0.0
+  title: 查询研究作业状态
+  description: 查询产品持久化 Research JobStore 中指定研究作业的权威状态、错误与已落库结果
+  when_to_use:
+  - 查询研究作业状态
+  - 查询研究作业的持久化结果
+  when_not_to_use:
+  - 要求重新执行或取消研究作业
+  handler: aquant_lab_agentctl_handlers:job_status
+  input_schema:
+    type: object
+    required:
+    - job_id
+    properties:
+      job_id:
+        type: string
+    additionalProperties: false
+  output_schema:
+    type: object
+    required:
+    - ok
+    - jobId
+    - status
+    - job_ref
+    properties:
+      ok:
+        type: boolean
+      jobId:
+        type: string
+      jobType:
+        type: string
+      status:
+        type: string
+      tradingDay:
+        type: string
+      attemptCount:
+        type: integer
+      leaseOwner:
+        type: string
+      leaseExpiresAt:
+        type: string
+      errorCode:
+        type: string
+      errorDetail:
+        type: string
+      idempotencyKey:
+        type: string
+      snapshotId:
+        type: string
+      configVersion:
+        type: string
+      result:
+        type: object
+      actor_user_id:
+        type: string
+        description: 调用主体；当前 JobStore 没有 actor/tenant ownership 列，不能据此宣称作业归属
+      job_ref:
+        type: object
+  result_object_types:
+  - job_ref
+  side_effect_class: none
+  risk_level: R0
+  data_sensitivity: D1
+  required_scopes:
+  - aquant.job.read
+  confirmation_policy: none
+  async_mode: job
+  job_lifecycle:
+    role: status
   idempotency:
     required: true
     scope: tenant_actor_capability

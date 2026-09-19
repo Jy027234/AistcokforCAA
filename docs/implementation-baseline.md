@@ -123,11 +123,12 @@
 - **依赖**：T2、T3（合成快照）
 - **当前证据**：`aquant.research_card.read` 已经由真实
   `/frontdesk/capabilities/invoke` 返回 snapshot、研究数据与 invocation/trace/idempotency
-  关联（Q5 A04 通过）；tenant/product/scope 三类负向通过（A03）。新增的事件、组合、
-  预览、实验 handler 已通过 manifest 校验和产品存储单测，但尚未在 Q5 真实拓扑逐项执行。
+  关联（Q5 A04 通过）；tenant/product/scope 三类负向通过（A03）。事件证据、实验提交
+  与模拟预览已经在隔离的真实 HTTP 拓扑通过 A05/A07/A08；组合读取也已实跑，但 A06
+  因模型请求未形成完成声明而保持未覆盖。
 - **对应**：v0.2.1 Q1、v0.2.2 §1 Q1、Q0 报告 §4.5–4.6
-- **遗留**：`market_snapshot.read`、`job.status`、`watchlist.add` 尚未进入 manifest；
-  已声明的四项新 handler 仍须关闭 A05–A08 的 live 验收。
+- **遗留**：`market_snapshot.read`、`watchlist.add` 尚未进入 manifest；`aquant.job.status`
+  已声明并接入持久 JobStore，但其状态轮询和 A06 仍须补齐 live 验收。
 
 ### T9 预览与确认（Q3，**依赖 M2**）
 - **交付物**：`aquant.simulation_plan.preview`、`aquant.portfolio.read`、`aquant.watchlist.add`；产品侧确认入口；幂等去重存储
@@ -138,8 +139,9 @@
 - **对应**：v0.2.2 §1 Q3
 - **当前状态**：`aquant.portfolio.read` 与 `aquant.simulation_plan.preview` 已声明并接到
   真实账本/`PlanService.preview`；预览与产品 API 共用费率解析，不能绕过
-  `FEE_VERSION_UNVERIFIED`。A08 尚未通过 live HTTP 核对；A09 的确认/冻结继续由
-  产品自有 HTTP 入口承担，未绑定进 agentctl，也不向模型暴露冻结能力。
+  `FEE_VERSION_UNVERIFIED`。A08 已用独立合成发布快照通过 live HTTP，并以四张业务表
+  的前后指纹证明预览不写库；A07 的十次同键提交也只新增一个产品 job。A09 的确认/冻结
+  继续由产品自有 HTTP 入口承担，未绑定进 agentctl，也不向模型暴露冻结能力。
 - **修正说明**：v0.2.2 把 Q3 前置写成"Q1 + 合成账户"，但"仅一次入账"是账本属性。**确认 ≠ 成交**；若把二者混为一条断言，会在 M2 尚未交付时产生虚假通过。
 
 ### T10 证据研究（Q2）
@@ -147,16 +149,17 @@
 - **依赖**：T5（证据域）+ T8
 - **完成判据**：A05/A06/A10/A15；失败路径不产生伪证据；归档哈希可复算
 - **当前状态**：`aquant.event_evidence.read` 已接真实证据库，按快照时点过滤并遮罩
-  未授权引用；单测证明恶意材料读取不新增作业。A10/A15 已通过，A05/A06 仍缺真实
-  HTTP 调用前后状态证据。
+  未授权引用；A05 已通过真实 HTTP 读取恶意材料并证明产品状态不变，A10/A15 也已通过。
+  A06 的组合前后读取与状态指纹已具备，但模型请求未完成，因此仍未覆盖。
 - **对应**：v0.2.1 Q2、主文档 §18.3（≥200 份人工标注材料）
 
 ### T11 作业与追踪（Q4）
 - **交付物**：`aquant.experiment.submit` / `aquant.job.status`；关联表；七态状态机
 - **依赖**：T5（任务机制）+ T10
 - **完成判据**：A13/A14；七种状态在 UI 与 API 可区分
-- **当前状态**：`aquant.experiment.submit` 已接持久 Research JobStore，并通过重复提交
-  只产生一个 job 的单测；`aquant.job.status`、回调乱序/取消以及会话恢复仍未接入 Q5。
+- **当前状态**：`aquant.experiment.submit` 已接持久 Research JobStore；A07 在 live HTTP
+  中十次同键提交只新增一个 job。`aquant.job.status` 已接入同一 JobStore，manifest 的
+  submit/status 生命周期检查通过；状态轮询、回调乱序/取消以及会话恢复仍未关闭 A13/A14。
 - **对应**：v0.2.1 Q4
 
 ### T12 双重验收（Q5 / M5）
@@ -261,11 +264,11 @@ ADR-011 的边界（领域层不得依赖 agentctl）由
 | T5 M1 数据与证据底座 | ✅ | 合成 D01–D08；真实全市场快照 `snap-universe`（900 只 / 61 个交易日） |
 | T6 M2 账本与模拟 | ✅ | `tests/golden/test_s01_s10_simulator.py`、`tests/golden/test_dividend_persistence.py`、`tests/integration/t13_multiday.py`（多日 + 跨进程重启） |
 | T7 M3 工作台 | ✅ | 五页导航；写链路可走完；`tools/check_ui_flow.py`（交互 + 数字出处） |
-| T8 Q1 适配层 + 只读能力 | 🟡 | 研究卡 live 调用与边界通过；事件、组合、预览、实验 handler 已声明并通过产品存储单测，尚待 A05–A08 live 验收 |
+| T8 Q1 适配层 + 只读能力 | 🟡 | 研究卡、事件证据、实验提交、模拟预览均已 live 实跑；A05/A07/A08 通过，A06 因模型请求未完成而未覆盖 |
 | T9 Q3 预览与确认 | 🟡 | 计划生命周期与双快照时点绑定已接入；当前真实目录尚无“更早且 S1 就绪的决策快照 + 更晚执行快照”组合，须在下一份日终快照发布后重跑 `tools/check_real_flow.py` |
-| T10 Q2 证据研究 | 🟡 | 领域管线与 event handler 已成，A10/A15 通过；A05/A06 尚无 live 前后状态证据 |
-| T11 Q4 作业与追踪 | 🟡 | Research JobStore 与 experiment submit handler 已成；job.status、A13/A14 尚未关闭 |
-| T12 双重验收 | 🟡 | 量化侧报告已成；最新 Q5 为 4 通过、1 失败、11 未覆盖，真实拓扑 A03/A04/A10 通过，A02 doctor 失败 |
+| T10 Q2 证据研究 | 🟡 | A05/A10/A15 通过；A06 已有组合前后状态证据，但模型请求未完成，尚未形成完整 live 证据 |
+| T11 Q4 作业与追踪 | 🟡 | experiment.submit/job.status 已接同一 JobStore，A07 live 通过；状态轮询与 A13/A14 尚未关闭 |
+| T12 双重验收 | 🟡 | 量化侧报告已成；最新 Q5 为 7 通过、1 失败、8 未覆盖，live A03/A04/A05/A07/A08/A10 通过，A02 doctor 失败 |
 
 ### 8.2 本基线之后新增的能力（不在 §3 任务表里）
 
@@ -326,10 +329,11 @@ ADR-011/012/013 也未被它引用。
 1. **主规格修订**（§8.3）——文档一致性债。
 2. **Q5 接入侧验收仍未关闭**——`docs/integration/q5-acceptance-report.md`
    已由一次隔离的真实 HTTP 拓扑运行生成，临时令牌已撤销、服务已停止。
-   当前 A03（tenant/product/scope）、A04（真实研究能力调用）和 A10（真实失败语义）
-   通过；A15 只有离线扫描证据；A01 观察到 `mode_compatible=false` 后调用仍被接受；
-   A02 因当前 manifest 未满足基座 `execution_evidence` assurance 而失败；A05–A09、
-   A11–A14、A16 尚未在该拓扑执行。另有基座漂移：锁定 `b5cad…`，当前本机为
+   当前 live A03（tenant/product/scope）、A04（真实研究能力调用）、A05（恶意材料无写入）、
+   A07（十次同键仅一个产品 job）、A08（预览不写库）和 A10（真实失败语义）通过；
+   A15 只有离线扫描证据；A01 观察到 `mode_compatible=false` 后调用仍被接受；A06 因模型
+   请求未完成而未覆盖；A09、A11–A14、A16 尚未在该拓扑执行。A02 因当前 manifest
+   未满足基座 `execution_evidence` assurance 而失败。另有基座漂移：锁定 `b5cad…`，当前本机为
    `f10bb…`，11 个 `src/agentctl` 文件有变化，未完成显式升级评审。
    该报告与量化领域回归报告**分别出具，互不替代**。
 3. **生产双快照尚缺一个后续日终发布物**——真实目录实测中，

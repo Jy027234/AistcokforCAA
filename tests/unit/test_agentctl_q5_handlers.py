@@ -21,6 +21,7 @@ from aquant.domain.data.db import apply_migrations, connect  # noqa: E402
 from aquant.domain.data.ingest import SnapshotBuilder  # noqa: E402
 from aquant.domain.data.reader import SnapshotReader  # noqa: E402
 from aquant.domain.data.snapshot import SnapshotStore  # noqa: E402
+from aquant.operations.jobs import JobStatus, JobStore  # noqa: E402
 from tests.integration.test_m1_ingest_e2e import build_snapshot  # noqa: E402
 
 
@@ -119,7 +120,58 @@ def test_experiment_submit_uses_durable_job_idempotency(world):
     assert first["idempotencyKey"] == second["idempotencyKey"]
     assert first["job_ref"]["job_id"] == first["jobId"]
     assert first["job_ref"]["status"] == "pending"
+    assert first["job_ref"]["status_capability_id"] == "aquant.job.status"
     assert con.execute("SELECT COUNT(*) FROM job").fetchone()[0] == 1
+
+
+def test_job_status_reads_durable_store_and_preserves_domain_state(world):
+    con, _reader, _cards = world
+    handlers = _handlers()
+    job_id, _created = JobStore(con).submit(
+        job_type="FACTOR_COMPUTE",
+        trading_day="2026-09-11",
+        config_version="default",
+        input_snapshot_id="snap-syn-001",
+        payload={"limit": 10},
+    )
+    store = JobStore(con)
+    assert store.claim("test-worker", job_types=["FACTOR_COMPUTE"]).job_id == job_id
+    store.finish(
+        job_id,
+        JobStatus.FAILED,
+        error_code="DATA_NOT_READY",
+        error_detail="worker could not obtain the published input",
+    )
+
+    out = _invoke(
+        handlers.job_status,
+        {"job_id": job_id},
+        con=con,
+    )
+
+    assert out["ok"] is True, out
+    assert out["jobId"] == job_id
+    assert out["status"] == "FAILED"
+    assert out["errorCode"] == "DATA_NOT_READY"
+    assert out["errorDetail"] == "worker could not obtain the published input"
+    assert out["snapshotId"] == "snap-syn-001"
+    assert out["job_ref"] == {
+        "job_id": job_id,
+        "status": "failed",
+        "owner": "aquant_lab",
+        "failure_code": "DATA_NOT_READY",
+    }
+
+
+def test_job_status_returns_structured_error_for_unknown_job(world):
+    con, _reader, _cards = world
+    handlers = _handlers()
+
+    out = _invoke(handlers.job_status, {"job_id": "job_missing"}, con=con)
+
+    assert out["ok"] is False, out
+    assert out["error"]["code"] == "DATA_NOT_READY"
+    assert out["error"]["object_id"] == "job_missing"
 
 
 def test_simulation_preview_stops_on_missing_real_s1_inputs_without_writes(

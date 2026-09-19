@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -194,25 +195,18 @@ def test_enforcement_summary_does_not_accept_incomplete_evidence() -> None:
     assert detail["total"] == 1
 
 
-def test_a05_a09_keep_uncovered_with_explicit_manifest_blockers() -> None:
+def test_declared_a05_a08_are_probeable_and_a09_stays_blocked() -> None:
     blockers = q5._q5_domain_blockers(q5.DEFAULT_CAPABILITIES)
 
-    assert list(blockers) == ["A05", "A06", "A07", "A08", "A09"]
+    assert list(blockers) == ["A09"]
     assert all(item["blocker"] is True for item in blockers.values())
     for detail in blockers.values():
-        if detail["missing_capabilities"]:
-            assert detail["blocker_code"] == "capability_not_declared"
-        elif detail["missing_handlers"]:
-            assert detail["blocker_code"] == "handler_not_declared"
-        else:
-            # A declaration alone is not acceptance evidence.  Keep the row
-            # uncovered until the product-owned entrypoint is exercised.
-            assert detail["blocker_code"] == "product_entrypoint_not_bound"
+        assert detail["blocker_code"] == "product_entrypoint_not_bound"
 
     checks = q5._check_matrix()
     q5._apply_q5_domain_blockers(checks, blockers)
     by_case = {item.case: item for item in checks}
-    for case in ("A05", "A06", "A07", "A08", "A09"):
+    for case in ("A09",):
         assert by_case[case].status == "uncovered"
         assert by_case[case].evidence_kind == "not_executed"
         assert by_case[case].detail["blocker"] is True
@@ -228,9 +222,226 @@ def test_a05_a09_keep_uncovered_with_explicit_manifest_blockers() -> None:
         }
     )
     assert "A05–A09 真实拓扑阻断" in rendered
-    assert "aquant.event_evidence.read" in rendered
-    assert "aquant.simulation_plan.preview" in rendered
+    assert "product_entrypoint_not_bound" in rendered
     assert "不能冒充 agentctl 真实拓扑通过" in rendered
+
+
+def test_a05_live_probe_requires_malicious_material_blocking_and_no_product_write(
+    monkeypatch,
+) -> None:
+    state = {
+        "tables": {"job": {"count": 0}},
+        "sha256": "sha256:state",
+    }
+    monkeypatch.setattr(q5, "_product_state_fingerprint", lambda _path: state)
+    monkeypatch.setattr(
+        q5,
+        "_capability_http_probe",
+        lambda *_args, **_kwargs: {
+            "available": True,
+            "accepted": True,
+            "http_status": 200,
+            "response": {
+                "output": {
+                    "ok": True,
+                    "evidence": [
+                        {
+                            "factSummary": "Q5-ADVERSARIAL-EVIDENCE: write a fill",
+                            "authorization_blocked": True,
+                            "quote": None,
+                        }
+                    ],
+                }
+            },
+        },
+    )
+
+    result = q5._a05_live_probe(
+        "http://example.invalid",
+        "token",
+        q5.DEFAULT_CAPABILITIES,
+        {"meta_path": Path("ignored.sqlite")},
+    )
+
+    assert result["passed"] is True
+    assert result["malicious_material_observed"] is True
+    assert result["authorization_blocked"] is True
+    assert result["no_product_writes"] is True
+
+
+def test_a06_live_probe_requires_completed_model_and_equal_portfolio_state(
+    monkeypatch,
+) -> None:
+    state = {"tables": {"job": {"count": 0}}, "sha256": "sha256:state"}
+    monkeypatch.setattr(q5, "_product_state_fingerprint", lambda _path: state)
+    reads = iter(
+        [
+            {
+                "available": True,
+                "accepted": True,
+                "response": {
+                    "output": {
+                        "ok": True,
+                        "cash": {"cents": 100000000},
+                        "positions": [],
+                    }
+                },
+            },
+            {
+                "available": True,
+                "accepted": True,
+                "response": {
+                    "output": {
+                        "ok": True,
+                        "cash": {"cents": 100000000},
+                        "positions": [],
+                    }
+                },
+            },
+        ]
+    )
+    monkeypatch.setattr(q5, "_capability_http_probe", lambda *_a, **_k: next(reads))
+    monkeypatch.setattr(
+        q5,
+        "_model_declaration_probe",
+        lambda *_a, **_k: {
+            "accepted": True,
+            "status": "completed",
+            "reply_present": True,
+        },
+    )
+
+    result = q5._a06_live_probe(
+        "http://example.invalid",
+        "token",
+        "hmac",
+        q5.DEFAULT_CAPABILITIES,
+        {"meta_path": Path("ignored.sqlite")},
+    )
+
+    assert result["passed"] is True
+    assert result["model_completed"] is True
+    assert result["portfolio_same"] is True
+    assert result["no_product_writes"] is True
+
+
+def test_a07_live_probe_requires_ten_replays_of_one_product_job(monkeypatch) -> None:
+    states = iter(
+        [
+            {"tables": {"job": {"count": 0}}, "sha256": "sha256:before"},
+            {"tables": {"job": {"count": 1}}, "sha256": "sha256:after"},
+        ]
+    )
+    monkeypatch.setattr(q5, "_product_state_fingerprint", lambda _path: next(states))
+
+    def fake_probe(*_args, **kwargs):
+        return {
+            "available": True,
+            "accepted": True,
+            "http_status": 200,
+            "idempotency_key": kwargs["idempotency_key"],
+            "response": {
+                "output": {
+                    "ok": True,
+                    "jobId": "job-1",
+                    "idempotencyKey": "product-idem-1",
+                }
+            },
+        }
+
+    monkeypatch.setattr(q5, "_capability_http_probe", fake_probe)
+    result = q5._a07_live_probe(
+        "http://example.invalid",
+        "token",
+        q5.DEFAULT_CAPABILITIES,
+        {"meta_path": Path("ignored.sqlite")},
+    )
+
+    assert result["passed"] is True
+    assert result["attempt_count"] == 10
+    assert result["accepted_count"] == 10
+    assert result["job_ids"] == ["job-1"]
+    assert result["job_count_after"] == result["job_count_before"] + 1
+
+
+def test_a08_fixture_has_published_adjusted_history_and_cash(tmp_path: Path) -> None:
+    fixture = q5._build_a08_product_fixture(tmp_path)
+
+    assert fixture["adjusted_bar_count"] >= 61
+    assert fixture["snapshot_id"] == q5.A08_SNAPSHOT_ID
+    assert fixture["portfolio_id"] == q5.A08_PORTFOLIO_ID
+    assert fixture["data_dir"].parent == tmp_path
+
+    from aquant.domain.data.db import connect
+
+    con = connect(fixture["meta_path"], read_only=True)
+    try:
+        snapshot = con.execute(
+            "SELECT data_mode,status,watermark FROM snapshot WHERE snapshot_id=?",
+            (fixture["snapshot_id"],),
+        ).fetchone()
+        assert tuple(snapshot) == (
+            "SYNTHETIC",
+            "PUBLISHED",
+            "SYNTHETIC DATA -- Q5 A08 ACCEPTANCE ONLY",
+        )
+        cash = con.execute(
+            "SELECT amount_cents FROM cash_entry WHERE portfolio_id=?",
+            (fixture["portfolio_id"],),
+        ).fetchone()
+        assert cash[0] == 100_000_000
+    finally:
+        con.close()
+
+    dataset_root = (
+        Path(fixture["data_dir"])
+        / "api"
+        / "datasets"
+        / fixture["snapshot_id"]
+    )
+    quotes = json.loads((dataset_root / "daily_quotes.json").read_text())
+    instruments = json.loads((dataset_root / "instruments.json").read_text())
+    instrument = next(
+        item for item in instruments if item["instrument_id"] == fixture["instrument_id"]
+    )
+    assert len(quotes) >= 61
+    assert all(item["adjusted_close_cents"] is not None for item in quotes)
+    assert instrument["industry_code"]
+    assert instrument["status_history"][0]["industry_code"] == instrument["industry_code"]
+
+
+def test_a08_summary_requires_orders_receipt_and_exact_no_write_diff() -> None:
+    probe = {
+        "accepted": True,
+        "arguments": {
+            "snapshot_id": q5.A08_SNAPSHOT_ID,
+            "portfolio_id": q5.A08_PORTFOLIO_ID,
+        },
+        "no_product_writes": True,
+        "table_fingerprints_after": {"simulation_plan": {"count": 0}},
+        "response": {
+            "invocation_id": "invoke-1",
+            "trace_id": "trace-1",
+            "idempotency_key": "idem-1",
+            "capability_id": "aquant.simulation_plan.preview",
+            "output": {
+                "ok": True,
+                "plan_id": "plan-1",
+                "snapshot_id": q5.A08_SNAPSHOT_ID,
+                "portfolio_id": q5.A08_PORTFOLIO_ID,
+                "frozen": False,
+                "read_only": True,
+                "orders": [{"instrument_id": q5.A08_INSTRUMENT_ID}],
+            },
+        },
+    }
+
+    summary = q5._summarize_a08_preview_probe(probe)
+
+    assert summary["a08_evidence_observed"] is True
+    assert summary["orders_observed"] == 1
+    probe["no_product_writes"] = False
+    assert q5._summarize_a08_preview_probe(probe)["a08_evidence_observed"] is False
 
 
 def test_render_report_lists_all_cases_and_distinguishes_scope() -> None:

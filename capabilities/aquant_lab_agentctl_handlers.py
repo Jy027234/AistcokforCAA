@@ -21,6 +21,7 @@ Design constraints inherited from the A-Quant Lab spec:
 
 from __future__ import annotations
 
+import json
 from datetime import date, datetime
 from typing import Any
 
@@ -600,11 +601,140 @@ async def experiment_submit(invocation: dict[str, Any], *,
                 "job_id": out.get("jobId"),
                 "status": str(out.get("status") or "").lower(),
                 "owner": "aquant_lab",
+                "status_capability_id": "aquant.job.status",
                 "submitted_at": out.get("submittedAt"),
             },
         }
     except Exception as exc:  # noqa: BLE001
         return _domain_error(exc, object_id=snapshot_id)
+    finally:
+        if close_after and con is not None:
+            con.close()
+
+
+def _job_runtime_status(status: Any) -> str:
+    """Map the product JobStatus to agentctl's job_ref vocabulary.
+
+    The product keeps the durable domain state (including BLOCKED) in the
+    top-level ``status`` field.  agentctl's runtime job contract accepts only
+    queued/running/completed/failed/cancelled, so BLOCKED is represented as a
+    failed terminal job_ref while the authoritative product state remains
+    visible to callers.
+    """
+
+    value = str(getattr(status, "value", status) or "").upper()
+    return {
+        "PENDING": "pending",
+        "RUNNING": "running",
+        "SUCCEEDED": "completed",
+        "FAILED": "failed",
+        "BLOCKED": "failed",
+    }.get(value, "failed")
+
+
+def _job_result(job: Any) -> Any:
+    """Decode the result owned by JobStore without inventing a result object."""
+
+    raw = getattr(job, "result_json", None)
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except (TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            f"job {getattr(job, 'job_id', '<unknown>')} has invalid persisted result JSON"
+        ) from exc
+
+
+async def job_status(invocation: dict[str, Any], *,
+                     con: Any | None = None,
+                     reader: Any | None = None) -> dict[str, Any]:
+    """Query one research job from the product's durable ``JobStore``.
+
+    This is a read-only projection of the same row used by
+    ``experiment_submit`` and the product research worker.  The current
+    ``job`` table has no actor or tenant ownership columns, so the verified
+    actor is returned as call context only; it is deliberately not presented
+    as an ownership check.
+    """
+
+    args = _invocation_arguments(invocation)
+    job_id = str(args.get("job_id") or "").strip()
+    if not job_id:
+        return _error(
+            "DATA_NOT_READY",
+            "job_id is required",
+            "<empty>",
+            False,
+            "provide the job_id returned by aquant.experiment.submit",
+        )
+
+    close_after = False
+    if con is None:
+        if reader is None:
+            reader = _default_reader()
+            # ``runtime.card_reader`` may return an application-owned reader
+            # registered with ``set_card_reader``.  Do not close that shared
+            # connection; only close connections created for this call.
+            if reader is not None:
+                try:
+                    from aquant.adapters.agentctl.runtime import injected_card_reader
+
+                    close_after = injected_card_reader() is None
+                except ImportError:
+                    close_after = True
+        con = _reader_connection(reader) if reader is not None else None
+        close_after = close_after and con is not None
+    if con is None:
+        return _error(
+            "DATA_NOT_READY",
+            "no readable product metadata store is configured",
+            job_id,
+            True,
+            "point AQUANT_DATA_DIR at an existing product data directory or inject its connection",
+        )
+
+    try:
+        from aquant.operations.jobs import JobStore
+
+        job = JobStore(con).get(job_id)
+        product_status = str(getattr(job.status, "value", job.status))
+        runtime_status = _job_runtime_status(job.status)
+        result = _job_result(job)
+        failure_code = str(job.error_code or "") or None
+        output = {
+            "ok": True,
+            "jobId": job.job_id,
+            "jobType": job.job_type,
+            "status": product_status,
+            "attemptCount": job.attempt_count,
+            "idempotencyKey": job.idempotency_key,
+            "actor_user_id": _invocation_actor(invocation),
+            "job_ref": {
+                "job_id": job.job_id,
+                "status": runtime_status,
+                "owner": "aquant_lab",
+                **({"failure_code": failure_code} if failure_code else {}),
+            },
+        }
+        optional_values = {
+            "tradingDay": job.trading_day,
+            "leaseOwner": job.lease_owner,
+            "leaseExpiresAt": (
+                job.lease_expires_at.isoformat() if job.lease_expires_at else None
+            ),
+            "errorCode": job.error_code,
+            "errorDetail": job.error_detail,
+            "snapshotId": job.input_snapshot_id,
+            "configVersion": job.config_version,
+            "result": result,
+        }
+        output.update(
+            {key: value for key, value in optional_values.items() if value is not None}
+        )
+        return output
+    except Exception as exc:  # noqa: BLE001
+        return _domain_error(exc, object_id=job_id)
     finally:
         if close_after and con is not None:
             con.close()
