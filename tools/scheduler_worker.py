@@ -42,6 +42,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -290,6 +291,31 @@ def main() -> int:
         # idle/fired 都算正常结束；ran:DONE 也正常；只有失败才非零。
         return 0 if result in ("idle", "fired") or result.endswith("DONE") else 1
 
+    started_at = datetime.now().astimezone()
+    heartbeat_stop = threading.Event()
+
+    def write_heartbeat(status: str = "RUNNING") -> None:
+        try:
+            scheduler.write_worker_heartbeat(
+                data_dir,
+                worker_id=worker_id,
+                pid=os.getpid(),
+                started_at=started_at,
+                interval_seconds=args.interval,
+                status=status,
+            )
+        except OSError as exc:
+            # 心跳写失败不应杀死真正的数据流水线，但控制台必须留下原因。
+            log(f"worker 心跳写入失败：{exc}")
+
+    def heartbeat_loop() -> None:
+        write_heartbeat()
+        while not heartbeat_stop.wait(max(1.0, min(args.interval, 20.0))):
+            write_heartbeat()
+
+    heartbeat_thread = threading.Thread(
+        target=heartbeat_loop, name="aquant-scheduler-heartbeat", daemon=True)
+    heartbeat_thread.start()
     try:
         while True:
             result = one_round()
@@ -300,6 +326,10 @@ def main() -> int:
         log("收到中断，退出")
         con.close()
         return 0
+    finally:
+        heartbeat_stop.set()
+        heartbeat_thread.join(timeout=2.0)
+        write_heartbeat("STOPPED")
 
 
 if __name__ == "__main__":

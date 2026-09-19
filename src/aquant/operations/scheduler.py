@@ -25,11 +25,15 @@ v0.2.1/v0.2.2 明确"调度所有权唯一，基座不做第二份日常调度"�
 
 from __future__ import annotations
 
+import json
+import os
 import re
 import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from ..domain.data.db import write_tx
 
@@ -41,6 +45,111 @@ _TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 
 SCHEDULE_ID = "daily"
 LAST_RUN_ID = "last"
+WORKER_HEARTBEAT_FILENAME = "scheduler-worker.json"
+
+
+def write_worker_heartbeat(
+    data_dir: str | Path,
+    *,
+    worker_id: str,
+    pid: int,
+    started_at: datetime,
+    interval_seconds: float,
+    status: str = "RUNNING",
+    now: datetime | None = None,
+) -> Path:
+    """原子写入独立 worker 的活性证明。
+
+    调度配置启用只说明“应该运行”，不能证明进程仍活着。心跳放在产品与
+    worker 共用的数据目录中，容器 API 无需读取 Windows 进程表也能判断。
+    """
+
+    if started_at.tzinfo is None:
+        raise ValueError("worker started_at must be timezone-aware")
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        raise ValueError("worker heartbeat time must be timezone-aware")
+    root = Path(data_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    target = root / WORKER_HEARTBEAT_FILENAME
+    payload = {
+        "workerId": worker_id,
+        "pid": int(pid),
+        "status": status,
+        "startedAt": _iso(started_at),
+        "heartbeatAt": _iso(moment),
+        "intervalSeconds": float(interval_seconds),
+    }
+    with NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=str(root), prefix=".scheduler-worker-",
+        suffix=".tmp", delete=False,
+    ) as handle:
+        temp_name = handle.name
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    try:
+        os.replace(temp_name, target)
+    except BaseException:
+        try:
+            Path(temp_name).unlink()
+        except OSError:
+            pass
+        raise
+    return target
+
+
+def worker_liveness(
+    data_dir: str | Path,
+    *,
+    now: datetime | None = None,
+    minimum_stale_seconds: float = 90.0,
+) -> dict:
+    """读取 worker 心跳并判断是否仍新鲜；不读取平台专有进程表。"""
+
+    path = Path(data_dir) / WORKER_HEARTBEAT_FILENAME
+    if not path.is_file():
+        return {
+            "running": False, "status": "MISSING", "heartbeatAt": None,
+            "ageSeconds": None, "detail": f"缺少 worker 心跳：{path}",
+        }
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        heartbeat_at = datetime.fromisoformat(str(payload["heartbeatAt"]))
+        if heartbeat_at.tzinfo is None:
+            raise ValueError("heartbeatAt has no timezone")
+        interval = max(float(payload.get("intervalSeconds") or 0), 0.0)
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        return {
+            "running": False, "status": "INVALID", "heartbeatAt": None,
+            "ageSeconds": None, "detail": f"worker 心跳不可读：{type(exc).__name__}",
+        }
+    moment = now or datetime.now(timezone.utc)
+    if moment.tzinfo is None:
+        raise ValueError("worker liveness time must be timezone-aware")
+    age = max(0.0, (moment.astimezone(timezone.utc)
+                    - heartbeat_at.astimezone(timezone.utc)).total_seconds())
+    stale_after = max(float(minimum_stale_seconds), interval * 3)
+    declared = str(payload.get("status") or "UNKNOWN").upper()
+    fresh = age <= stale_after
+    running = declared == "RUNNING" and fresh
+    status = declared if not fresh else ("RUNNING" if running else declared)
+    if not fresh:
+        status = "STALE"
+    detail = (f"worker 心跳正常（{age:.1f} 秒前）" if running else
+              f"worker 心跳状态 {status}（{age:.1f} 秒前）")
+    return {
+        "running": running,
+        "status": status,
+        "workerId": payload.get("workerId"),
+        "pid": payload.get("pid"),
+        "startedAt": payload.get("startedAt"),
+        "heartbeatAt": payload.get("heartbeatAt"),
+        "ageSeconds": round(age, 1),
+        "staleAfterSeconds": round(stale_after, 1),
+        "detail": detail,
+    }
 
 
 class ScheduleError(ValueError):

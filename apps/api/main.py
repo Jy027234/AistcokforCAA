@@ -75,6 +75,7 @@ from aquant.operations.scheduler import (
     save_schedule,
 )
 from aquant.operations.scheduler import status as scheduler_status
+from aquant.operations.scheduler import worker_liveness
 from aquant.operations.snapshot_lifecycle import resolve_current_snapshot
 from aquant.domain.simulation.corporate_actions import CashDividend
 from aquant.domain.simulation.fees import synthetic_fee_table
@@ -1007,12 +1008,23 @@ def _manual_trial_readiness(state: "AppState", data_status: dict,
         })
 
     schedule = scheduler_status(state.con)
+    worker = worker_liveness(state.data_dir)
     warnings: list[dict] = []
     if not schedule["schedule"]["enabled"]:
         warnings.append({
             "code": "SCHEDULER_DISABLED",
             "message": "每日任务未启用；人工试运行不受影响，但不会自动刷新",
             "repairAction": "在设置页启用计划，并启动 tools/scheduler_worker.py",
+        })
+    elif not worker["running"]:
+        warnings.append({
+            "code": "SCHEDULER_WORKER_NOT_RUNNING",
+            "message": "每日任务已启用，但独立 worker 没有新鲜心跳",
+            "repairAction": (
+                "启动 tools/scheduler_worker.py，或在 Windows 中重新启动 "
+                "AQuant Scheduler Worker 计划任务"
+            ),
+            "detail": worker["detail"],
         })
     if not os.environ.get("AQUANT_ALERT_WEBHOOK", "").strip():
         warnings.append({
@@ -1026,6 +1038,7 @@ def _manual_trial_readiness(state: "AppState", data_status: dict,
         "identity": identity_status,
         "blockingIssues": issues,
         "operationalWarnings": warnings,
+        "schedulerWorker": worker,
     }
 
 

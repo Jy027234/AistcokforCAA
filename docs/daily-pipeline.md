@@ -223,6 +223,14 @@ python tools\promote_snapshot.py `
 仅把缓存裁到更早日期后补发，虽然 `as_of_time` 更早，实际在执行日之后才可用，不能作为
 当时的决策证据；这类快照只保留为带 `RECONSTRUCTED` 水印的工程复核材料。
 
+### 7. 启用配置不等于 worker 活着
+
+长驻 worker 会每隔不超过 20 秒在数据目录原子刷新 `scheduler-worker.json`。
+`/api/v1/readiness` 读取这份跨进程心跳；配置已启用但心跳缺失、停止或过期时，
+返回 `SCHEDULER_WORKER_NOT_RUNNING` 持续运行告警。单次人工模拟仍可进行，但不能把
+“下次快照会自动产生”当作已验证事实。`--once` / `--now` 是短进程，不覆盖长驻
+worker 的心跳。
+
 工作台人工点选时会按 `decision_snapshot_id` 重新读取 S1 候选，而不是沿用当前或执行快照的
 候选列表。预览接口只接受该候选集的子集；确认令牌仍绑定完整预览哈希，冻结成功后再把模型
 原方案、人工最终方案及差异写入决策日志。

@@ -94,6 +94,32 @@ def test_saving_and_reading_back(client):
     assert _get(c)["schedule"]["interpreter"] == INTERPRETER
 
 
+def test_readiness_warns_when_enabled_worker_has_no_fresh_heartbeat(client):
+    c, state = client
+    scheduler.save_schedule(
+        state.con, enabled=True, run_at_local="20:30", weekdays_only=True,
+        interpreter=INTERPRETER, data_dir=str(state.data_dir),
+        window_start="2026-06-22", actor="user:test",
+    )
+
+    missing = c.get("/api/v1/readiness").json()["trial"]
+    assert missing["schedulerWorker"]["status"] == "MISSING"
+    assert "SCHEDULER_WORKER_NOT_RUNNING" in {
+        item["code"] for item in missing["operationalWarnings"]
+    }
+
+    now = datetime.now(timezone.utc)
+    scheduler.write_worker_heartbeat(
+        state.data_dir, worker_id="scheduler-test", pid=1234,
+        started_at=now, interval_seconds=20, now=now,
+    )
+    running = c.get("/api/v1/readiness").json()["trial"]
+    assert running["schedulerWorker"]["running"] is True
+    assert "SCHEDULER_WORKER_NOT_RUNNING" not in {
+        item["code"] for item in running["operationalWarnings"]
+    }
+
+
 def test_run_now_registers_a_request_but_does_not_execute(client):
     """「立刻运行」只登记请求：执行是 worker 的事。
 

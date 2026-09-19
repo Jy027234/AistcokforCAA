@@ -216,3 +216,39 @@ def test_status_reports_no_next_fire_when_disabled(con):
     assert state["schedule"]["enabled"] is False
     assert state["nextFireAt"] is None
     assert state["lastRun"] is None          # 没有运行记录 ≠ 跑了但结果为空
+
+
+# ================================================================ worker 心跳
+def test_worker_liveness_distinguishes_running_stale_and_stopped(tmp_path):
+    started = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+    heartbeat = datetime(2026, 9, 19, 12, 1, tzinfo=timezone.utc)
+    scheduler.write_worker_heartbeat(
+        tmp_path, worker_id="scheduler-test", pid=1234,
+        started_at=started, interval_seconds=20, now=heartbeat,
+    )
+
+    live = scheduler.worker_liveness(
+        tmp_path, now=heartbeat + timedelta(seconds=30))
+    assert live["running"] is True
+    assert live["status"] == "RUNNING"
+
+    stale = scheduler.worker_liveness(
+        tmp_path, now=heartbeat + timedelta(seconds=91))
+    assert stale["running"] is False
+    assert stale["status"] == "STALE"
+
+    scheduler.write_worker_heartbeat(
+        tmp_path, worker_id="scheduler-test", pid=1234,
+        started_at=started, interval_seconds=20, status="STOPPED",
+        now=heartbeat + timedelta(seconds=100),
+    )
+    stopped = scheduler.worker_liveness(
+        tmp_path, now=heartbeat + timedelta(seconds=101))
+    assert stopped["running"] is False
+    assert stopped["status"] == "STOPPED"
+
+
+def test_worker_liveness_reports_missing_heartbeat(tmp_path):
+    state = scheduler.worker_liveness(tmp_path)
+    assert state["running"] is False
+    assert state["status"] == "MISSING"
