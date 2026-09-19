@@ -10,7 +10,9 @@ export function TodayView({
 }: { data: WorkspaceData; onOpenCard: (id: string) => void; onOpenDraft: () => void }) {
   const { status, todayChanges, candidates, draft } = data;
   const pending = draft.ruleChecks.filter((c) => !c.passed);
-  const nothingToDo = todayChanges.length === 0 && pending.length === 0;
+  // API 初始态还没有请求过计划预览，不能把“尚未计算”说成“今日无需调整”。
+  const nothingToDo = todayChanges.length === 0 && pending.length === 0 &&
+    (data.dataSource !== "api" || draft.planId !== "");
 
   return (
     <>
@@ -89,7 +91,7 @@ export function TodayView({
       <Section
         title="研究候选"
         hint="先变化后排行"
-        dataSource="fixture"
+        dataSource={data.dataSource === "api" ? "api" : "fixture"}
         actions={<span className="note">全部数值绑定同一快照 {status.snapshotId}</span>}
       >
         <Card padded={false}>

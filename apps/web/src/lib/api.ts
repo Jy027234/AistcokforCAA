@@ -1,3 +1,5 @@
+import type { DataStatus, ResearchCard } from "./types";
+
 /** 工作台 API 客户端。
  *
  * 设计意图（主文档 §16.3、Q0 报告 §4.3）：
@@ -108,7 +110,7 @@ export interface PreviewResponse {
   frozenLabel: string;
   orders: {
     instrument_id: string; side: string; quantity: number;
-    price_cents: number; rationale?: string;
+    price_cents: number; gross_cents: number; rationale?: string;
     reference_price_day?: string;
   }[];
   estimatedFeesCents: number;
@@ -280,6 +282,38 @@ export interface FactorRowValue {
   coverage_ratio: number | null;
 }
 
+export interface CandidateResponseRow {
+  instrumentId: string;
+  displayName: string | null;
+  industryCode: string | null;
+  signalRank: number;
+  simulatable: boolean;
+}
+
+export interface CandidatesResponse {
+  snapshotId: string;
+  candidates: CandidateResponseRow[];
+  note: string;
+}
+
+export interface EventResponseRow {
+  event_id: string;
+  category: string;
+  summary: string;
+  available_at: string | null;
+  verification_status: string;
+  market_direction: string | null;
+  subjects: { subject_type: string; subject_id: string; role: string | null }[];
+}
+
+export interface EventsResponse {
+  snapshotId: string;
+  asOfTime: string;
+  count: number;
+  note: string;
+  events: EventResponseRow[];
+}
+
 export interface ResearchRunResponse {
   research_run_id: string;
   researchRunId: string;
@@ -348,7 +382,11 @@ export interface ScheduleStatus {
 export const api = {
   health: () => request<{ status: string }>("/api/v1/health"),
 
-  status: () => request<Record<string, unknown>>("/api/v1/status"),
+  status: () => request<DataStatus>("/api/v1/status"),
+
+  candidates: () => request<CandidatesResponse>("/api/v1/candidates"),
+
+  events: () => request<EventsResponse>("/api/v1/events"),
 
   preview: (body: { portfolio_id: string; snapshot_id: string; trading_day: string }) =>
     request<PreviewResponse>("/api/v1/plans/preview", {
@@ -420,7 +458,7 @@ export const api = {
 
   /** 研究卡。字段名与 workspace.json 的 ResearchCard 一致，可直接复用类型。 */
   research: (instrumentId: string, tradingDay: string) =>
-    request<import("./types").ResearchCard>(
+    request<ResearchCard>(
       "/api/v1/instruments/" + encodeURIComponent(instrumentId) + "/research" +
       "?trading_day=" + encodeURIComponent(tradingDay),
     ),

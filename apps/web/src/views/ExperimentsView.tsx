@@ -6,9 +6,10 @@ import { decisionTypeLabel, formatDate } from "../lib/format";
  *  交互原则：所有结果显示版本、样本期、数据级别和不足。
  */
 export function ExperimentsView({ data }: { data: WorkspaceData }) {
+  const source = data.dataSource === "api" ? "api" : "fixture";
   return (
     <>
-      <Section title="实验登记" hint="先登记，后看结果" dataSource="fixture">
+      <Section title="实验登记" hint="先登记，后看结果" dataSource={source}>
         {data.experiments.length === 0 ? (
           <Card><Empty title="尚无实验登记" /></Card>
         ) : (
@@ -41,14 +42,14 @@ export function ExperimentsView({ data }: { data: WorkspaceData }) {
       <Section title="对照结果" dataSource="static">
         <Card>
           <Callout tone="warn" title="尚无对照结果">
-            M/E/H/B 四类对照需要先完成前向模拟记录。当前只有虚构示例数据，
-            因此这里不展示任何收益率数字——虚构数据不能产生收益结论。
+            M/E/H/B 四类对照需要先完成前向模拟记录。当前没有已保存的对照结果，
+            因此这里不展示任何收益率数字。
           </Callout>
         </Card>
       </Section>
 
       <Section title="人工决策复盘" hint="保留原判断，不用新解释覆盖旧理由"
-        dataSource="fixture">
+        dataSource={source}>
         {data.decisionLog.length === 0 ? (
           <Card><Empty title="尚无决策记录" /></Card>
         ) : (

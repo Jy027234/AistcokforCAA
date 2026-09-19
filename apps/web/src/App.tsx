@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { DataStatus, LoadState, WorkspaceData } from "./lib/types";
+import type {
+  DataStatus, Draft, ResearchCard, TodayChange, WorkspaceData,
+} from "./lib/types";
 import { formatRelative } from "./lib/format";
 import { TopBar, StatusDrawer, type Tab } from "./components/TopBar";
-import { api, AquantApiError, type PreviewResponse } from "./lib/api";
+import {
+  api, AquantApiError, type CandidateResponseRow, type EventResponseRow,
+  type PreviewResponse,
+} from "./lib/api";
 import { ErrorState, Loading } from "./components/ui";
 import { EvidenceDrawer } from "./components/ResearchCard";
 import { TodayView } from "./views/TodayView";
@@ -13,7 +18,6 @@ import { WorkspaceView } from "./views/WorkspaceView";
 import { SettingsView } from "./views/SettingsView";
 
 const WS_URL = "/workspace.json";
-
 const TAB_IDS: Tab[] = ["today", "research", "portfolio", "workspace",
                         "experiments", "settings"];
 
@@ -22,11 +26,115 @@ function tabFromHash(): Tab {
   return (TAB_IDS as string[]).includes(h) ? (h as Tab) : "today";
 }
 
-export default function App() {
-  const [state, setState] = useState<LoadState>({ kind: "loading" });
-  const [tab, setTabState] = useState<Tab>(tabFromHash);
+/** 夹具只能通过显式 URL 开关启用。API 失败不会静默回退到夹具。 */
+function isDemoMode(): boolean {
+  return new URLSearchParams(window.location.search).get("mode") === "demo";
+}
 
-  // 视图可深链：刷新与分享都能回到同一页
+function configuredPortfolioId(): string {
+  const value = (window as Window & { __AQUANT_PORTFOLIO_ID__?: unknown })
+    .__AQUANT_PORTFOLIO_ID__;
+  return typeof value === "string" && value.trim() ? value.trim() : "pf-user-sim";
+}
+
+function tradingDayFromStatus(status: DataStatus): string {
+  return status.freshness?.snapshotDay ?? status.asOfTime.slice(0, 10);
+}
+
+function emptyApiDraft(status: DataStatus, portfolioId: string): Draft {
+  return {
+    planId: "", portfolioId, tradingDay: tradingDayFromStatus(status), frozen: false,
+    frozenLabel: "尚未请求服务端预览", orders: [], estimatedFees: "—",
+    cashBefore: "—", cashAfter: "—", cashAfterCents: 0, buyTotal: "—", sellTotal: "—",
+    industryCapPct: "—", industry: [], excluded: [], ruleChecks: [],
+    confirmAction: {
+      id: "plan.freeze", label: "确认并冻结计划",
+      requirement: "需要人类用户显式确认；确认主体不能是模型",
+      revalidate: ["计划版本", "快照版本", "账户状态版本", "确认主体", "有效期"],
+    },
+  };
+}
+
+function mapCandidate(row: CandidateResponseRow, status: DataStatus, note: string) {
+  return {
+    instrumentId: row.instrumentId,
+    displayName: row.displayName ?? row.instrumentId,
+    signalRank: row.signalRank,
+    industryCode: row.industryCode ?? "—",
+    basis: note || "服务端 S1 信号",
+    counterEvidence: "打开研究卡查看反证与限制",
+    dataQuality: status.qualityStatus,
+    simulatable: row.simulatable,
+    simulatableLabel: row.simulatable ? "可模拟" : "不可模拟",
+    lastClose: "—",
+  };
+}
+
+function mapEvent(row: EventResponseRow): TodayChange {
+  return {
+    eventId: row.event_id,
+    category: row.category,
+    summary: row.summary,
+    availableAt: row.available_at,
+    verification: row.verification_status,
+    direction: row.market_direction ?? "UNKNOWN",
+    subjects: row.subjects
+      .filter((s) => s.subject_type === "INSTRUMENT")
+      .map((s) => s.subject_id),
+  };
+}
+
+function buildApiWorkspace(
+  status: DataStatus,
+  candidates: CandidateResponseRow[],
+  candidateNote: string,
+  events: EventResponseRow[],
+): WorkspaceData {
+  const portfolioId = configuredPortfolioId();
+  return {
+    generatedAt: new Date().toISOString(), generator: "api",
+    note: candidateNote || "候选与状态来自工作台 API", dataSource: "api", status,
+    candidates: candidates.map((c) => mapCandidate(c, status, candidateNote)),
+    // 研究卡按需读取，避免启动时对整个候选池发起一串请求。
+    researchCards: [],
+    draft: emptyApiDraft(status, portfolioId),
+    todayChanges: events.map(mapEvent),
+    portfolios: [{
+      portfolioId, kind: "SIMULATED", label: "用户模拟账户", netValue: "—", cash: "—",
+      positions: 0,
+      note: "余额与持仓由服务端账本读取；请求预览后才创建或读取账户。",
+    }],
+    experiments: [], decisionLog: [],
+  };
+}
+
+function fallbackStatus(): DataStatus {
+  return {
+    snapshotId: "—", kind: "—", asOfTime: new Date().toISOString(),
+    publishedAt: null, dataMode: "—", watermark: null, qualityStatus: "—",
+    readiness: "PARTIAL", readinessLabel: "载入中", blockingIssues: [],
+    datasetSummary: [], timeLabel: "—", accountLabel: "模拟账户", freshness: null,
+  };
+}
+
+export default function App() {
+  const demoMode = isDemoMode();
+  const [state, setState] = useState<
+    { kind: "loading" } | { kind: "ready"; data: WorkspaceData } |
+    { kind: "error"; message: string }
+  >({ kind: "loading" });
+  const [tab, setTabState] = useState<Tab>(tabFromHash);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [evidenceFor, setEvidenceFor] = useState<string | null>(null);
+  const [selectedCard, setSelectedCard] = useState<string | null>(null);
+  const [researchLoadingId, setResearchLoadingId] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [confirmResult, setConfirmResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [livePreview, setLivePreview] = useState<PreviewResponse | null>(null);
+  const [apiUp, setApiUp] = useState<boolean | null>(null);
+  const [frozenPlanId, setFrozenPlanId] = useState<string | null>(null);
+
   const setTab = useCallback((next: Tab) => {
     setTabState(next);
     if (window.location.hash !== "#" + next) {
@@ -39,71 +147,6 @@ export default function App() {
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
-  const [statusOpen, setStatusOpen] = useState(false);
-  const [evidenceFor, setEvidenceFor] = useState<string | null>(null);
-  const [selectedCard, setSelectedCard] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState(false);
-  const [confirmResult, setConfirmResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  //: 服务端实时预览。为 null 时界面回退到只读夹具，并明确标注来源。
-  const [livePreview, setLivePreview] = useState<PreviewResponse | null>(null);
-  const [apiUp, setApiUp] = useState<boolean | null>(null);
-  //: 服务端返回的真实数据状态。
-  //:
-  //: 与夹具的 status 分开存，而不是覆盖进 data：data 是本 effect 的依赖，
-  //: 覆盖它会触发下一次 effect，形成循环。两者在渲染时合并。
-  const [liveStatus, setLiveStatus] = useState<DataStatus | null>(null);
-  //: 已成功冻结的计划。只有它才能被执行——界面不提供"跳过冻结直接执行"。
-  const [frozenPlanId, setFrozenPlanId] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setState({ kind: "loading" });
-    try {
-      const res = await fetch(WS_URL, { cache: "no-store" });
-      if (!res.ok) {
-        throw new Error("服务返回 " + res.status + " " + res.statusText);
-      }
-      const data = (await res.json()) as WorkspaceData;
-      setState({ kind: "ready", data });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setState({
-        kind: "error",
-        message:
-          message + "。请确认工作台数据已生成（tools/build_workspace_fixture.py）。",
-      });
-    }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
-
-  const data = state.kind === "ready" ? state.data : null;
-
-  // 探测 API。界面不假装它在线——离线时明确显示为只读预览。
-  //
-  // 在线时**同时取真实状态**并替换掉夹具里的那一份。
-  //
-  // 原先只探测 health，状态仍全部来自 workspace.json：于是顶栏的
-  // "研究日期"、"数据已就绪"、以及服务端算出的**数据新鲜度**
-  // 都到不了界面。后端明明返回了 stale:true，界面照样显示"数据已就绪"——
-  // 这与草稿面板那个缺陷是同一个形状：**数据拿到了，但没被用上**。
-  useEffect(() => {
-    if (!data) return;
-    let alive = true;
-    api.health()
-      .then(() => {
-        if (!alive) return;
-        setApiUp(true);
-        // 用 api.status() 而不是裸 fetch：它带 X-Aquant-Subject 头，
-        // 服务端要求这个头。第一版用裸 fetch，请求被 422 拒，
-        // 于是界面显示"API 离线"——而 API 明明是好的。
-        return api.status().then((live) => {
-          if (alive) setLiveStatus(live as unknown as DataStatus);
-        });
-      })
-      .catch(() => { if (alive) setApiUp(false); });
-    return () => { alive = false; };
-  }, [data]);
 
   const explain = useCallback((err: unknown): string => {
     if (err instanceof AquantApiError) {
@@ -113,191 +156,188 @@ export default function App() {
     return err instanceof Error ? err.message : String(err);
   }, []);
 
-  /** 第一步：向服务端请求预览。只算不冻。 */
+  const load = useCallback(async () => {
+    setState({ kind: "loading" });
+    setNotice(null); setLivePreview(null); setConfirmResult(null);
+    if (demoMode) {
+      try {
+        const res = await fetch(WS_URL, { cache: "no-store" });
+        if (!res.ok) throw new Error("服务返回 " + res.status + " " + res.statusText);
+        const fixture = await res.json() as WorkspaceData;
+        setApiUp(false);
+        setState({ kind: "ready", data: { ...fixture, dataSource: "fixture" } });
+      } catch (err) {
+        setState({ kind: "error", message: "显式演示模式的数据夹具无法读取：" + explain(err) });
+      }
+      return;
+    }
+    try {
+      const [status, candidateResponse, eventResponse] = await Promise.all([
+        api.status(), api.candidates(), api.events(),
+      ]);
+      const expected = status.snapshotId;
+      if (candidateResponse.snapshotId !== expected || eventResponse.snapshotId !== expected) {
+        throw new Error(
+          "API 返回了不一致的快照：status=" + expected +
+          "，candidates=" + candidateResponse.snapshotId +
+          "，events=" + eventResponse.snapshotId,
+        );
+      }
+      setApiUp(true);
+      setState({ kind: "ready", data: buildApiWorkspace(
+        status, candidateResponse.candidates, candidateResponse.note, eventResponse.events,
+      ) });
+    } catch (err) {
+      setApiUp(false);
+      setState({ kind: "error", message:
+        "实时工作台 API 加载失败；未回退到 workspace.json。\n" + explain(err) });
+    }
+  }, [demoMode, explain]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const data = state.kind === "ready" ? state.data : null;
+  const displayStatus = data?.status ?? fallbackStatus();
+
+  const onOpenResearch = useCallback((instrumentId: string) => {
+    setSelectedCard(instrumentId); setTab("research");
+    if (demoMode || !data) return;
+    setResearchLoadingId(instrumentId); setNotice(null);
+    void api.research(instrumentId, data.draft.tradingDay)
+      .then((card: ResearchCard) => {
+        if (card.snapshotId !== data.status.snapshotId) {
+          throw new Error("研究卡快照与当前状态不一致：" + card.snapshotId +
+                          " ≠ " + data.status.snapshotId);
+        }
+        setState((previous) => {
+          if (previous.kind !== "ready") return previous;
+          const cards = previous.data.researchCards.filter(
+            (c) => c.instrumentId !== card.instrumentId,
+          );
+          return { kind: "ready", data: { ...previous.data, researchCards: [...cards, card] } };
+        });
+      })
+      .catch((err) => setNotice("研究卡加载失败：" + explain(err)))
+      .finally(() => setResearchLoadingId(null));
+  }, [data, demoMode, explain, setTab]);
+
   const onRequestPreview = useCallback(async () => {
-    if (!data) return;
-    setNotice(null);
-    setConfirmResult(null);
+    if (!data || demoMode) return;
+    // production 计划必须绑定两个不同快照和两个明确时点；当前前端没有
+    // 快照列表/选择接口，不能把一个 current snapshot 冒充两种时点。
+    if (data.status.dataMode !== "SYNTHETIC") {
+      setNotice("生产预览已禁用：服务端要求独立的决策快照、执行快照及其截止时点；当前 API 尚未提供快照列表与选择入口。");
+      return;
+    }
+    setNotice(null); setConfirmResult(null);
     try {
       const pv = await api.preview({
-        portfolio_id: data.draft.portfolioId,
-        snapshot_id: data.status.snapshotId,
+        portfolio_id: data.draft.portfolioId, snapshot_id: data.status.snapshotId,
         trading_day: data.draft.tradingDay,
       });
+      if (pv.snapshot_id !== data.status.snapshotId) {
+        throw new Error("服务端预览使用了不同快照：" + pv.snapshot_id);
+      }
       setLivePreview(pv);
       setNotice("服务端预览已生成：" + pv.orders.length + " 笔订单，参考价日 " +
                 (pv.reference_price_day ?? "—") + "（执行日之前）。仍未冻结。");
-    } catch (err) {
-      setNotice("预览失败：" + explain(err));
-    }
-  }, [data, explain]);
+    } catch (err) { setNotice("预览失败：" + explain(err)); }
+  }, [data, demoMode, explain]);
 
-  const evidenceCard = useMemo(
-    () => (data && evidenceFor
-      ? data.researchCards.find((c) => c.instrumentId === evidenceFor) ?? null
-      : null),
-    [data, evidenceFor],
-  );
-
-  const onAction = useCallback((actionId: string, cardId: string) => {
-    if (actionId === "draft.create") {
-      setTab("portfolio");
-      setNotice("已切换到组合页查看模拟草稿。草稿需在界面中确认后才会冻结。");
-      window.setTimeout(() => setNotice(null), 6000);
-    } else if (actionId === "compare") {
-      setNotice(cardId + " 已加入比较（当前为会话内比较，不写入后端）。");
-      window.setTimeout(() => setNotice(null), 5000);
-    } else if (actionId === "watchlist.add") {
-      setNotice(cardId + " 已更新自选状态（会话内）。自选写入不产生订单。");
-      window.setTimeout(() => setNotice(null), 5000);
-    }
-  }, []);
-
-  /** 第二步：取服务端签发的一次性令牌，第三步用它冻结。
-   *
-   * 令牌由服务端绑定主体、计划、快照、账户版本与完整预览哈希；
-   * 前端只负责传递，不负责声明身份。
-   */
   const onConfirm = useCallback(async () => {
-    if (!data) return;
-    setConfirming(true);
-    setConfirmResult(null);
+    if (!data || demoMode || data.status.dataMode !== "SYNTHETIC") return;
+    setConfirming(true); setConfirmResult(null);
     try {
       let pv = livePreview;
       if (!pv) {
         pv = await api.preview({
-          portfolio_id: data.draft.portfolioId,
-          snapshot_id: data.status.snapshotId,
+          portfolio_id: data.draft.portfolioId, snapshot_id: data.status.snapshotId,
           trading_day: data.draft.tradingDay,
         });
         setLivePreview(pv);
       }
       const issued = await api.requestConfirmation(pv.planId);
       const frozen = await api.freeze(pv.planId, issued.confirmationToken);
-      // 记下这一个计划：账本区的执行按钮只对它开放。
       setFrozenPlanId(pv.planId);
-      setConfirmResult({
-        ok: true,
-        message: "已冻结（服务端复核通过）。计划 ID " + pv.planId +
-                 "，冻结时间 " + String(frozen.frozen_at ?? "") +
-                 "。冻结后不可修改；可在下方「账本」区执行本交易日。",
-      });
-    } catch (err) {
-      setConfirmResult({ ok: false, message: explain(err) });
-    } finally {
-      setConfirming(false);
+      setConfirmResult({ ok: true, message: "已冻结（服务端复核通过）。计划 ID " + pv.planId +
+        "，冻结时间 " + String(frozen.frozen_at ?? "") +
+        "。冻结后不可修改；可在下方「账本」区执行本交易日。" });
+    } catch (err) { setConfirmResult({ ok: false, message: explain(err) }); }
+    finally { setConfirming(false); }
+  }, [data, demoMode, livePreview, explain]);
+
+  const evidenceCard = useMemo(
+    () => (data && evidenceFor
+      ? data.researchCards.find((c) => c.instrumentId === evidenceFor) ?? null : null),
+    [data, evidenceFor],
+  );
+
+  const onAction = useCallback((actionId: string, cardId: string) => {
+    if (actionId === "draft.create") {
+      setTab("portfolio"); setNotice("已切换到组合页查看模拟草稿。草稿需在界面中确认后才会冻结。");
+    } else if (actionId === "compare") {
+      setNotice(cardId + " 已加入比较（当前为会话内比较，不写入后端）。");
+    } else if (actionId === "watchlist.add") {
+      setNotice(cardId + " 已更新自选状态（当前为会话内标记）。自选写入不产生订单。");
+    } else if (actionId === "watchlist.saved") {
+      setNotice(cardId + " 已保存到服务端自选。自选写入不产生订单。");
+    } else if (actionId === "watchlist.removed") {
+      setNotice(cardId + " 已从服务端自选移除。自选变化不影响模拟持仓。");
     }
-  }, [data, livePreview, explain]);
+    window.setTimeout(() => setNotice(null), 5000);
+  }, [setTab]);
 
   return (
     <div className="app">
-      <TopBar
-        // 服务端在线时用**它的**状态；夹具的只作为离线兜底。
-        //
-        // 顶栏显示的是"研究日期 / 数据是否就绪 / 数据新不新"——
-        // 这些必须来自服务端。原先全部来自夹具，于是后端算出的
-        // 数据新鲜度到不了界面：后端返回 stale:true，界面照样写"数据已就绪"。
-        status={liveStatus ?? data?.status ?? {
-          snapshotId: "—", kind: "—", asOfTime: new Date().toISOString(),
-          publishedAt: null, dataMode: "—", watermark: null, qualityStatus: "—",
-          readiness: "PARTIAL", readinessLabel: "载入中", blockingIssues: [],
-          datasetSummary: [], timeLabel: "—", accountLabel: "模拟账户",
-          // 载入中时**不声明**新鲜度：null 表示"还不知道"，
-          // 而不是"数据是新的"。界面对这两者的处理必须不同。
-          freshness: null,
-        }}
-        tab={tab}
-        onTab={setTab}
+      <TopBar status={displayStatus} tab={tab} onTab={setTab}
         onOpenStatus={() => (data ? setStatusOpen(true) : void load())}
         lastLoadedAt={data ? formatRelative(data.generatedAt) : null}
-        loading={state.kind === "loading"}
-      />
+        loading={state.kind === "loading"} />
+
+      {demoMode && (
+        <div className="section" role="note"><div className="callout callout-warn">
+          <span className="icon" aria-hidden="true">!</span><div><strong>显式演示模式</strong>
+            <div className="note" style={{ color: "inherit" }}>
+              当前通过 <span className="mono">?mode=demo</span> 读取 workspace.json；这是只读夹具，实时 API 不参与本页数据与写操作。
+            </div></div>
+        </div></div>
+      )}
 
       <main className="page">
         {state.kind === "loading" && tab !== "settings" && <Loading />}
-        {state.kind === "error" && tab !== "settings" && (
-          <ErrorState message={state.message} onRetry={load} />
-        )}
-        {/* 设置页不依赖 /workspace.json：它自己在挂载时读 /api/v1/schedule。
-            挂在 workspace 数据上会让"工作台数据读不出来"顺带把设置页也弄没
-            ——而"数据读不出来"恰恰是最需要去设置页看看调度是不是停了的时候。 */}
+        {state.kind === "error" && tab !== "settings" && <ErrorState message={state.message} onRetry={load} />}
         {tab === "settings" && <SettingsView />}
         {data && tab !== "settings" && (
           <>
             {data.status.dataMode === "SYNTHETIC" && (
-              <div className="section">
-                <div className="callout callout-warn" role="note">
-                  <span className="icon" aria-hidden="true">!</span>
-                  <div>
-                    <strong>当前为虚构示例数据</strong>
-                    <div className="note" style={{ color: "inherit" }}>
-                      {data.status.watermark ?? "SYNTHETIC"}。全部数值仅用于契约与确定性测试，
-                      不得用于任何收益结论，也不得与真实行情混成同一曲线。
-                    </div>
-                  </div>
+              <div className="section"><div className="callout callout-warn" role="note">
+                <span className="icon" aria-hidden="true">!</span><div><strong>当前为虚构示例数据</strong>
+                  <div className="note" style={{ color: "inherit" }}>{data.status.watermark ?? "SYNTHETIC"}。全部数值仅用于契约与确定性测试，不得用于任何收益结论，也不得与真实行情混成同一曲线。</div>
                 </div>
-              </div>
+              </div></div>
             )}
-
-            {notice && (
-              <div className="section">
-                <div className="callout callout-info" role="status">
-                  <span className="icon" aria-hidden="true">i</span>
-                  <div>{notice}</div>
-                </div>
-              </div>
-            )}
-
-            {tab === "today" && (
-              <TodayView
-                data={data}
-                onOpenCard={(id) => { setSelectedCard(id); setTab("research"); }}
-                onOpenDraft={() => setTab("portfolio")}
-              />
-            )}
-            {tab === "research" && (
-              <ResearchView
-                data={data}
-                selectedId={selectedCard}
-                onSelect={setSelectedCard}
-                onOpenEvidence={setEvidenceFor}
-                onAction={onAction}
-              />
-            )}
-            {tab === "portfolio" && (
-              <PortfolioView
-                data={data}
-                onConfirm={onConfirm}
-                onRequestPreview={onRequestPreview}
-                livePreview={livePreview}
-                apiUp={apiUp}
-                confirming={confirming}
-                confirmResult={confirmResult}
-                frozenPlanId={frozenPlanId}
-              />
-            )}
-            {tab === "workspace" && (
-              <WorkspaceView apiUp={apiUp} portfolioId={data.draft.portfolioId}
-                              tradingDay={data.draft.tradingDay} />
-            )}
+            {notice && <div className="section"><div className="callout callout-info" role="status">
+              <span className="icon" aria-hidden="true">i</span><div>{notice}</div>
+            </div></div>}
+            {tab === "today" && <TodayView data={data} onOpenCard={onOpenResearch}
+              onOpenDraft={() => setTab("portfolio")} />}
+            {tab === "research" && <ResearchView data={data} selectedId={selectedCard}
+              onSelect={setSelectedCard} onOpenEvidence={setEvidenceFor} onAction={onAction}
+              onRequestResearch={onOpenResearch} loadingResearchId={researchLoadingId} />}
+            {tab === "portfolio" && <PortfolioView data={data} onConfirm={onConfirm}
+              onRequestPreview={onRequestPreview} livePreview={livePreview} apiUp={apiUp}
+              confirming={confirming} confirmResult={confirmResult} frozenPlanId={frozenPlanId} />}
+            {tab === "workspace" && <WorkspaceView apiUp={apiUp}
+              portfolioId={data.draft.portfolioId} tradingDay={data.draft.tradingDay} />}
             {tab === "experiments" && <ExperimentsView data={data} />}
           </>
         )}
       </main>
 
-      {statusOpen && data && (
-        <StatusDrawer status={data.status} onClose={() => setStatusOpen(false)} />
-      )}
-      {evidenceCard && (
-        <EvidenceDrawer card={evidenceCard} onClose={() => setEvidenceFor(null)} />
-      )}
-
-      <footer
-        style={{
-          padding: "16px 20px 28px", textAlign: "center",
-          color: "var(--text-4)", fontSize: 12, borderTop: "1px solid var(--border)",
-        }}
-      >
+      {statusOpen && data && <StatusDrawer status={data.status} onClose={() => setStatusOpen(false)} />}
+      {evidenceCard && <EvidenceDrawer card={evidenceCard} onClose={() => setEvidenceFor(null)} />}
+      <footer style={{ padding: "16px 20px 28px", textAlign: "center",
+        color: "var(--text-4)", fontSize: 12, borderTop: "1px solid var(--border)" }}>
         研究与模拟用途 · 不连接券商 · 不自动交易 · 不构成投资建议
       </footer>
     </div>

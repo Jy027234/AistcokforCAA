@@ -24,12 +24,15 @@ export function PortfolioView({
   /** 已成功冻结的计划 ID；为空表示还没有可执行的计划。 */
   frozenPlanId: string | null;
 }) {
+  const source = data.dataSource === "api" ? "api" : "fixture";
+  const productionTimingUnavailable = data.dataSource === "api" &&
+    data.status.dataMode !== "SYNTHETIC";
   return (
     <>
       <Section
         title="组合"
         hint="全部为模拟账户；自选与模拟持仓分离"
-        dataSource="fixture"
+        dataSource={source}
         actions={<Badge tone="accent">模拟</Badge>}
       >
         <div className="grid-3">
@@ -54,9 +57,7 @@ export function PortfolioView({
       <Section
         title="草稿与确认"
         hint={apiUp === null ? "正在检测服务…" : undefined}
-        // 有服务端预览时是 api，否则是随前端分发的只读夹具。
-        // 两种状态都必须能被机器区分——这正是这轮修的那个缺陷的形状。
-        dataSource={livePreview ? "api" : "fixture"}
+        dataSource={source}
         actions={
           apiUp === false ? <Badge tone="warn">API 离线 · 仅只读夹具</Badge>
           : apiUp === true ? <Badge tone="ok">API 在线</Badge>
@@ -71,13 +72,17 @@ export function PortfolioView({
           onConfirm={onConfirm}
           confirming={confirming}
           confirmResult={confirmResult}
+          previewEnabled={!productionTimingUnavailable}
+          previewDisabledReason={productionTimingUnavailable
+            ? "生产计划要求独立的决策快照、执行快照和明确截止时点；当前接口尚未提供快照列表与选择入口。"
+            : null}
         />
       </Section>
 
       <Section
         title="账本"
         hint="执行、估值、对账全部来自服务端账本"
-        dataSource={apiUp === false ? "static" : "api"}
+        dataSource={source}
       >
         {apiUp === false ? (
           <Card>
@@ -97,7 +102,7 @@ export function PortfolioView({
         )}
       </Section>
 
-      <Section title="自选" dataSource="static">
+      <Section title="自选" dataSource={source}>
         <Card>
           <Empty title="自选与模拟持仓已分离">
             自选列表在研究页维护，视觉与权限上与模拟持仓分开：自选变化不被视为交易。

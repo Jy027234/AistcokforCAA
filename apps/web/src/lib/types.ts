@@ -203,6 +203,8 @@ export interface WorkspaceData {
   generatedAt: string;
   generator: string;
   note: string;
+  /** 主入口的数据来源。API 是默认产品路径，fixture 只能由显式演示模式启用。 */
+  dataSource?: "api" | "fixture";
   status: DataStatus;
   candidates: CandidateRow[];
   researchCards: ResearchCard[];

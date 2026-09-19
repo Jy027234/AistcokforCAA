@@ -116,6 +116,8 @@ def test_preview_is_marked_unfrozen(client):
 def test_preview_produces_orders_and_costs(client):
     body = preview(client).json()
     assert body["orders"], "应当产生订单"
+    assert all(o["gross_cents"] == o["quantity"] * o["price_cents"]
+               for o in body["orders"]), "订单金额必须由服务端随预览返回"
     assert body["estimatedFeesCents"] > 0
 
 

@@ -10,6 +10,7 @@ import { Badge, Callout, Card } from "../components/ui";
  */
 export function DraftPanel({
   draft, livePreview, apiUp, onRequestPreview, onConfirm, confirming, confirmResult,
+  previewEnabled = true, previewDisabledReason = null,
 }: {
   draft: Draft;
   livePreview: PreviewResponse | null;
@@ -18,8 +19,9 @@ export function DraftPanel({
   onConfirm: () => void;
   confirming: boolean;
   confirmResult: { ok: boolean; message: string } | null;
+  previewEnabled?: boolean;
+  previewDisabledReason?: string | null;
 }) {
-  const failed = draft.ruleChecks.filter((c) => !c.passed);
   const offline = apiUp === false;
 
   /**
@@ -34,17 +36,22 @@ export function DraftPanel({
    * 账本数字"。修复方式不是加一句说明，而是让**表格本身就来自服务端**。
    */
   const usingLive = livePreview !== null;
+  const checks = usingLive
+    ? livePreview.rule_checks.map((c) => ({ name: c.check || c.order, passed: c.passed }))
+    : draft.ruleChecks;
+  const failed = checks.filter((c) => !c.passed);
+  const excluded = usingLive ? livePreview.excluded : draft.excluded;
+  const hasOrders = usingLive ? livePreview.orders.length > 0 : draft.orders.length > 0;
 
   const rows = usingLive
     ? livePreview.orders.map((o) => {
-        const gross = o.quantity * o.price_cents;
         return {
           instrumentId: o.instrument_id, side: o.side, quantity: o.quantity,
           // 账本与预览一律用**整数分**传输，前端只做显示换算（formatCents）。
           // 不在这里做任何金额再计算——算第二遍就会出现"界面上的数字
           // 和账本不一样"这种最难查的问题。
           price: formatCents(o.price_cents),
-          gross: formatCents(gross), grossCents: gross,
+          gross: formatCents(o.gross_cents), grossCents: o.gross_cents,
           // 逐笔费用需要按订单重算，属于服务端的事；这里留空而不是猜一个，
           // 面板上下的关键金额（预计费用、执行后现金）都来自服务端。
           estimatedFee: "—",
@@ -60,7 +67,8 @@ export function DraftPanel({
   const shownFees = usingLive
     ? formatCents(livePreview.estimatedFeesCents) : draft.estimatedFees;
   const shownBuyTotal = usingLive
-    ? formatCents(rows.reduce((sum, r) => sum + (r.grossCents ?? 0), 0))
+    ? formatCents(rows.filter((r) => r.side === "BUY")
+        .reduce((sum, r) => sum + (r.grossCents ?? 0), 0))
     : draft.buyTotal;
   const shownCashAfter = usingLive
     ? formatCents(livePreview.cashAfterCents) : draft.cashAfter;
@@ -83,27 +91,20 @@ export function DraftPanel({
     <Card
       title="我的模拟草稿"
       actions={
-        usingLive
-          ? <Badge tone="ok">服务端预览</Badge>
+          usingLive ? <Badge tone="ok">服务端预览</Badge>
+          : apiUp === true ? <Badge tone="neutral">尚未请求服务端预览</Badge>
           : <Badge tone="warn">只读夹具 · 非服务端计算</Badge>
       }
     >
-      {/* 服务端结果与演示夹具**不一致**时必须说出来。
-          否则使用者点「请求服务端预览」后会看到数字"莫名变了"——
-          看起来像 bug，实际是两份不同来源的数据。
-          保守与默认两种口径的差异要报告（§12.4），这里是同一个道理。 */}
-      {usingLive && livePreview.orders.length !== draft.orders.length && (
-        <Callout tone="info" title="服务端结果与演示夹具不同">
-          服务端算出 <strong>{livePreview.orders.length}</strong> 笔订单，
-          而演示夹具是 <strong>{draft.orders.length}</strong> 笔——
-          夹具是随前端分发的示例数据，与你的账户无关。
-          <strong>以下数字与冻结的计划都以服务端为准。</strong>
-        </Callout>
-      )}
-
       {/* 用夹具时必须显眼地说出来：这些数字没有经过任何服务端计算，
           而下面的冻结按钮一旦按下，冻结的是服务端另算的一份计划。 */}
-      {!usingLive && (
+      {!usingLive && apiUp === true && (
+        <Callout tone="info" title="尚未生成服务端预览">
+          当前组合数字尚未从服务端计算。请求预览后，订单、费用、现金和规则检查都会切换到
+          与冻结计划相同的服务端结果。
+        </Callout>
+      )}
+      {!usingLive && offline && (
         <Callout tone="warn" title="当前显示的是只读演示数据，不是服务端计算结果">
           下方订单与金额来自随前端分发的示例夹具。点「请求服务端预览」后，
           这里会换成服务端算出的那一份——冻结的也是那一份。
@@ -190,7 +191,7 @@ export function DraftPanel({
 
       <h4 style={{ margin: "16px 0 6px" }}>规则检查</h4>
       <ul className="list">
-        {draft.ruleChecks.map((c) => (
+        {checks.map((c) => (
           <li key={c.name} style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Badge tone={c.passed ? "ok" : "warn"}>{c.passed ? "通过" : "未通过"}</Badge>
             <span>{c.name}</span>
@@ -198,11 +199,11 @@ export function DraftPanel({
         ))}
       </ul>
 
-      {draft.excluded.length > 0 && (
+      {excluded.length > 0 && (
         <>
           <h4 style={{ margin: "16px 0 6px" }}>被排除的标的</h4>
           <ul className="list">
-            {draft.excluded.map((e, i) => (
+            {excluded.map((e, i) => (
               <li key={i} className="note">
                 <span className="mono">{e.instrumentId ?? e.instrument_id ?? "-"}</span> · {e.reason}
                 {e.detail ? " · " + e.detail : ""}
@@ -215,11 +216,14 @@ export function DraftPanel({
       {/* 服务端预览：与夹具来源不同，必须让使用者分得清哪份数字是服务端算的 */}
       <div style={{ marginTop: 16 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-          <button className="btn btn-sm" onClick={onRequestPreview} disabled={offline}>
+          <button className="btn btn-sm" onClick={onRequestPreview}
+            disabled={offline || !previewEnabled}>
             请求服务端预览
           </button>
           {livePreview ? (
             <Badge tone="ok">服务端预览已生成 · {livePreview.orders.length} 笔</Badge>
+          ) : apiUp === true ? (
+            <span className="note">尚未生成服务端预览</span>
           ) : (
             <span className="note">当前显示的是只读夹具数据</span>
           )}
@@ -242,10 +246,19 @@ export function DraftPanel({
             界面不会在离线时伪造一次成功的冻结。
           </Callout>
         )}
+        {!offline && !previewEnabled && previewDisabledReason && (
+          <Callout tone="warn" title="生产预览暂不可用">
+            {previewDisabledReason}
+          </Callout>
+        )}
       </div>
 
       <div style={{ marginTop: 16 }}>
-        {failed.length > 0 ? (
+        {!previewEnabled && previewDisabledReason ? (
+          <Callout tone="warn" title="当前不能冻结计划">
+            {previewDisabledReason}
+          </Callout>
+        ) : failed.length > 0 ? (
           <Callout tone="warn" title="存在未通过的规则检查，不能冻结">
             请先处理上述检查项。系统不会带着未通过的检查冻结计划。
           </Callout>
@@ -268,7 +281,7 @@ export function DraftPanel({
           <button
             className="btn btn-primary"
             onClick={onConfirm}
-            disabled={confirming || failed.length > 0 || draft.orders.length === 0 || offline}
+            disabled={confirming || failed.length > 0 || !hasOrders || offline || !previewEnabled}
           >
             {confirming ? "冻结中…" : draft.confirmAction.label}
           </button>

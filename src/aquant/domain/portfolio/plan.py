@@ -225,7 +225,13 @@ class PlanPreview:
             "reference_price_day": (self.reference_price_day.isoformat()
                                     if self.reference_price_day else None),
             "frozen": self.frozen,
-            "orders": self.orders,
+            # 订单金额由服务端随预览返回。界面不得用数量×价格再实现一遍
+            # 业务口径，否则以后加入不同成交单位或舍入规则时会悄悄分叉。
+            "orders": [
+                {**order,
+                 "gross_cents": int(order["quantity"]) * int(order["price_cents"])}
+                for order in self.orders
+            ],
             "estimated_fees_cents": self.estimated_fees_cents,
             "rule_checks": self.rule_checks,
             "excluded": self.excluded,
