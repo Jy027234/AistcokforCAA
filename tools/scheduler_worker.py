@@ -203,7 +203,8 @@ def main() -> int:
     ap.add_argument("--once", action="store_true",
                     help="只处理一轮就退出（cron / 测试用）")
     ap.add_argument("--now", action="store_true",
-                    help="不等配置的时间，立刻登记并执行一次运行")
+                    help="不等配置的时间：登记一条运行请求并立刻处理（"
+                         "与界面上的「立刻运行一次」是同一条通道）")
     ap.add_argument("--interval", type=float, default=20.0,
                     help="轮询间隔秒数（长驻模式）")
     ap.add_argument("--dry-run", action="store_true",
