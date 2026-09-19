@@ -330,9 +330,9 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/readiness | ConvertTo-Json -Depth
 
 | 步骤 | 接口 | 说明 |
 |---|---|---|
-| 预览 | `POST /api/v1/plans/preview` | 只算不冻；订单只用执行日**之前**的价格 |
+| 预览 | `POST /api/v1/plans/preview` | 只算不冻；订单只用执行日**之前**的价格；可用 `selected_instrument_ids` 提交当次 S1 候选子集 |
 | 取令牌 | `POST /api/v1/plans/{id}/confirmation` | 服务端签发，绑定主体/计划/快照/账户版本/预览哈希 |
-| 冻结 | `POST /api/v1/plans/{id}/freeze` | 五项复核；令牌一次性消费 |
+| 冻结 | `POST /api/v1/plans/{id}/freeze` | 五项复核；令牌一次性消费；成功后写入与计划绑定的决策日志 |
 | 执行 | `POST /api/v1/plans/{id}/execute` | 按 §12 规则模拟成交 |
 | 估值 | `POST /api/v1/valuations` | 不变量失败则不发布净值 |
 | 对账 | `GET /api/v1/portfolios/{id}/reconcile` | 逐项核验订单、费用、现金、批次 |
@@ -341,6 +341,9 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/readiness | ConvertTo-Json -Depth
 `decision_snapshot_id`（决策截止时间必须早于执行日开盘）和
 `execution_snapshot_id`（必须是执行日收盘快照）。单快照兼容路径只用于合成演示；
 冻结时会把两份快照及各自截止时间持久化，之后切换 `current_snapshot.json` 不会改写已冻结计划。
+人工计划不会让客户端提交任意证券：服务端会用决策快照重新计算 S1，并拒绝不在该候选集内或重复的标的。
+冻结后，模型原方案、人工最终方案与客观差异分别留档；直接接受模型方案记为 `ACCEPT_MODEL`，
+点选后方案发生变化记为 `MODIFY_MODEL`。
 
 ### 研究作业与证据
 

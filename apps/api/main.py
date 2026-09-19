@@ -360,6 +360,9 @@ class AppState:
         #: plan_id -> 最近一次预览。确认令牌与冻结都必须针对**同一个预览**，
         #: 因此服务端要保留它；进程重启后预览失效，必须重新预览（这是正确行为）。
         self.previews: dict[str, Any] = {}
+        #: plan_id -> 决策留痕上下文。它与 live preview 同寿命：只有用户对这份
+        #: 精确预览完成冻结后，才把模型原方案与人工最终方案一起写入决策日志。
+        self.preview_decisions: dict[str, dict[str, Any]] = {}
         #: 文本模型提供方（ADR-012）。**惰性构造**：没有密钥时也能启动服务，
         #: 只是调用助手接口会明确报"模型不可用"，而不是启动就崩。
         #: 这样离线测试与行情相关的功能完全不依赖模型配置。
@@ -621,6 +624,10 @@ class PreviewRequest(BaseModel):
     cash_available_cents: int | None = Field(
         default=None, ge=0,
         description="留空则由服务端从账本读取；提供时若与账本不符将被拒绝",
+    )
+    selected_instrument_ids: list[str] | None = Field(
+        default=None, min_length=1, max_length=100,
+        description="留空采用 S1 模型方案；提供时只允许选择当次 S1 候选的子集",
     )
 
 
@@ -1471,20 +1478,22 @@ def create_app(state: AppState | None = None) -> FastAPI:
         return out
 
     @app.get("/api/v1/candidates")
-    def candidates(s: AppState = Depends(svc)) -> dict:
-        """候选来自**当前快照上的 S1 计算**，不是硬编码列表。
+    def candidates(snapshot_id: str | None = None, s: AppState = Depends(svc)) -> dict:
+        """候选来自指定已发布快照上的 S1 计算，不是硬编码列表。
 
         `DEMO_CANDIDATES` 只在合成快照下使用；一旦指向真实快照，
         继续返回固定的三个演示标的，会让界面显示一份与数据无关的排名。
+        组合人工点选可读取决策快照；不传参数时仍返回当前快照。
         """
 
-        snapshot_id = s.current_snapshot()
-        signals, note = _s1_candidates(s, snapshot_id)
+        resolved_snapshot_id = snapshot_id or s.current_snapshot()
+        s.store.require_published(resolved_snapshot_id)
+        signals, note = _s1_candidates(s, resolved_snapshot_id)
         return {
-            "snapshotId": snapshot_id,
+            "snapshotId": resolved_snapshot_id,
             "candidates": [
                 {"instrumentId": sig.instrument_id,
-                 "displayName": _display_name(s, snapshot_id, sig.instrument_id),
+                 "displayName": _display_name(s, resolved_snapshot_id, sig.instrument_id),
                  "industryCode": sig.industry_code,
                  "signalRank": sig.signal_rank,
                  "simulatable": sig.simulatable}
@@ -2092,24 +2101,74 @@ def create_app(state: AppState | None = None) -> FastAPI:
         # 候选只从显式决策快照计算；执行快照只能提供交易日行情，不能反向
         # 改写候选。决策快照不是 current 时，板块映射也必须随它切换。
         ranked, _ = _s1_candidates(s, decision_id)
+        ranked_by_id = {candidate.instrument_id: candidate for candidate in ranked}
+        selected_ids = body.selected_instrument_ids
+        if selected_ids is not None:
+            if len(selected_ids) != len(set(selected_ids)):
+                raise conflict(
+                    "selected_instrument_ids contains duplicates",
+                    repair="submit each S1 candidate at most once",
+                )
+            unknown = sorted(set(selected_ids) - set(ranked_by_id))
+            if unknown:
+                raise conflict(
+                    "manual selection contains instruments outside this S1 candidate set: "
+                    + ", ".join(unknown[:5]),
+                    repair="refresh candidates and select only instruments from the decision snapshot",
+                )
+        all_candidates = [
+            Candidate(r.instrument_id, r.industry_code, r.signal_rank,
+                      simulatable=r.simulatable)
+            for r in ranked
+        ]
+        selected_set = set(selected_ids or [])
+        chosen_candidates = (all_candidates if selected_ids is None else [
+            Candidate(r.instrument_id, r.industry_code, r.signal_rank,
+                      simulatable=r.simulatable)
+            for r in ranked if r.instrument_id in selected_set
+        ])
         decision_listings = (dict(LISTINGS) if decision_id == SNAPSHOT_ID
                              else _listings_for(s, decision_id))
         plan_service = (s.service if decision_id == current_id else PlanService(
             s.con, s.reader, s.fees, BOARD_RULES, decision_listings, s.params))
-        pv = plan_service.preview(
+        preview_args = dict(
             portfolio_id=body.portfolio_id, snapshot_id=decision_id,
             trading_day=body.trading_day, as_of=ref.as_of_time,
-            candidates=[Candidate(r.instrument_id, r.industry_code, r.signal_rank,
-                                  simulatable=r.simulatable) for r in ranked],
             cash_available_cents=cash,
             lots=ledger_lots, confirm_subject="server:preview",
             decision_snapshot_id=body.decision_snapshot_id,
             decision_cutoff_at=body.decision_cutoff_at,
             execution_snapshot_id=body.execution_snapshot_id,
         )
+        model_preview = plan_service.preview(candidates=all_candidates, **preview_args)
+        pv = (model_preview if selected_ids is None else
+              plan_service.preview(candidates=chosen_candidates, **preview_args))
         # 服务端保留本次预览：令牌签发与冻结都必须针对同一个预览，
         # 否则"绑定预览哈希"就无从谈起。
         s.previews[pv.plan_id] = pv
+        def decision_payload(plan_preview: Any) -> dict[str, Any]:
+            doc = plan_preview.as_dict()
+            return {
+                "targets": doc["targets"],
+                "orders": doc["orders"],
+                "estimated_fees_cents": doc["estimated_fees_cents"],
+                "cash_after_cents": doc["cash_after_cents"],
+            }
+
+        model_proposed = decision_payload(model_preview)
+        human_final = decision_payload(pv)
+        s.preview_decisions[pv.plan_id] = {
+            "decision_type": ("ACCEPT_MODEL" if model_proposed == human_final
+                              else "MODIFY_MODEL"),
+            "model_proposed": model_proposed,
+            "human_final": human_final,
+            "reason_category": ("ACCEPT_MODEL" if selected_ids is None
+                                else "MANUAL_SELECTION"),
+            "rule_check": {
+                "all_passed": all(check["passed"] for check in pv.rule_checks),
+                "checks": pv.rule_checks,
+            },
+        }
         out = pv.as_dict()
         # 领域契约用 snake_case；这里补 camelCase 呈现别名供前端使用。
         # 领域对象保持干净，改在 API 层做呈现映射（§14.1）。
@@ -2206,6 +2265,34 @@ def create_app(state: AppState | None = None) -> FastAPI:
             current_lots=s.service._load_lots(pv.portfolio_id),
             current_cash_cents=s.service._ledger_cash(pv.portfolio_id),
         )
+        existing_decision = s.con.execute(
+            "SELECT decision_id FROM decision_log WHERE plan_id=? LIMIT 1", (plan_id,),
+        ).fetchone()
+        if existing_decision is None:
+            context = s.preview_decisions.get(plan_id) or {
+                "decision_type": "ACCEPT_MODEL",
+                "model_proposed": {"orders": pv.as_dict()["orders"]},
+                "human_final": {"orders": pv.as_dict()["orders"]},
+                "reason_category": "ACCEPT_MODEL",
+                "rule_check": {"all_passed": True, "checks": pv.rule_checks},
+            }
+            decision = record_decision(
+                s.con,
+                decision_id="dec-" + plan_id,
+                portfolio_id=pv.portfolio_id,
+                snapshot_id=pv.snapshot_id,
+                plan_id=plan_id,
+                decision_type=context["decision_type"],
+                model_proposed=context["model_proposed"],
+                human_final=context["human_final"],
+                reason_category=context["reason_category"],
+                reason_note="计划经用户显式确认并冻结",
+                rule_check=context["rule_check"],
+            )
+        else:
+            decision = {"decision_id": existing_decision["decision_id"],
+                        "note": "decision already recorded for this frozen plan"}
+        result["decision"] = decision
         return result
 
     @app.post("/api/v1/plans/{plan_id}/execute")

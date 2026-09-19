@@ -163,6 +163,22 @@ def test_preview_produces_orders_and_costs(client):
     assert body["estimatedFeesCents"] > 0
 
 
+def test_manual_selection_limits_preview_to_selected_s1_candidates(client):
+    selected = "SYN.A.000001"
+    response = preview(client, selected_instrument_ids=[selected])
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["orders"]
+    assert {order["instrument_id"] for order in body["orders"]} == {selected}
+    assert {target["instrument_id"] for target in body["targets"]} == {selected}
+
+
+def test_manual_selection_rejects_instrument_outside_snapshot_candidates(client):
+    response = preview(client, selected_instrument_ids=["SYN.A.999999"])
+    assert response.status_code == 409, response.text
+    assert "outside this S1 candidate set" in response.json()["detail"]["error"]["message"]
+
+
 def test_unknown_snapshot_is_404(client):
     r = preview(client, snapshot_id="snap-nope")
     assert r.status_code == 404
@@ -229,6 +245,13 @@ def test_happy_path_preview_confirm_freeze_execute_value(client):
     fr = freeze(client, pid, token)
     assert fr.status_code == 200, fr.text
     assert fr.json()["status"] == "FROZEN"
+    assert fr.json()["decision"]["decision_type"] == "ACCEPT_MODEL"
+
+    logged = client.get("/api/v1/decisions", params={"portfolio_id": "pf-syn-m"})
+    assert logged.status_code == 200
+    assert logged.json()["count"] == 1
+    assert logged.json()["decisions"][0]["plan_id"] == pid
+    assert logged.json()["decisions"][0]["decision_type"] == "ACCEPT_MODEL"
 
     ex = client.post(f"/api/v1/plans/{pid}/execute",
                      json={"plan_id": pid}, headers=USER)
@@ -251,6 +274,22 @@ def test_happy_path_preview_confirm_freeze_execute_value(client):
         assert inv[name] is True, (name, inv)
     assert inv["violations"] in ([], None), inv["violations"]
     assert rec["valuation_cash_matches_ledger"] is True
+
+
+def test_manual_selection_is_recorded_as_model_modification_on_freeze(client):
+    pv = preview(client, selected_instrument_ids=["SYN.A.000001"]).json()
+    token = confirm(client, pv["planId"]).json()["confirmationToken"]
+    frozen = freeze(client, pv["planId"], token)
+    assert frozen.status_code == 200, frozen.text
+    assert frozen.json()["decision"]["decision_type"] == "MODIFY_MODEL"
+
+    row = client.get("/api/v1/decisions", params={"portfolio_id": "pf-syn-m"}).json()[
+        "decisions"
+    ][0]
+    assert row["plan_id"] == pv["planId"]
+    assert row["decision_type"] == "MODIFY_MODEL"
+    assert row["reason_category"] == "MANUAL_SELECTION"
+    assert row["diff"]["identical"] is False
 
 
 def test_frozen_plan_executes_after_appstate_restart(tmp_path, monkeypatch):

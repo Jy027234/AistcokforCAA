@@ -181,6 +181,9 @@ export default function App() {
   const [frozenPlanId, setFrozenPlanId] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<PublishedSnapshot[]>([]);
   const [timing, setTiming] = useState<PlanTimingSelection | null>(null);
+  const [planCandidates, setPlanCandidates] = useState<CandidateResponseRow[]>([]);
+  /** null = 接受模型方案；数组 = 人工点选的 S1 候选子集。 */
+  const [selectedInstrumentIds, setSelectedInstrumentIds] = useState<string[] | null>(null);
 
   const setTab = useCallback((next: Tab) => {
     setTabState(next);
@@ -207,6 +210,7 @@ export default function App() {
     setState({ kind: "loading" });
     setNotice(null); setLivePreview(null); setConfirmResult(null);
     setSnapshots([]); setTiming(null); setFrozenPlanId(null);
+    setPlanCandidates([]); setSelectedInstrumentIds(null);
     if (demoMode) {
       try {
         const res = await fetch(WS_URL, { cache: "no-store" });
@@ -235,6 +239,7 @@ export default function App() {
         throw new Error("当前快照不在已发布快照目录中：" + expected);
       }
       setSnapshots(snapshotResponse.snapshots);
+      setPlanCandidates(candidateResponse.candidates);
       setTiming(status.dataMode === "SYNTHETIC" ? null : defaultProductionTiming(
         snapshotResponse.snapshots.filter((item) => item.dataMode === status.dataMode),
         expected,
@@ -254,6 +259,27 @@ export default function App() {
 
   const data = state.kind === "ready" ? state.data : null;
   const displayStatus = data?.status ?? fallbackStatus();
+
+  useEffect(() => {
+    const currentSnapshotId = data?.status.snapshotId;
+    const decisionSnapshotId = timing?.decisionSnapshotId;
+    if (apiUp !== true || !currentSnapshotId || !decisionSnapshotId ||
+        decisionSnapshotId === currentSnapshotId) return;
+    let active = true;
+    void api.candidates(decisionSnapshotId)
+      .then((response) => {
+        if (!active) return;
+        if (response.snapshotId !== decisionSnapshotId) {
+          throw new Error("候选快照与计划决策快照不一致：" + response.snapshotId);
+        }
+        setPlanCandidates(response.candidates);
+        setSelectedInstrumentIds(null);
+      })
+      .catch((err) => {
+        if (active) setNotice("决策快照候选加载失败：" + explain(err));
+      });
+    return () => { active = false; };
+  }, [apiUp, data?.status.snapshotId, timing?.decisionSnapshotId, explain]);
 
   const onOpenResearch = useCallback((instrumentId: string) => {
     setSelectedCard(instrumentId); setTab("research");
@@ -295,6 +321,8 @@ export default function App() {
           decision_cutoff_at: timing.decisionCutoffAt,
           execution_snapshot_id: timing.executionSnapshotId,
         } : {}),
+        ...(selectedInstrumentIds !== null
+          ? { selected_instrument_ids: selectedInstrumentIds } : {}),
       });
       const expectedDecision = timing?.decisionSnapshotId ?? data.status.snapshotId;
       if (pv.snapshot_id !== expectedDecision) {
@@ -304,7 +332,7 @@ export default function App() {
       setNotice("服务端预览已生成：" + pv.orders.length + " 笔订单，参考价日 " +
                 (pv.reference_price_day ?? "—") + "（执行日之前）。仍未冻结。");
     } catch (err) { setNotice("预览失败：" + explain(err)); }
-  }, [data, demoMode, explain, timing]);
+  }, [data, demoMode, explain, timing, selectedInstrumentIds]);
 
   const onConfirm = useCallback(async () => {
     if (!data || demoMode || (data.status.dataMode !== "SYNTHETIC" && !timing)) return;
@@ -321,6 +349,8 @@ export default function App() {
             decision_cutoff_at: timing.decisionCutoffAt,
             execution_snapshot_id: timing.executionSnapshotId,
           } : {}),
+          ...(selectedInstrumentIds !== null
+            ? { selected_instrument_ids: selectedInstrumentIds } : {}),
         });
         setLivePreview(pv);
       }
@@ -332,7 +362,12 @@ export default function App() {
         "。冻结后不可修改；可在下方「账本」区执行本交易日。" });
     } catch (err) { setConfirmResult({ ok: false, message: explain(err) }); }
     finally { setConfirming(false); }
-  }, [data, demoMode, livePreview, explain, timing]);
+  }, [data, demoMode, livePreview, explain, timing, selectedInstrumentIds]);
+
+  const onPlanSelectionChange = useCallback((ids: string[] | null) => {
+    setSelectedInstrumentIds(ids);
+    setLivePreview(null); setFrozenPlanId(null); setConfirmResult(null);
+  }, []);
 
   const onTimingChange = useCallback((role: "decision" | "execution", snapshotId: string) => {
     setTiming((previous) => {
@@ -366,6 +401,7 @@ export default function App() {
       return timingFrom(compatibleDecision, selected);
     });
     setLivePreview(null); setFrozenPlanId(null); setConfirmResult(null);
+    setSelectedInstrumentIds(null);
   }, [snapshots]);
 
   const evidenceCard = useMemo(
@@ -429,7 +465,9 @@ export default function App() {
             {tab === "portfolio" && <PortfolioView data={data} onConfirm={onConfirm}
               onRequestPreview={onRequestPreview} livePreview={livePreview} apiUp={apiUp}
               confirming={confirming} confirmResult={confirmResult} frozenPlanId={frozenPlanId}
-              snapshots={snapshots} timing={timing} onTimingChange={onTimingChange} />}
+              snapshots={snapshots} timing={timing} onTimingChange={onTimingChange}
+              planCandidates={planCandidates} selectedInstrumentIds={selectedInstrumentIds}
+              onPlanSelectionChange={onPlanSelectionChange} />}
             {tab === "workspace" && <WorkspaceView apiUp={apiUp}
               portfolioId={data.draft.portfolioId} tradingDay={data.draft.tradingDay} />}
             {tab === "experiments" && <ExperimentsView data={data} />}

@@ -501,14 +501,17 @@ export const api = {
 
   snapshots: () => request<SnapshotCatalogResponse>("/api/v1/snapshots"),
 
-  candidates: () => request<CandidatesResponse>("/api/v1/candidates"),
+  candidates: (snapshotId?: string) => request<CandidatesResponse>(
+    "/api/v1/candidates" + (snapshotId
+      ? "?snapshot_id=" + encodeURIComponent(snapshotId) : ""),
+  ),
 
   events: () => request<EventsResponse>("/api/v1/events"),
 
   preview: (body: {
     portfolio_id: string; snapshot_id: string; trading_day: string;
     decision_snapshot_id?: string; decision_cutoff_at?: string;
-    execution_snapshot_id?: string;
+    execution_snapshot_id?: string; selected_instrument_ids?: string[];
   }) =>
     request<PreviewResponse>("/api/v1/plans/preview", {
       method: "POST", body: JSON.stringify(body),

@@ -1,6 +1,6 @@
 import type { WorkspaceData } from "../lib/types";
 import type {
-  PlanTimingSelection, PreviewResponse, PublishedSnapshot,
+  CandidateResponseRow, PlanTimingSelection, PreviewResponse, PublishedSnapshot,
 } from "../lib/api";
 import { Badge, Callout, Card, Empty, Section } from "../components/ui";
 import { DraftPanel } from "../components/DraftPanel";
@@ -15,6 +15,7 @@ import { LedgerPanel } from "../components/LedgerPanel";
 export function PortfolioView({
   data, onConfirm, onRequestPreview, livePreview, apiUp, confirming, confirmResult,
   frozenPlanId, snapshots, timing, onTimingChange,
+  planCandidates, selectedInstrumentIds, onPlanSelectionChange,
 }: {
   data: WorkspaceData;
   onConfirm: () => void;
@@ -28,6 +29,9 @@ export function PortfolioView({
   snapshots: PublishedSnapshot[];
   timing: PlanTimingSelection | null;
   onTimingChange: (role: "decision" | "execution", snapshotId: string) => void;
+  planCandidates: CandidateResponseRow[];
+  selectedInstrumentIds: string[] | null;
+  onPlanSelectionChange: (ids: string[] | null) => void;
 }) {
   const source = data.dataSource === "api" ? "api" : "fixture";
   const production = data.dataSource === "api" && data.status.dataMode !== "SYNTHETIC";
@@ -41,6 +45,16 @@ export function PortfolioView({
   const decisionBlocker = productionSnapshots.find(
     (snapshot) => !snapshot.capabilities.s1Decision.available,
   )?.capabilities.s1Decision;
+  const manualSelection = selectedInstrumentIds !== null;
+  const manualIds = selectedInstrumentIds ?? [];
+  const manualSelectionEmpty = manualSelection && manualIds.length === 0;
+  const selectableCandidates = planCandidates.filter((candidate) => candidate.simulatable).slice(0, 30);
+  const previewBlocked = productionTimingUnavailable || manualSelectionEmpty;
+  const previewBlockedReason = productionTimingUnavailable
+    ? "没有找到具备 S1 决策能力、在执行日开盘前已发布且满足先后顺序的同源快照对；请等待下一次合格日终流水线。"
+    : manualSelectionEmpty
+      ? "人工点选模式至少需要选择一只可模拟的 S1 候选。"
+      : null;
   return (
     <>
       <Section
@@ -125,6 +139,60 @@ export function PortfolioView({
             )}
           </Card>
         )}
+        <Card title="候选选择">
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+            <button className={"btn btn-sm " + (!manualSelection ? "btn-primary" : "")}
+              onClick={() => onPlanSelectionChange(null)}>
+              接受模型方案
+            </button>
+            <button className={"btn btn-sm " + (manualSelection ? "btn-primary" : "")}
+              onClick={() => onPlanSelectionChange([])} disabled={apiUp !== true}>
+              人工点选
+            </button>
+            <span className="note">
+              {manualSelection ? `已选择 ${manualIds.length} 只` : "由 S1 排名和组合约束自动构建"}
+            </span>
+          </div>
+          {manualSelection && (
+            <>
+              <Callout tone="info" title="人工最终方案会单独留痕">
+                这里只能选择当前决策快照中的 S1 候选。冻结后，模型原方案、人工最终方案和差异会绑定同一计划写入决策日志。
+              </Callout>
+              {selectableCandidates.length === 0 ? (
+                <p className="note">当前决策快照没有可模拟候选，不能生成计划。</p>
+              ) : (
+                <div className="table-wrap" style={{ marginTop: 10, maxHeight: 360 }}>
+                  <table className="data">
+                    <thead><tr><th>选择</th><th>名称</th><th className="num">S1 排名</th><th>行业</th></tr></thead>
+                    <tbody>
+                      {selectableCandidates.map((candidate) => {
+                        const checked = manualIds.includes(candidate.instrumentId);
+                        return (
+                          <tr key={candidate.instrumentId}>
+                            <td><input type="checkbox" checked={checked}
+                              aria-label={`选择 ${candidate.displayName ?? candidate.instrumentId}`}
+                              onChange={() => onPlanSelectionChange(checked
+                                ? manualIds.filter((id) => id !== candidate.instrumentId)
+                                : [...manualIds, candidate.instrumentId])} /></td>
+                            <td>{candidate.displayName ?? candidate.instrumentId}
+                              <div className="note mono">{candidate.instrumentId}</div></td>
+                            <td className="num mono">{candidate.signalRank.toFixed(2)}</td>
+                            <td className="mono">{candidate.industryCode ?? "—"}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {planCandidates.length > selectableCandidates.length && (
+                <p className="note" style={{ marginTop: 8 }}>
+                  当前只展示排名靠前的 30 只可模拟候选；不可模拟标的不进入人工计划。
+                </p>
+              )}
+            </>
+          )}
+        </Card>
         <DraftPanel
           draft={data.draft}
           livePreview={livePreview}
@@ -133,10 +201,8 @@ export function PortfolioView({
           onConfirm={onConfirm}
           confirming={confirming}
           confirmResult={confirmResult}
-          previewEnabled={!productionTimingUnavailable}
-          previewDisabledReason={productionTimingUnavailable
-            ? "没有找到具备 S1 决策能力、在执行日开盘前已发布且满足先后顺序的同源快照对；请等待下一次合格日终流水线。"
-            : null}
+          previewEnabled={!previewBlocked}
+          previewDisabledReason={previewBlockedReason}
         />
       </Section>
 
