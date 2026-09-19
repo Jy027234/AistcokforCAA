@@ -264,25 +264,26 @@ python tools/show_alerts.py --days 7      # 最近 7 天的 ERROR；有 ERROR �
 这些是**按计划跳过**，写在运行留痕里但不告警——把正常状态做成告警，
 会让真正的告警被忽略。
 
-## 实跑留痕（2026-09-19，数据日 2026-09-14）
+## 实跑留痕（2026-09-19，数据日 2026-09-18）
 
 ```
-[17:17:06] OK   采集行情（4.0s）      5219 只，317532 条行情，失败 0 只
-[17:17:08] OK   发布快照（1.4s）      证券 900 只，行情 54884 条
-[17:17:10] OK   因子落库（1.9s）      回读：feature_value 900 行，其中 832 行有值
-[17:17:10] OK   F10 质量闸门（0.6s）  T12 F10 真实验收 7/7 通过
-[17:17:10] 结果 PUBLISHED
+[07:17:35] OK   采集行情（1028.6s）   5219 只，321132 条行情，失败 0 只
+[07:17:38] OK   发布快照（1.8s）      证券 900 只，行情 58484 条
+[07:17:42] OK   因子落库（3.9s）      回读：feature_value 900 行，其中 832 行有值
+[07:17:43] OK   F10 质量闸门（0.7s）  T12 F10 真实验收 7/7 通过
+[07:17:43] OK   切换当前快照（0.3s） snap-eod-2026-09-18-53df1f23e8754984
+[07:17:43] 结果 PUBLISHED
 ```
 
 落库后的复核（不是看返回值，而是重新查库、再走一遍产品接口）：
 
 | 检查 | 结果 |
 |---|---|
-| `research_run` | 1 行，`status=SUCCEEDED`，`feature_version=f10-v1` |
-| `feature_value` | 900 行，其中 832 行 `raw_value` 非空 |
+| 最新 `research_run` | `status=SUCCEEDED`，`feature_version=f10-v1` |
+| 最新 `feature_value` | 900 行，其中 832 行 `raw_value` 非空 |
 | `instrument.listed_on` 非空 | 900 / 900 |
 | `snapshot_dataset` | 含 `financials`（此前没有这个数据集） |
-| `GET /instruments/SH.600519/research` | `F10 = -0.0006`，排名 24%，覆盖 1.00 |
-| `GET /instruments/SZ.300757/research` | 值 `—`，**原因**为「TTM 不可得：缺上年同期或累计口径不成立」 |
-| `POST /research/jobs`（FACTOR_COMPUTE） | 重复提交返回同一 `jobId`；重复执行 `reused=true`，不重算 |
-| `POST /plans/preview`（真实快照） | 898 只窗口外上市 -> 记「不足以判定」而不排除；无标的被误排除 |
+| `GET /status` | current 为新物理 ID，`dataMode=PRODUCTION` |
+| `GET /candidates` | 899 只候选，响应快照与 current 一致 |
+| `GET /instruments/SH.601169/research` | 200，研究卡快照与 current 一致并留档 |
+| `POST /valuations`（未配置佣金） | 422 `FEE_VERSION_UNVERIFIED`，只读服务不受影响 |

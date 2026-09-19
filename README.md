@@ -26,7 +26,7 @@ docker compose down -v         # 停并清空数据（从零开始）
 ```powershell
 $env:AQUANT_DATA_DIR='E:\IT\A股量化交易\deploy\universe-snapshot'
 # 可选：回放一个已发布的物理快照；省略时跟随 current_snapshot.json
-# $env:AQUANT_SNAPSHOT_ID='snap-eod-2026-09-14-<uuid>'
+# $env:AQUANT_SNAPSHOT_ID='snap-eod-2026-09-18-<uuid>'
 $env:AQUANT_COMMISSION_RATE='0.00025'        # 你的券商费率，万分之 2.5 写作 0.00025
 $env:AQUANT_COMMISSION_MIN_CENTS='500'       # 最低 5 元
 $env:PYTHONPATH='src'
@@ -84,7 +84,7 @@ npm run dev                         # http://localhost:5173
 | 范围 | 状态 | 说明 |
 |---|---|---|
 | 资料包自检 | ✅ | contracts/schema/configs/examples，裸 Python 可跑 |
-| M1 数据与证据底座 | 🟡 | 合成快照 D01–D08 通过；真实全市场快照 900 只 / 61 个交易日已发布 |
+| M1 数据与证据底座 | 🟡 | 合成快照 D01–D08 通过；真实 current 快照 900 只 / 65 个交易日已发布 |
 | M2 基线与模拟账本 | ✅ | 多日 + 跨进程重启验收通过；T+1 真的跨日生效 |
 | 产品闭环 | ✅ | 预览→确认→冻结→执行→估值→对账，合成与真实数据各跑一遍 |
 | 工作台界面 | 🟡 | 六页可浏览（含**设置**）；写链路走通；**界面上的数字有出处检查**（见下文） |
@@ -95,11 +95,11 @@ npm run dev                         # http://localhost:5173
 
 **数据层的已知限制（这些不影响流程验证，但影响结论）：**
 
-- 只有 **61 个交易日**，做不了回测；只有 **1 个真实快照**，历史时点是抓取后重建的
+- 只有 **65 个交易日**，做不了回测；当前仅有 2 个真实快照，历史时点均为抓取后重建
 - 行业分类**没有变更历史**，只能标注为 `RECONSTRUCTED`，回答不了历史时点
 - 公司行为在真实数据里只有 **2 条**分红记录；代码路径验证过，覆盖率没验证过
 - **券商佣金没有权威值**（券商约定），必须由使用者提供；印花税与过户费有权威来源并已留证
-- **上市天数门槛（120 个交易日）判不完整**：快照日历只有 61 天，窗口外上市的标的
+- **上市天数门槛（120 个交易日）判不完整**：快照日历只有 65 天，窗口外上市的标的
   只能记「不足以判定」而不排除（见下文「两类判定」）；能力卡片会如实说明
 
 ## 验证（全部以退出码为结论）
@@ -123,7 +123,7 @@ npm run dev                         # http://localhost:5173
 
 ```powershell
 # 全市场采集（首次，可续跑）
-python tools\collect_universe.py --start 2026-06-22 --end 2026-09-14
+python tools\collect_universe.py --start 2026-06-22 --end 2026-09-18
 # 上市日期（逐只查 BaoStock ipoDate，只查研究池里的几百只）
 python tools\collect_listing_dates.py --write
 # 从采集结果重建研究池（会**保留**已采到的上市日期）
@@ -148,7 +148,7 @@ python tools\publish_universe_snapshot.py `
   --financials deploy\agentctl-q0\financials-cache.json `
   --actions deploy\agentctl-q0\dividend-actions.json `
   --window-start 2026-06-22 `
-  --window-end 2026-09-14 `
+  --window-end 2026-09-18 `
   --defer-promotion
 
 $snapshotId='<上一步输出的 snap-eod-...>'

@@ -1,8 +1,8 @@
 {
-  "ran_at": "2026-09-19T01:17:10.336538+08:00",
-  "snapshot_id": "snap-universe",
-  "as_of_time": "2026-09-14T07:00:00+00:00",
-  "research_run_id": "rr-fd34b28ce15c4d6ab38b4c81",
+  "ran_at": "2026-09-19T15:17:42.189178+08:00",
+  "snapshot_id": "snap-eod-2026-09-18-53df1f23e8754984",
+  "as_of_time": "2026-09-18T07:00:00+00:00",
+  "research_run_id": "rr-a997013f35c33ae272b52cdb",
   "factor_id": "F10",
   "feature_value_rows": 900,
   "valued_rows": 832,
