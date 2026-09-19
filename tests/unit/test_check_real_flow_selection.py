@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "src"))
 
-from check_real_flow import select_snapshot_pair  # noqa: E402
+from check_real_flow import select_manual_candidate, select_snapshot_pair  # noqa: E402
 from aquant.domain.data.snapshot import (  # noqa: E402
     PublishedSnapshot,
     SnapshotCapability,
@@ -124,3 +124,30 @@ def test_reconstructed_decision_published_after_execution_open_is_rejected():
         )
     with pytest.raises(ValueError, match="开盘前实际发布"):
         select_snapshot_pair(snapshots, current_snapshot_id="s-execution")
+
+
+def test_manual_candidate_prefers_ordered_target_from_multi_target_model_plan():
+    candidates = [
+        {"instrumentId": "SH.600001", "simulatable": True},
+        {"instrumentId": "SZ.000002", "simulatable": True},
+    ]
+    preview = {
+        "targets": [
+            {"instrument_id": "SH.600001"},
+            {"instrument_id": "SZ.000002"},
+        ],
+        "orders": [{"instrument_id": "SZ.000002"}],
+    }
+
+    assert select_manual_candidate(candidates, preview) == "SZ.000002"
+
+
+def test_manual_candidate_requires_a_real_model_difference():
+    candidates = [{"instrumentId": "SH.600001", "simulatable": True}]
+    preview = {
+        "targets": [{"instrument_id": "SH.600001"}],
+        "orders": [{"instrument_id": "SH.600001"}],
+    }
+
+    with pytest.raises(ValueError, match="少于两个"):
+        select_manual_candidate(candidates, preview)

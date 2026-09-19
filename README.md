@@ -132,7 +132,7 @@ npm run dev                         # http://localhost:5173
 | 领域与接口测试 | `pytest tests` | 711 个用例（本次全量通过） |
 | 界面交互 + 数字出处 | `python tools/check_ui_flow.py` | 真浏览器点击；每个区块的数字必须说得出出处 |
 | 归档字节离线复核 | `python tools/verify_archive.py` | 留证字节与摘要一致 |
-| 真实数据闭环 | `python tools/check_real_flow.py` | 真实快照上走完决策闭环 |
+| 真实数据闭环 | `python tools/check_real_flow.py` | 真实快照上走完人工点选、差异留痕与模拟账本闭环；条件不足时写 `ENV_NOT_READY` |
 | 双侧验收 | `python tools/check_both_sides.py` | **同一套断言**在合成与真实上各跑一遍 |
 | 因子落库 | `python tools/compute_factors.py` | 真实快照上 900 行落库、832 行有值，并**回读**确认 |
 | 数字出处（单跑） | `node apps/web/tools/check_number_provenance.mjs --url …` | 见下文 |

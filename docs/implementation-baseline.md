@@ -275,7 +275,7 @@ ADR-011 的边界（领域层不得依赖 agentctl）由
 | T6 M2 账本与模拟 | ✅ | `tests/golden/test_s01_s10_simulator.py`、`tests/golden/test_dividend_persistence.py`、`tests/integration/t13_multiday.py`（多日 + 跨进程重启） |
 | T7 M3 工作台 | ✅ | 五页导航；写链路可走完；`tools/check_ui_flow.py`（交互 + 数字出处） |
 | T8 Q1 适配层 + 只读能力 | 🟡 | 研究卡、事件证据、实验提交、模拟预览均已 live 实跑；A05/A07/A08 通过，A06 因模型请求未完成而未覆盖 |
-| T9 Q3 预览与确认 | 🟡 | 计划生命周期与双快照时点绑定已接入；决策快照还须在执行日 09:30 前实际发布，事后回填不能冒充当时可用；须在下一份日终快照发布后重跑 `tools/check_real_flow.py` |
+| T9 Q3 预览与确认 | 🟡 | 计划生命周期、人工计划、差异留痕与双快照时点绑定已接入；真实验收脚本会点选决策快照 S1 候选并核对 `MODIFY_MODEL` 记录；决策快照还须在执行日 09:30 前实际发布，事后回填不能冒充当时可用；须在下一份日终快照发布后重跑 `tools/check_real_flow.py` |
 | T10 Q2 证据研究 | 🟡 | A05/A10/A15 通过；A12 产品侧固定输入回放与产物哈希通过（offline contract）；A06 已有组合前后状态证据，但模型请求未完成，尚未形成完整 live 证据 |
 | T11 Q4 作业与追踪 | 🟡 | experiment.submit/job.status 已接同一 JobStore；A07/A13/A16 live 通过；A14 产品接线已完成，待 Platform Core replay 传输 |
 | T12 双重验收 | 🟡 | 量化侧报告已成；最新 Q5 为 13 通过、0 失败、3 未覆盖，10 项 live 通过；A02/A09 已关闭，A01/A06/A14 未覆盖 |

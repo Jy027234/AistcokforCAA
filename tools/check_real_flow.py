@@ -28,6 +28,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -344,6 +345,32 @@ def _run_plan(client: "Client", portfolio: str,
                        body={"plan_id": plan_id})
 
 
+def select_manual_candidate(candidates: Sequence[dict], model_preview: dict) -> str:
+    """选择一只会让人工方案与模型方案产生可验证差异的可模拟候选。
+
+    首期试运行不是只验证一个 ``selected_instrument_ids`` 参数能被接收，而是要
+    证明人工选择实际进入组合引擎并留下 ``MODIFY_MODEL``。因此模型方案至少要
+    有两个目标；优先选择已经产生订单的目标，避免挑中因整手约束而无订单的标的。
+    """
+
+    simulatable = {
+        str(candidate.get("instrumentId"))
+        for candidate in candidates if candidate.get("simulatable")
+    }
+    target_ids = [
+        str(target.get("instrument_id"))
+        for target in (model_preview.get("targets") or [])
+        if str(target.get("instrument_id")) in simulatable
+    ]
+    if len(target_ids) < 2:
+        raise ValueError("模型方案少于两个可模拟目标，无法验证人工缩减方案的差异留痕")
+    for order in model_preview.get("orders") or []:
+        instrument_id = str(order.get("instrument_id"))
+        if instrument_id in target_ids:
+            return instrument_id
+    return target_ids[0]
+
+
 def _wait_http(url: str, *, timeout: float = 60.0) -> bool:
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -358,15 +385,18 @@ def _wait_http(url: str, *, timeout: float = 60.0) -> bool:
 
 
 def _write_result(*, pair: FlowSnapshotPair | None, trading_day: str | None,
-                  portfolio: str | None, conclusion: str) -> Path:
+                  portfolio: str | None, conclusion: str,
+                  selected_instrument_id: str | None = None) -> Path:
     """写一份不把未完成阶段误标成 PASS 的验收留痕。"""
 
     out = ROOT / "deploy" / "agentctl-q0" / "real-flow-result.json"
+    out.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "decision_snapshot_id": pair.decision.snapshot_id if pair else None,
         "execution_snapshot_id": pair.execution.snapshot_id if pair else None,
         "trading_day": trading_day,
         "portfolio_id": portfolio,
+        "selected_instrument_id": selected_instrument_id,
         "checks": [{"name": n, "ok": o, "detail": d}
                    for n, o, d in checks],
         "skips": skips,
@@ -381,9 +411,13 @@ def main() -> int:
     checks.clear()
     skips.clear()
     if not (SNAPSHOT_DIR / "meta.sqlite").exists():
-        print(f"缺少快照：{SNAPSHOT_DIR}")
+        detail = f"缺少快照：{SNAPSHOT_DIR}"
+        print(detail)
         print("手工池快照：python -m tests.integration.t6_real_snapshot")
         print("全市场快照：python -m tests.integration.t10_universe_snapshot")
+        skip("真实双快照", detail)
+        _write_result(pair=None, trading_day=None, portfolio=None,
+                      conclusion="ENV_NOT_READY")
         return 2
 
     try:
@@ -404,7 +438,11 @@ def main() -> int:
             decision_snapshot_id=decision_override,
         )
     except (OSError, ValueError, SnapshotError) as exc:
-        print(f"环境未就绪：无法选择满足 S1 门禁的已发布快照对：{exc}")
+        detail = f"无法选择满足 S1 门禁的已发布快照对：{exc}"
+        print(f"环境未就绪：{detail}")
+        skip("真实双快照", detail)
+        _write_result(pair=None, trading_day=None, portfolio=None,
+                      conclusion="ENV_NOT_READY")
         return 2
 
     if pair.execution.data_mode != "PRODUCTION":
@@ -506,9 +544,14 @@ def main() -> int:
               str(body.get("dataMode")))
         check("真实数据带水印", bool(body.get("watermark")), str(body.get("watermark")))
 
-        print("\n[2] 候选来自真实快照上的 S1")
-        status, cbody = client.call("GET", "/api/v1/candidates")
+        print("\n[2] 候选来自决策快照上的 S1")
+        candidate_path = ("/api/v1/candidates?snapshot_id="
+                          + urllib.parse.quote(pair.decision.snapshot_id, safe=""))
+        status, cbody = client.call("GET", candidate_path)
         cands = cbody.get("candidates") or []
+        check("候选绑定决策快照",
+              status == 200 and cbody.get("snapshotId") == pair.decision.snapshot_id,
+              str(cbody.get("snapshotId")))
         check("候选非空", bool(cands), f"{len(cands)} 只")
         check("候选全部来自真实池", all(
             str(c.get("instrumentId", "")).startswith(("SH.", "SZ.")) for c in cands))
@@ -530,18 +573,41 @@ def main() -> int:
                           portfolio=portfolio, conclusion="ENV_NOT_READY")
             return 2
 
-        print(f"\n[3] 预览（执行日 {trading_day}）")
-        status, pv = client.call("POST", "/api/v1/plans/preview", body={
+        print(f"\n[3] 模型基线与人工点选预览（执行日 {trading_day}）")
+        preview_body = {
             "portfolio_id": portfolio,
             "snapshot_id": pair.decision.snapshot_id,
             "trading_day": trading_day,
             "decision_snapshot_id": pair.decision.snapshot_id,
             "decision_cutoff_at": pair.decision.as_of_time,
             "execution_snapshot_id": pair.execution.snapshot_id,
-        })
-        check("预览成功", status == 200, json.dumps(pv, ensure_ascii=False)[:200])
+        }
+        status, model_pv = client.call(
+            "POST", "/api/v1/plans/preview", body=preview_body)
+        check("模型基线预览成功", status == 200,
+              json.dumps(model_pv, ensure_ascii=False)[:200])
         if status != 200:
             return 1
+        try:
+            selected_instrument_id = select_manual_candidate(cands, model_pv)
+        except ValueError as exc:
+            check("可构造人工差异方案", False, str(exc))
+            return 1
+        status, pv = client.call("POST", "/api/v1/plans/preview", body={
+            **preview_body,
+            "selected_instrument_ids": [selected_instrument_id],
+        })
+        check("人工点选预览成功", status == 200,
+              json.dumps(pv, ensure_ascii=False)[:200])
+        if status != 200:
+            return 1
+        planned_ids = {
+            str(item.get("instrument_id"))
+            for item in (pv.get("targets") or []) + (pv.get("orders") or [])
+        }
+        check("人工预览只包含点选标的",
+              bool(planned_ids) and planned_ids == {selected_instrument_id},
+              f"selected={selected_instrument_id} planned={sorted(planned_ids)}")
         plan_id = pv["planId"]
         ref_day = pv.get("reference_price_day")
         check("参考价日早于执行日", bool(ref_day) and ref_day < trading_day,
@@ -561,6 +627,19 @@ def main() -> int:
             "plan_id": plan_id, "confirmation_token": token,
         })
         check("冻结成功", status == 200, json.dumps(fr, ensure_ascii=False)[:200])
+        decision = fr.get("decision") or {}
+        check("冻结记录人工修改决策",
+              decision.get("decision_type") == "MODIFY_MODEL",
+              json.dumps(decision, ensure_ascii=False)[:200])
+        status, decision_body = client.call(
+            "GET", "/api/v1/decisions?portfolio_id="
+            + urllib.parse.quote(portfolio, safe=""))
+        persisted = [row for row in (decision_body.get("decisions") or [])
+                     if row.get("plan_id") == plan_id]
+        check("人工决策已持久化并绑定计划",
+              status == 200 and len(persisted) == 1
+              and persisted[0].get("decision_type") == "MODIFY_MODEL",
+              json.dumps(persisted, ensure_ascii=False)[:200])
 
         print("\n[5] 执行")
         status, ex = client.call("POST", f"/api/v1/plans/{plan_id}/execute",
@@ -695,7 +774,8 @@ def main() -> int:
         conclusion = ("FAIL" if failed else
                       "PASS_WITH_SKIPS" if skips else "PASS")
         _write_result(pair=pair, trading_day=trading_day,
-                      portfolio=portfolio, conclusion=conclusion)
+                      portfolio=portfolio, conclusion=conclusion,
+                      selected_instrument_id=selected_instrument_id)
         return 1 if (failed or skips) else 0
     finally:
         api.terminate()
