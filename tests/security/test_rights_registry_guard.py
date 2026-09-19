@@ -106,3 +106,17 @@ def test_planned_tushare_source_is_registered_but_closed_by_default():
     assert entry.basis is Basis.TERMS_NOT_REVIEWED
     assert all(value is Rights.UNKNOWN for value in entry.rights.values())
     assert not entry.can_enter_model_context()
+
+
+def test_planned_mootdx_source_is_registered_but_closed_by_default():
+    entry = default_rights().get("mootdx-tdx")
+    assert entry.basis is Basis.TERMS_NOT_REVIEWED
+    assert all(value is Rights.UNKNOWN for value in entry.rights.values())
+    assert not entry.can_enter_model_context()
+
+
+def test_sina_financial_rights_are_not_inherited_from_quote_endpoint():
+    entry = default_rights().get("sina-financial")
+    assert entry.basis is Basis.TERMS_NOT_REVIEWED
+    assert all(value is Rights.UNKNOWN for value in entry.rights.values())
+    assert not entry.can_enter_model_context()

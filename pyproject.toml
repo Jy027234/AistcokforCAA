@@ -21,7 +21,12 @@ dependencies = [
 numerics = ["numpy>=1.26", "pandas>=2.1"]
 columnar = ["pyarrow>=15", "duckdb>=0.10"]
 # 数据接入候选（T4 评估，不在首期硬依赖里）
-datasources = ["akshare>=1.12", "baostock>=0.8", "requests>=2.31"]
+datasources = [
+    "akshare>=1.12",
+    "baostock>=0.8",
+    "mootdx==0.11.7",
+    "requests>=2.31",
+]
 web = ["fastapi>=0.110", "uvicorn>=0.29"]
 dev = ["pytest>=8.0", "jsonschema>=4.20"]
 

@@ -1,0 +1,47 @@
+{
+  "generatedAt": "2026-09-19T14:27:26.645120+00:00",
+  "sourceId": "sina-financial",
+  "probeMode": "LOCAL_LIMITED_SPIKE",
+  "rightsStatus": "UNKNOWN_LOCAL_PROBE_ONLY",
+  "samples": [
+    {
+      "symbol": "688489",
+      "status": "PARSED",
+      "pageHashes": {
+        "profit": "sha256:1b09a5d7da26a7c807817ed326d4159cba85858830904cd3593de97fe0443a2c",
+        "balance": "sha256:94a6f7f1c26d006cc39cba917158840a9b631771704ddb2cd0c722b54a40f14a",
+        "cashflow": "sha256:d8b091364e1a4fae56b5249a610f7aa1ad9b6302893333c70445d4feed5b8866"
+      },
+      "commonPeriods": 5,
+      "completeRequiredPeriods": 5,
+      "latestPeriod": "2026-06-30",
+      "pitEligible": false,
+      "pitBlocker": "source page has no verified announcement date or revision chain"
+    },
+    {
+      "symbol": "600519",
+      "status": "PARSED",
+      "pageHashes": {
+        "profit": "sha256:cb224b154ff221cf264943ff93aeb9e70a682ba8d139e5d9f6efb5b030a0d2d6",
+        "balance": "sha256:a68659af275450dac59cd3d514f71fa905ef0afa5aa71897d3edbf8bb85db046",
+        "cashflow": "sha256:3f037cf6f530dda9212c18ae8fdbd853fec470cacee836459d740ac811d010af"
+      },
+      "commonPeriods": 5,
+      "completeRequiredPeriods": 5,
+      "latestPeriod": "2026-06-30",
+      "pitEligible": false,
+      "pitBlocker": "source page has no verified announcement date or revision chain"
+    }
+  ],
+  "summary": {
+    "requested": 2,
+    "parsed": 2,
+    "s2Enabled": false,
+    "blockingGates": [
+      "ANNOUNCEMENT_DATE_NOT_IN_SOURCE",
+      "REVISION_CHAIN_NOT_IN_SOURCE",
+      "FULL_MARKET_COVERAGE_NOT_VALIDATED",
+      "RIGHTS_NOT_REVIEWED"
+    ]
+  }
+}

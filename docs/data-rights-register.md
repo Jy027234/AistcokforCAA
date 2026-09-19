@@ -171,7 +171,9 @@ legacy renegotiation。转载页保留了文号、发布部门、发布日期与
 
 | 来源 | research_use | local_storage | excerpt_display | model_processing | commercial_use | third_party_redistribution | 依据/状态 |
 |---|---|---|---|---|---|---|---|
-| `tushare-pro` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | Token 已验证有效，但三项财报接口均返回 40203 无权限；服务条款和实际使用范围待核验 |
+| `tushare-pro` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | 付费权限不可接受，当前产品不采用；保留历史登记 |
+| `mootdx-tdx` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | 免费结构化财务候选；项目声明仅供学习交流，字段、PIT、修订与使用范围待验收 |
+| `sina-financial` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | 新浪三表 HTML 候选；与已授权的 `sina-hq` 行情端点分开登记，财务页面条款尚未审阅 |
 | `akshare-upstream` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | AKShare 软件仓库与上游数据源必须分别核验；仓库声明仅供学术研究和参考 |
 | `efinance-upstream` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | 项目 README 有个人学习交流及非商业限制；上游数据权利仍需单独核验 |
 | `easyquotation-upstream` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | 实时行情候选，尚未进入 S2；数据源条款未核验 |

@@ -205,14 +205,34 @@ def test_default_registry_has_independent_quote_sources():
     assert len(ids) >= 3, ids
 
 
-def test_tushare_financials_stays_gated_until_real_provider_validation():
-    """文档字段齐全不等于真实账户、历史覆盖与 PIT 已经验收。"""
+def test_paid_tushare_is_retained_only_as_a_blocked_decision_record():
+    """付费源已明确不采用，不能继续显示为等待凭证。"""
 
     source = default_registry().get("tushare-pro")
     assert Domain.FINANCIALS in source.domains
     assert source.requires_credentials is True
-    assert source.integration_state is IntegrationState.CREDENTIALS_CONFIGURED
+    assert source.integration_state is IntegrationState.PLANNED
+    assert source.health is SourceHealth.BLOCKED
     assert source.pit_available == "PARTIAL"
+    assert source.rights_open_for("research_use") is False
+
+
+def test_mootdx_is_a_free_but_still_gated_financial_candidate():
+    source = default_registry().get("mootdx-tdx")
+    assert Domain.FINANCIALS in source.domains
+    assert source.cost_model == "FREE_NONCOMMERCIAL"
+    assert source.requires_credentials is False
+    assert source.integration_state is IntegrationState.PLANNED
+    assert source.pit_available == "PARTIAL"
+    assert source.rights_open_for("research_use") is False
+
+
+def test_sina_financial_is_separate_from_sina_quotes_and_stays_gated():
+    source = default_registry().get("sina-financial")
+    assert Domain.FINANCIALS in source.domains
+    assert source.requires_credentials is False
+    assert source.integration_state is IntegrationState.PLANNED
+    assert source.pit_available == "NO"
     assert source.rights_open_for("research_use") is False
 
 

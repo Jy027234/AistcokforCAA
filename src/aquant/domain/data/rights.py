@@ -169,8 +169,16 @@ def default_rights() -> RightsRegistry:
                note="2026-09-15 使用者授权四项（含模型处理）；条款未做法律审阅"),
         _entry("tushare-pro", allowed=(),
                basis=Basis.TERMS_NOT_REVIEWED,
-               note=("S2 财务候选源；Token 已配置但财务接口返回 40203 无访问权限；"
-                     "尚未完成真实数据验收或条款审阅，所有用途保持 UNKNOWN")),
+               note=("付费权限不可接受，当前产品不采用；保留历史登记，"
+                     "所有用途保持 UNKNOWN")),
+        _entry("mootdx-tdx", allowed=(),
+               basis=Basis.TERMS_NOT_REVIEWED,
+               note=("免费 S2 结构化候选；项目声明仅供学习交流，"
+                     "字段、PIT、修订、缺失语义与使用范围尚未完成验收")),
+        _entry("sina-financial", allowed=(),
+               basis=Basis.TERMS_NOT_REVIEWED,
+               note=("新浪三表 HTML 免费候选；与既有 sina-hq 行情端点分开登记，"
+                     "财务页面条款、PIT、修订和稳定性尚未验收")),
         _entry("synthetic-fixture", allowed=_FIELDS,
                basis=Basis.WRITTEN_LICENSE,
                note="本资料包自带的合成数据，可用于任何用途包括模型处理"),

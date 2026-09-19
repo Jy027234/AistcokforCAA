@@ -1,0 +1,81 @@
+{
+  "generatedAt": "2026-09-19T14:31:23.803416+00:00",
+  "sourceId": "mootdx-tdx",
+  "probeMode": "LOCAL_LIMITED_SPIKE_EXPLICIT_SERVER",
+  "rightsStatus": "UNKNOWN_LOCAL_PROBE_ONLY",
+  "dependencyVersions": {
+    "mootdx": "0.11.7",
+    "tdxpy": "0.2.7",
+    "pandas": "3.0.6"
+  },
+  "packageListing": {
+    "count": 147,
+    "earliestPeriod": "19881231",
+    "latestPeriod": "20260930",
+    "latestUsablePeriod": "20260630"
+  },
+  "selectedPackage": {
+    "filename": "gpcw20260630.zip",
+    "filesize": 5748252,
+    "contentHash": "sha256:0636087e5ba7124ce950a5d64eb917e2ec08957d646316cd67ea5186216279d9"
+  },
+  "parsedShape": {
+    "rows": 5568,
+    "columns": 585
+  },
+  "fieldQuality": {
+    "96": {
+      "meaning": "net_income_attributable_cumulative",
+      "zeroCount": 0,
+      "missingCount": 0
+    },
+    "107": {
+      "meaning": "operating_cashflow_cumulative",
+      "zeroCount": 0,
+      "missingCount": 0
+    },
+    "230": {
+      "meaning": "revenue_single_quarter",
+      "zeroCount": 25,
+      "missingCount": 0
+    },
+    "232": {
+      "meaning": "net_income_attributable_single_quarter",
+      "zeroCount": 22,
+      "missingCount": 0
+    },
+    "234": {
+      "meaning": "operating_cashflow_single_quarter",
+      "zeroCount": 22,
+      "missingCount": 0
+    },
+    "271": {
+      "meaning": "parent_equity",
+      "zeroCount": 0,
+      "missingCount": 0
+    },
+    "314": {
+      "meaning": "report_announcement_date",
+      "zeroCount": 0,
+      "missingCount": 0
+    }
+  },
+  "samples": {
+    "600519": {
+      "rowPresent": true
+    },
+    "000001": {
+      "rowPresent": true
+    }
+  },
+  "summary": {
+    "status": "PARSED",
+    "s2Enabled": false,
+    "blockingGates": [
+      "ZERO_MISSINGNESS_AMBIGUOUS_FOR_SINGLE_QUARTER_FIELDS",
+      "REVISION_CHAIN_NOT_IN_SOURCE",
+      "FULL_MARKET_COVERAGE_NOT_VALIDATED",
+      "RIGHTS_NOT_REVIEWED"
+    ]
+  }
+}
