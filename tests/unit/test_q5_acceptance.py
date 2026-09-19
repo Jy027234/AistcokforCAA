@@ -325,7 +325,7 @@ def test_a06_live_probe_requires_completed_model_and_equal_portfolio_state(
     assert result["no_product_writes"] is True
 
 
-def test_a07_live_probe_requires_ten_replays_of_one_product_job(monkeypatch) -> None:
+def test_a07_live_probe_requires_concurrent_submit_and_live_status(monkeypatch) -> None:
     states = iter(
         [
             {"tables": {"job": {"count": 0}}, "sha256": "sha256:before"},
@@ -334,7 +334,22 @@ def test_a07_live_probe_requires_ten_replays_of_one_product_job(monkeypatch) -> 
     )
     monkeypatch.setattr(q5, "_product_state_fingerprint", lambda _path: next(states))
 
-    def fake_probe(*_args, **kwargs):
+    def fake_probe(*args, **kwargs):
+        if args[3] == q5.JOB_STATUS_CAPABILITY_ID:
+            return {
+                "available": True,
+                "accepted": True,
+                "http_status": 200,
+                "response": {
+                    "output": {
+                        "ok": True,
+                        "jobId": "job-1",
+                        "status": "PENDING",
+                        "attemptCount": 0,
+                        "job_ref": {"job_id": "job-1", "status": "queued"},
+                    }
+                },
+            }
         return {
             "available": True,
             "accepted": True,
@@ -362,6 +377,10 @@ def test_a07_live_probe_requires_ten_replays_of_one_product_job(monkeypatch) -> 
     assert result["accepted_count"] == 10
     assert result["job_ids"] == ["job-1"]
     assert result["job_count_after"] == result["job_count_before"] + 1
+    assert result["distinct_runtime_idempotency_keys"] is True
+    assert result["job_status_verified"] is True
+    assert result["job_attempt_count"] == 0
+    assert result["non_job_tables_unchanged"] is True
 
 
 def test_a08_fixture_has_published_adjusted_history_and_cash(tmp_path: Path) -> None:
@@ -371,6 +390,19 @@ def test_a08_fixture_has_published_adjusted_history_and_cash(tmp_path: Path) -> 
     assert fixture["snapshot_id"] == q5.A08_SNAPSHOT_ID
     assert fixture["portfolio_id"] == q5.A08_PORTFOLIO_ID
     assert fixture["data_dir"].parent == tmp_path
+    fingerprinted = q5._product_user_table_fingerprints(fixture["meta_path"])
+    assert {
+        "audit_log",
+        "document",
+        "event",
+        "simulation_plan",
+        "plan_confirmation",
+        "plan_snapshot_binding",
+        "plan_fee_binding",
+        "order",
+        "fill",
+        "cash_entry",
+    } <= set(fingerprinted)
 
     from aquant.domain.data.db import connect
 

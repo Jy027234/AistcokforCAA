@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -61,6 +62,47 @@ def test_duplicate_submit_reports_not_created(store):
     _, created_second = submit(store)
     assert created_first is True
     assert created_second is False
+
+
+def test_concurrent_submit_is_atomic_across_connections(tmp_path):
+    path = tmp_path / "meta.sqlite"
+    setup = connect(path)
+    apply_migrations(setup)
+    setup.close()
+
+    def submit_once(_index: int) -> tuple[str, bool]:
+        con = connect(path)
+        try:
+            return JobStore(con).submit(
+                job_type="eod_research",
+                trading_day="2026-09-11",
+                config_version="cfg-v1",
+                input_snapshot_id="snap-syn-001",
+                idempotency_namespace="tenant:test|user:alice",
+                owner_metadata={
+                    "tenant_id": "tenant:test",
+                    "actor_user_id": "user:alice",
+                },
+            )
+        finally:
+            con.close()
+
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        results = list(pool.map(submit_once, range(10)))
+
+    assert len({job_id for job_id, _created in results}) == 1
+    assert sum(1 for _job_id, created in results if created) == 1
+    verify = connect(path, read_only=True)
+    try:
+        assert verify.execute("SELECT COUNT(*) FROM job").fetchone()[0] == 1
+    finally:
+        verify.close()
+
+
+def test_idempotency_namespace_separates_owners(store):
+    first, _ = submit(store, idempotency_namespace="tenant:test|user:alice")
+    second, _ = submit(store, idempotency_namespace="tenant:test|user:bob")
+    assert first != second
 
 
 def test_different_config_version_is_a_new_job(store):

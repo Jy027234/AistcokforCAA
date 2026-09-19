@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 
 from aquant.domain.data.reader import SnapshotReader
 from aquant.domain.research.f10 import compute_f10_for_snapshot
-from aquant.operations.jobs import Job, JobError, JobStatus, JobStore
+from aquant.operations.jobs import Job, JobError, JobStatus, JobStore, job_payload
 
 #: 因子计算作业：在某一快照上算 F10 并落库（§10.2）。
 JOB_FACTOR_COMPUTE = "FACTOR_COMPUTE"
@@ -48,11 +48,9 @@ class ResearchJobError(RuntimeError):
 
 
 def _payload(job: Job) -> dict:
-    if not job.payload_json:
-        return {}
     try:
-        return json.loads(job.payload_json)
-    except json.JSONDecodeError as exc:
+        return job_payload(job.payload_json)
+    except (TypeError, ValueError) as exc:
         raise ResearchJobError(
             "DATA_NOT_READY",
             f"job {job.job_id} payload is not valid JSON: {exc}",
@@ -223,7 +221,9 @@ def _compute_factors(con: sqlite3.Connection, reader: SnapshotReader, job: Job) 
 
 def submit_research_job(con: sqlite3.Connection, *, job_type: str, trading_day: str,
                         snapshot_id: str, config_version: str = "default",
-                        payload: dict | None = None) -> dict:
+                        payload: dict | None = None,
+                        idempotency_namespace: str | None = None,
+                        owner_metadata: dict[str, str] | None = None) -> dict:
     """提交一条研究作业。重复提交返回同一 job_id（§8.4）。"""
 
     if job_type not in KNOWN_JOB_TYPES:
@@ -234,7 +234,8 @@ def submit_research_job(con: sqlite3.Connection, *, job_type: str, trading_day: 
     job_id, created = store.submit(
         job_type=job_type, trading_day=trading_day,
         config_version=config_version, input_snapshot_id=snapshot_id,
-        payload=payload)
+        payload=payload, idempotency_namespace=idempotency_namespace,
+        owner_metadata=owner_metadata)
     job = store.get(job_id)
     return {
         "jobId": job_id,

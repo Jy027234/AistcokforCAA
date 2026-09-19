@@ -48,8 +48,17 @@ def world(tmp_path):
     con.close()
 
 
-def _invoke(function, arguments, **kwargs):
-    return asyncio.run(function({"validated_arguments": arguments}, **kwargs))
+def _invoke(function, arguments, *, metadata=None, **kwargs):
+    return asyncio.run(function(
+        {
+            "validated_arguments": arguments,
+            "metadata": metadata or {
+                "tenant_id": "tenant:test",
+                "actor_user_id": "user:alice",
+            },
+        },
+        **kwargs,
+    ))
 
 
 def test_event_evidence_reads_pit_data_and_never_submits_a_job(world):
@@ -123,6 +132,16 @@ def test_experiment_submit_uses_durable_job_idempotency(world):
     assert first["job_ref"]["status_capability_id"] == "aquant.job.status"
     assert con.execute("SELECT COUNT(*) FROM job").fetchone()[0] == 1
 
+    other = _invoke(
+        handlers.experiment_submit,
+        args,
+        con=con,
+        metadata={"tenant_id": "tenant:test", "actor_user_id": "user:bob"},
+    )
+    assert other["ok"] is True, other
+    assert other["jobId"] != first["jobId"]
+    assert con.execute("SELECT COUNT(*) FROM job").fetchone()[0] == 2
+
 
 def test_job_status_reads_durable_store_and_preserves_domain_state(world):
     con, _reader, _cards = world
@@ -133,6 +152,8 @@ def test_job_status_reads_durable_store_and_preserves_domain_state(world):
         config_version="default",
         input_snapshot_id="snap-syn-001",
         payload={"limit": 10},
+        idempotency_namespace='{"actor_user_id":"user:alice","tenant_id":"tenant:test"}',
+        owner_metadata={"tenant_id": "tenant:test", "actor_user_id": "user:alice"},
     )
     store = JobStore(con)
     assert store.claim("test-worker", job_types=["FACTOR_COMPUTE"]).job_id == job_id
@@ -161,6 +182,15 @@ def test_job_status_reads_durable_store_and_preserves_domain_state(world):
         "owner": "aquant_lab",
         "failure_code": "DATA_NOT_READY",
     }
+
+    denied = _invoke(
+        handlers.job_status,
+        {"job_id": job_id},
+        con=con,
+        metadata={"tenant_id": "tenant:test", "actor_user_id": "user:bob"},
+    )
+    assert denied["ok"] is False
+    assert denied["error"]["code"] == "SOURCE_PERMISSION_MISSING"
 
 
 def test_job_status_returns_structured_error_for_unknown_job(world):

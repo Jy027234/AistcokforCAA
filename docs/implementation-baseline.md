@@ -140,7 +140,8 @@
 - **当前状态**：`aquant.portfolio.read` 与 `aquant.simulation_plan.preview` 已声明并接到
   真实账本/`PlanService.preview`；预览与产品 API 共用费率解析，不能绕过
   `FEE_VERSION_UNVERIFIED`。A08 已用独立合成发布快照通过 live HTTP，并以四张业务表
-  的前后指纹证明预览不写库；A07 的十次同键提交也只新增一个产品 job。A09 的确认/冻结
+  的全库用户表指纹证明预览不写库；A07 的十次并发同业务参数提交也只新增一个产品 job，
+  并由 live `job.status` 证明计算尚未启动。A09 的确认/冻结
   继续由产品自有 HTTP 入口承担，未绑定进 agentctl，也不向模型暴露冻结能力。
 - **修正说明**：v0.2.2 把 Q3 前置写成"Q1 + 合成账户"，但"仅一次入账"是账本属性。**确认 ≠ 成交**；若把二者混为一条断言，会在 M2 尚未交付时产生虚假通过。
 
@@ -158,8 +159,10 @@
 - **依赖**：T5（任务机制）+ T10
 - **完成判据**：A13/A14；七种状态在 UI 与 API 可区分
 - **当前状态**：`aquant.experiment.submit` 已接持久 Research JobStore；A07 在 live HTTP
-  中十次同键提交只新增一个 job。`aquant.job.status` 已接入同一 JobStore，manifest 的
-  submit/status 生命周期检查通过；状态轮询、回调乱序/取消以及会话恢复仍未关闭 A13/A14。
+  中十次并发同业务参数提交只新增一个 job。`aquant.job.status` 已接入同一 JobStore，live
+  状态查询与 manifest 的 submit/status 生命周期检查通过；agentctl 作业按已验证
+  tenant/actor 命名空间隔离，其他主体与旧的无归属作业均拒绝读取。状态轮询、回调乱序/
+  取消以及会话恢复仍未关闭 A13/A14。
 - **对应**：v0.2.1 Q4
 
 ### T12 双重验收（Q5 / M5）
@@ -330,7 +333,8 @@ ADR-011/012/013 也未被它引用。
 2. **Q5 接入侧验收仍未关闭**——`docs/integration/q5-acceptance-report.md`
    已由一次隔离的真实 HTTP 拓扑运行生成，临时令牌已撤销、服务已停止。
    当前 live A03（tenant/product/scope）、A04（真实研究能力调用）、A05（恶意材料无写入）、
-   A07（十次同键仅一个产品 job）、A08（预览不写库）和 A10（真实失败语义）通过；
+   A07（十次并发同业务参数仅一个产品 job，并完成 live 状态查询）、A08（全库指纹证明预览不写库）
+   和 A10（真实失败语义）通过；
    A15 只有离线扫描证据；A01 观察到 `mode_compatible=false` 后调用仍被接受；A06 因模型
    请求未完成而未覆盖；A09、A11–A14、A16 尚未在该拓扑执行。A02 因当前 manifest
    未满足基座 `execution_evidence` assurance 而失败。另有基座漂移：锁定 `b5cad…`，当前本机为

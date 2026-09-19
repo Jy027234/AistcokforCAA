@@ -430,7 +430,7 @@ capabilities:
         type: object
       actor_user_id:
         type: string
-        description: 调用主体；当前 JobStore 没有 actor/tenant ownership 列，不能据此宣称作业归属
+        description: 经平台验证且与持久作业归属匹配的调用主体
       job_ref:
         type: object
   result_object_types:

@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+from concurrent.futures import ThreadPoolExecutor
 import gc
 import hashlib
 import json
@@ -96,6 +97,7 @@ RESEARCH_CAPABILITY_VERSION = "1.0.0"
 EVENT_EVIDENCE_CAPABILITY_ID = "aquant.event_evidence.read"
 PORTFOLIO_CAPABILITY_ID = "aquant.portfolio.read"
 EXPERIMENT_CAPABILITY_ID = "aquant.experiment.submit"
+JOB_STATUS_CAPABILITY_ID = "aquant.job.status"
 Q5_CAPABILITY_VERSION = "1.0.0"
 RESEARCH_DEFAULT_ARGUMENTS = {
     "instrument_id": "SH.600519",
@@ -114,24 +116,6 @@ EXPERIMENT_DEFAULT_ARGUMENTS = {
     "snapshot_id": "snap-universe",
 }
 ADVERSARIAL_EVIDENCE_MARKER = "Q5-ADVERSARIAL-EVIDENCE"
-PRODUCT_STATE_TABLES = (
-    "portfolio",
-    "cash_entry",
-    "position_lot",
-    "order",
-    "fill",
-    "simulation_plan",
-    "plan_confirmation",
-    "plan_snapshot_binding",
-    "plan_fee_binding",
-    "fee_charge",
-    "lot_consumption",
-    "receivable",
-    "job",
-    "experiment",
-    "valuation",
-    "valuation_position",
-)
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 18765
 DEFAULT_CONFIG = ROOT / "deploy" / "agentctl-q0" / "runtime.config.yaml"
@@ -515,7 +499,15 @@ def _start_server(lease: RuntimeLease, host: str, port: int) -> None:
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = subprocess.SW_HIDE
         kwargs["startupinfo"] = startupinfo
-    lease.process = subprocess.Popen(command, **kwargs)
+    try:
+        lease.process = subprocess.Popen(command, **kwargs)
+    except BaseException:
+        # Popen can fail before it takes ownership of the stream.  Close the
+        # parent handle here so a setup failure cannot retain the temporary
+        # log file or make the later cleanup report misleadingly successful.
+        lease._log_handle.close()
+        lease._log_handle = None
+        raise
 
 
 def _wait_ready(
@@ -541,28 +533,47 @@ def _wait_ready(
     raise TimeoutError(f"agentctl server was not ready ({last_error or 'timeout'})")
 
 
-def _stop_server(lease: RuntimeLease) -> None:
+def _stop_server(lease: RuntimeLease) -> bool:
+    """Stop the runner-owned process and report whether it really exited."""
+
     process = lease.process
     if process is None:
-        return
+        if lease._log_handle is not None:
+            lease._log_handle.close()
+            lease._log_handle = None
+        return True
+    stopped = process.poll() is not None
     try:
-        if process.poll() is None:
+        if not stopped:
             process.terminate()
             try:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 if os.name == "nt":
-                    subprocess.run(
+                    taskkill = subprocess.run(
                         ["taskkill", "/PID", str(process.pid), "/T", "/F"],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
                         check=False,
                     )
+                    # taskkill may race with a natural exit.  If it really
+                    # failed while the child is still alive, use the handle
+                    # owned by this runner and let the final poll decide.
+                    if taskkill.returncode != 0 and process.poll() is None:
+                        process.kill()
                 else:
                     process.kill()
                 process.wait(timeout=5)
+        stopped = process.poll() is not None
+        if not stopped:
+            raise RuntimeError(
+                f"agentctl server process {process.pid} did not exit after stop"
+            )
+        return True
     finally:
-        lease.process = None
+        stopped = process.poll() is not None
+        if stopped:
+            lease.process = None
         if lease._log_handle is not None:
             lease._log_handle.close()
             lease._log_handle = None
@@ -787,22 +798,65 @@ def _build_a08_product_fixture(
     return fixture
 
 
-def _product_table_fingerprints(meta_path: Path) -> dict[str, dict[str, Any]]:
-    """Return stable row fingerprints for the A08 no-write assertion."""
+def _stable_sqlite_value(value: Any) -> Any:
+    """Encode SQLite values deterministically before hashing them."""
+
+    if isinstance(value, memoryview):
+        value = value.tobytes()
+    if isinstance(value, (bytes, bytearray)):
+        return {"__bytes__": bytes(value).hex()}
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    return str(value)
+
+
+def _product_user_table_fingerprints(
+    meta_path: Path,
+) -> dict[str, dict[str, Any]]:
+    """Fingerprint every user table in a temporary product metadata store.
+
+    The table list comes from SQLite itself instead of a hand-maintained
+    product table allowlist.  Rows are sorted by their canonical JSON form,
+    so the digest is stable even when a write changes rowid allocation.  The
+    digest includes column order and names as well as row values, while the
+    returned evidence only exposes counts and hashes.
+    """
 
     from aquant.domain.data.db import connect
 
-    tables = ("simulation_plan", "order", "fill", "cash_entry")
     con = connect(meta_path, read_only=True)
     try:
+        table_names = [
+            str(row[0])
+            for row in con.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            )
+        ]
         result: dict[str, dict[str, Any]] = {}
-        for table in tables:
-            rows = [
-                {str(key): row[key] for key in row.keys()}
-                for row in con.execute(f'SELECT * FROM "{table}" ORDER BY rowid')
+        for table in table_names:
+            quoted = '"' + table.replace('"', '""') + '"'
+            columns = [
+                str(row[1])
+                for row in con.execute(f"PRAGMA table_info({quoted})")
             ]
+            rows = [
+                {
+                    column: _stable_sqlite_value(row[index])
+                    for index, column in enumerate(columns)
+                }
+                for row in con.execute(f"SELECT * FROM {quoted}")
+            ]
+            rows.sort(
+                key=lambda item: json.dumps(
+                    item,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                )
+            )
             encoded = json.dumps(
-                rows,
+                {"columns": columns, "rows": rows},
                 ensure_ascii=False,
                 sort_keys=True,
                 separators=(",", ":"),
@@ -845,31 +899,34 @@ def _product_data_source() -> Path:
 def _product_state_fingerprint(meta_path: Path) -> dict[str, Any]:
     """Fingerprint durable product-domain state without exposing row contents."""
 
-    con = sqlite3.connect(str(meta_path))
-    con.row_factory = sqlite3.Row
-    try:
-        tables: dict[str, dict[str, Any]] = {}
-        digest_input: dict[str, list[dict[str, Any]]] = {}
-        for table in PRODUCT_STATE_TABLES:
-            rows = [
-                {str(key): row[key] for key in row.keys()}
-                for row in con.execute(f'SELECT * FROM "{table}" ORDER BY rowid')
-            ]
-            digest_input[table] = rows
-            tables[table] = {"count": len(rows)}
-        encoded = json.dumps(
-            digest_input,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        ).encode("utf-8")
-        return {
-            "tables": tables,
-            "sha256": "sha256:" + hashlib.sha256(encoded).hexdigest(),
-        }
-    finally:
-        con.close()
+    tables = _product_user_table_fingerprints(meta_path)
+    encoded = json.dumps(
+        tables,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return {
+        "tables": tables,
+        "sha256": "sha256:" + hashlib.sha256(encoded).hexdigest(),
+    }
+
+
+def _non_job_tables_unchanged(
+    before: dict[str, dict[str, Any]],
+    after: dict[str, dict[str, Any]],
+) -> bool:
+    """Compare all product table fingerprints except the expected new job."""
+
+    return {
+        name: fingerprint
+        for name, fingerprint in before.items()
+        if name != "job"
+    } == {
+        name: fingerprint
+        for name, fingerprint in after.items()
+        if name != "job"
+    }
 
 
 def _prepare_q5_product_data(temp_root: Path) -> dict[str, Any]:
@@ -1578,35 +1635,36 @@ def _a07_live_probe(
     capabilities: Path,
     product_data: dict[str, Any],
 ) -> dict[str, Any]:
-    """Submit the same product job ten times through the live HTTP route."""
+    """Race ten live submissions and then query the durable product job."""
 
     meta_path = Path(product_data["meta_path"])
     before = _product_state_fingerprint(meta_path)
-    request_id = "q5-a07-request-" + uuid.uuid4().hex[:12]
-    idempotency_key = "q5-a07-idem-" + uuid.uuid4().hex[:12]
-    work_item_id = "q5-a07-work-" + uuid.uuid4().hex[:12]
     policy_ref = {
         "kind": "q5_acceptance_policy",
         "decision": "allow_research_job",
         "reference": "q5-a07",
     }
-    probes = [
-        _capability_http_probe(
+    def submit_once(index: int) -> dict[str, Any]:
+        # Distinct runtime keys force all ten requests through to the product
+        # handler.  The identical product arguments must still converge on
+        # the one product-owned idempotency key and row.
+        suffix = f"{index + 1}-{uuid.uuid4().hex[:10]}"
+        return _capability_http_probe(
             base_url,
             token,
             capabilities,
             EXPERIMENT_CAPABILITY_ID,
             arguments=EXPERIMENT_DEFAULT_ARGUMENTS,
             request_prefix=f"q5-a07-{index + 1}",
-            request_id=request_id,
-            trace_id=f"q5-a07-trace-{index + 1}-{uuid.uuid4().hex[:8]}",
-            idempotency_key=idempotency_key,
-            work_item_id=work_item_id,
+            request_id=f"q5-a07-request-{suffix}",
+            trace_id=f"q5-a07-trace-{suffix}",
+            idempotency_key=f"q5-a07-runtime-{suffix}",
+            work_item_id=f"q5-a07-work-{suffix}",
             policy_decision_ref=policy_ref,
         )
-        for index in range(10)
-    ]
-    after = _product_state_fingerprint(meta_path)
+
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        probes = list(pool.map(submit_once, range(10)))
     outputs = [
         (probe.get("response") or {}).get("output")
         for probe in probes
@@ -1622,17 +1680,63 @@ def _a07_live_probe(
     )
     one_job = len(job_ids) == 1 and "" not in job_ids
     one_product_key = len(product_idempotency) == 1 and "" not in product_idempotency
+    job_id = next(iter(job_ids), "") if one_job else ""
+    status_probe = _capability_http_probe(
+        base_url,
+        token,
+        capabilities,
+        JOB_STATUS_CAPABILITY_ID,
+        arguments={"job_id": job_id},
+        request_prefix="q5-a07-status",
+    ) if job_id else {"available": True, "accepted": False}
+    status_response = (
+        status_probe.get("response")
+        if isinstance(status_probe.get("response"), dict)
+        else {}
+    )
+    status_output = (
+        status_response.get("output")
+        if isinstance(status_response.get("output"), dict)
+        else {}
+    )
+    status_verified = bool(
+        status_probe.get("accepted") is True
+        and status_output.get("ok") is True
+        and status_output.get("jobId") == job_id
+        and status_output.get("status") == "PENDING"
+        and status_output.get("attemptCount") == 0
+        and isinstance(status_output.get("job_ref"), dict)
+        and status_output["job_ref"].get("job_id") == job_id
+        and status_output["job_ref"].get("status") == "queued"
+    )
+    after = _product_state_fingerprint(meta_path)
     before_jobs = before["tables"]["job"]["count"]
     after_jobs = after["tables"]["job"]["count"]
-    passed = bool(accepted and one_job and one_product_key and after_jobs == before_jobs + 1)
+    non_job_unchanged = _non_job_tables_unchanged(
+        before["tables"], after["tables"]
+    )
+    passed = bool(
+        accepted
+        and one_job
+        and one_product_key
+        and after_jobs == before_jobs + 1
+        and non_job_unchanged
+        and status_verified
+    )
     return {
         "accepted_count": sum(1 for probe in probes if probe.get("accepted") is True),
         "attempt_count": len(probes),
-        "same_agentctl_idempotency_key": len({probe.get("idempotency_key") for probe in probes}) == 1,
+        "distinct_runtime_idempotency_keys": len(
+            {probe.get("idempotency_key") for probe in probes}
+        ) == len(probes),
         "job_ids": sorted(job_ids),
         "product_idempotency_keys": sorted(product_idempotency),
         "job_count_before": before_jobs,
         "job_count_after": after_jobs,
+        "job_attempt_count": status_output.get("attemptCount"),
+        "non_job_tables_unchanged": non_job_unchanged,
+        "job_status_verified": status_verified,
+        "job_status_probe": status_probe,
         "state_sha256_before": before["sha256"],
         "state_sha256_after": after["sha256"],
         "probes": probes,
@@ -1670,7 +1774,7 @@ def _a08_preview_probe(
     """Invoke A08 through the live HTTP capability route and diff product rows."""
 
     spec = _a08_capability_spec(capabilities)
-    before = _product_table_fingerprints(Path(fixture["meta_path"]))
+    before = _product_user_table_fingerprints(Path(fixture["meta_path"]))
     if spec is None:
         return {
             "available": False,
@@ -1726,7 +1830,7 @@ def _a08_preview_probe(
         transport = "client_or_network_error"
         exception_name = type(exc).__name__
 
-    after = _product_table_fingerprints(Path(fixture["meta_path"]))
+    after = _product_user_table_fingerprints(Path(fixture["meta_path"]))
     safe_payload = _json_safe(redact(payload, (token,)))
     response = safe_payload if isinstance(safe_payload, dict) else {}
     output = response.get("output") if isinstance(response, dict) else None
@@ -2543,9 +2647,9 @@ def run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             ),
             evidence_kind="live_topology",
             observed=(
-                "同一幂等键十次提交均返回同一产品 job，SQLite 只新增一条"
+                "十次并发提交收敛到同一产品 job，状态查询成功且计算尚未启动"
                 if a07_probe.get("passed")
-                else "未形成十次提交同一 job 的完整实时证据"
+                else "未形成并发提交、单一 job 与 live 状态查询的完整证据"
             ),
             detail=a07_probe,
         )
@@ -2566,7 +2670,7 @@ def run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             ),
             evidence_kind="live_topology",
             observed=(
-                "预览通过真实 agentctl HTTP 入口且未写入计划、订单、成交或现金"
+                "预览通过真实 agentctl HTTP 入口且产品元数据库全部用户表指纹不变"
                 if a08_summary.get("a08_evidence_observed")
                 else "A08 预览未形成完整成功与无写入证据"
             ),
@@ -2704,7 +2808,11 @@ def run(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
                 and temp_root.name.startswith("aquant-q5-runtime-")
             ):
                 gc.collect()
-                shutil.rmtree(temp_root, ignore_errors=False)
+                try:
+                    shutil.rmtree(temp_root, ignore_errors=False)
+                except Exception as exc:  # noqa: BLE001 - preserve final report
+                    errors.append(f"temporary runtime cleanup: {type(exc).__name__}")
+                    result_code = EXIT_SETUP
 
     report = {
         "schema_version": "aquant.q5.acceptance.v1",

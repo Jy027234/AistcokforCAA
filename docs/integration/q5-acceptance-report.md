@@ -1,6 +1,6 @@
 # Q5 接入侧验收报告
 
-> 生成时间：2026-09-19T09:40:37.929641+00:00
+> 生成时间：2026-09-19T10:05:46.662909+00:00
 > 本报告只引用本次 runner 新启动的 server 与新生成的去敏证据；历史 Q0/Q5 文件不作为本次结论输入。
 
 ## 实测范围
@@ -24,8 +24,8 @@
 | A04 | passed | live_topology | 研究能力通过 agentctl 返回真实 snapshot、数据和执行关联 |
 | A05 | passed | live_topology | 恶意证据作为受授权数据返回，引用被权限门禁屏蔽且产品状态未写入 |
 | A06 | uncovered | live_topology | 模型请求未完成，暂未形成声明与组合状态不变的完整实时证据 |
-| A07 | passed | live_topology | 同一幂等键十次提交均返回同一产品 job，SQLite 只新增一条 |
-| A08 | passed | live_topology | 预览通过真实 agentctl HTTP 入口且未写入计划、订单、成交或现金 |
+| A07 | passed | live_topology | 十次并发提交收敛到同一产品 job，状态查询成功且计算尚未启动 |
+| A08 | passed | live_topology | 预览通过真实 agentctl HTTP 入口且产品元数据库全部用户表指纹不变 |
 | A09 | uncovered | not_executed | 未执行：真实 agentctl 入口被结构性阻断 |
 | A10 | passed | live_topology | 模型失败分支保留真实失败语义 |
 | A11 | uncovered | not_executed | 未执行 |

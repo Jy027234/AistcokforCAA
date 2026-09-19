@@ -251,6 +251,24 @@ def _invocation_actor(invocation: dict[str, Any]) -> str | None:
     return None
 
 
+def _invocation_tenant(invocation: dict[str, Any]) -> str | None:
+    """Read the platform-verified tenant metadata, never a model argument."""
+
+    metadata = invocation.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    value = str(metadata.get("tenant_id") or "").strip()
+    return value or None
+
+
+def _invocation_owner(invocation: dict[str, Any]) -> dict[str, str] | None:
+    tenant_id = _invocation_tenant(invocation)
+    actor_user_id = _invocation_actor(invocation)
+    if not tenant_id or not actor_user_id:
+        return None
+    return {"tenant_id": tenant_id, "actor_user_id": actor_user_id}
+
+
 def _as_datetime(value: Any, *, name: str) -> datetime:
     if isinstance(value, datetime):
         parsed = value
@@ -556,6 +574,15 @@ async def experiment_submit(invocation: dict[str, Any], *,
             False,
             "submit a supported product research job with its input snapshot",
         )
+    owner = _invocation_owner(invocation)
+    if owner is None:
+        return _error(
+            "SOURCE_PERMISSION_MISSING",
+            "verified tenant_id and actor_user_id are required for job submission",
+            snapshot_id,
+            False,
+            "invoke through agentctl with an admitted product context",
+        )
     try:
         _as_date(trading_day, name="trading_day")
     except ValueError as exc:
@@ -587,13 +614,17 @@ async def experiment_submit(invocation: dict[str, Any], *,
             snapshot_id=snapshot_id,
             config_version=config_version,
             payload=payload or None,
+            idempotency_namespace=json.dumps(
+                owner, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+            ),
+            owner_metadata=owner,
         )
         return {
             "ok": True,
             **out,
             "job_id": out.get("jobId"),
             "idempotency_key": out.get("idempotencyKey"),
-            "actor_user_id": _invocation_actor(invocation),
+            "actor_user_id": owner["actor_user_id"],
             # agentctl's async_mode=job contract consumes this stable product
             # reference; the legacy top-level fields remain for the product
             # API shape and human-readable receipts.
@@ -652,10 +683,10 @@ async def job_status(invocation: dict[str, Any], *,
     """Query one research job from the product's durable ``JobStore``.
 
     This is a read-only projection of the same row used by
-    ``experiment_submit`` and the product research worker.  The current
-    ``job`` table has no actor or tenant ownership columns, so the verified
-    actor is returned as call context only; it is deliberately not presented
-    as an ownership check.
+    ``experiment_submit`` and the product research worker.  The existing
+    schema has no ownership columns, so agentctl submissions persist verified
+    tenant/actor metadata inside the versioned job payload envelope.  Legacy
+    or differently owned rows fail closed here.
     """
 
     args = _invocation_arguments(invocation)
@@ -667,6 +698,15 @@ async def job_status(invocation: dict[str, Any], *,
             "<empty>",
             False,
             "provide the job_id returned by aquant.experiment.submit",
+        )
+    owner = _invocation_owner(invocation)
+    if owner is None:
+        return _error(
+            "SOURCE_PERMISSION_MISSING",
+            "verified tenant_id and actor_user_id are required for job status",
+            job_id,
+            False,
+            "invoke through agentctl with an admitted product context",
         )
 
     close_after = False
@@ -698,6 +738,14 @@ async def job_status(invocation: dict[str, Any], *,
         from aquant.operations.jobs import JobStore
 
         job = JobStore(con).get(job_id)
+        if job.owner_metadata != owner:
+            return _error(
+                "SOURCE_PERMISSION_MISSING",
+                "the requested job is not owned by the verified tenant and actor",
+                job_id,
+                False,
+                "use a job_id returned to the same tenant and actor",
+            )
         product_status = str(getattr(job.status, "value", job.status))
         runtime_status = _job_runtime_status(job.status)
         result = _job_result(job)
@@ -709,7 +757,7 @@ async def job_status(invocation: dict[str, Any], *,
             "status": product_status,
             "attemptCount": job.attempt_count,
             "idempotencyKey": job.idempotency_key,
-            "actor_user_id": _invocation_actor(invocation),
+            "actor_user_id": owner["actor_user_id"],
             "job_ref": {
                 "job_id": job.job_id,
                 "status": runtime_status,
