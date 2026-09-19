@@ -222,6 +222,9 @@ def main() -> int:
                          "与界面上的「立刻运行一次」是同一条通道）")
     ap.add_argument("--interval", type=float, default=20.0,
                     help="轮询间隔秒数（长驻模式）")
+    ap.add_argument("--interpreter", default=None,
+                    help="覆盖数据库中的流水线解释器（容器内使用）。"
+                         "宿主常驻任务通常不传，继续使用设置页保存的解释器。")
     ap.add_argument("--dry-run", action="store_true",
                     help="只说会做什么，不登记请求、不执行")
     args = ap.parse_args()
@@ -265,7 +268,7 @@ def main() -> int:
 
     worker_id = _worker_id()
     schedule = scheduler.load_schedule(con)
-    interpreter = _resolve_interpreter(schedule.interpreter)
+    interpreter = _resolve_interpreter(args.interpreter or schedule.interpreter)
     log(f"worker {worker_id}｜数据目录 {data_dir}")
     log(f"调度：{'启用' if schedule.enabled else '停用'}"
         f"｜{schedule.run_at_local}"
@@ -280,6 +283,9 @@ def main() -> int:
 
     def one_round() -> str:
         schedule_now = scheduler.load_schedule(con)
+        if args.interpreter:
+            from dataclasses import replace
+            schedule_now = replace(schedule_now, interpreter=args.interpreter)
         return tick(con, worker_id=worker_id, data_dir=data_dir,
                     schedule=schedule_now, now=datetime.now().astimezone(),
                     dry_run=args.dry_run)

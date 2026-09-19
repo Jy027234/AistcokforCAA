@@ -53,21 +53,32 @@ python -m uvicorn main:app --app-dir apps/api --host 127.0.0.1 --port 8000
 ### 用 Docker 读取调度器维护的真实快照
 
 基础 `docker-compose.yml` 使用独立命名卷和合成快照。真实试运行必须显式叠加
-`docker-compose.real.yml`，把宿主机每日流水线维护的目录绑定到容器 `/data`；否则界面和
-调度器会读取两份不同的数据：
+`docker-compose.real.yml`；覆盖层同时启动 API 与独立 scheduler，并让它们在同一 Linux
+运行环境中访问 `/data`。不要让 Windows worker 同时持有这份 SQLite：Windows 与 Linux
+容器跨系统并发打开同一个 WAL 文件会产生 `disk I/O error`。
 
 ```powershell
 Copy-Item configs\real-trial.example.env real-trial.env
 # 编辑 real-trial.env，填写自己的券商佣金；不要把该文件提交到 Git。
+# 若已安装宿主 Windows worker，真实 Compose 运行期间先停用，避免 5 分钟恢复触发器把它拉回。
+Disable-ScheduledTask -TaskName 'AQuant Scheduler Worker'
+Stop-ScheduledTask -TaskName 'AQuant Scheduler Worker'
 docker compose --env-file real-trial.env `
   -f docker-compose.yml -f docker-compose.real.yml up --build -d
 
 # 启动后以 readiness.trial.ready 为唯一放行结论
 Invoke-RestMethod http://127.0.0.1:8080/api/v1/readiness | ConvertTo-Json -Depth 8
+
+# 停止真实 Compose 后，恢复宿主 worker：
+docker compose --env-file real-trial.env `
+  -f docker-compose.yml -f docker-compose.real.yml down
+Enable-ScheduledTask -TaskName 'AQuant Scheduler Worker'
+Start-ScheduledTask -TaskName 'AQuant Scheduler Worker'
 ```
 
-覆盖层要求 `AQUANT_HOST_DATA_DIR` 已存在，并继续沿用基础 Compose 的
-`127.0.0.1:8080` 绑定。停止容器不会删除宿主机真实快照；不要对这条真实目录使用
+覆盖层要求 `AQUANT_HOST_DATA_DIR` 与 `AQUANT_HOST_PIPELINE_DIR` 已存在，并继续沿用
+基础 Compose 的 `127.0.0.1:8080` 绑定。前者保存快照、账本与 worker 心跳，后者保存行情
+缓存和流水线留痕。停止容器不会删除宿主机真实数据；不要对这条真实目录使用
 `docker compose down -v` 作为清理手段。
 
 未配置佣金时，真实数据仍可用于状态、候选、研究卡和证据等只读接口；

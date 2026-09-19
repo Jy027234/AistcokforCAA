@@ -231,6 +231,11 @@ python tools\promote_snapshot.py `
 “下次快照会自动产生”当作已验证事实。`--once` / `--now` 是短进程，不覆盖长驻
 worker 的心跳。
 
+真实 Docker 试运行时，worker 由 `docker-compose.real.yml` 作为第二个服务启动，与 API
+处在同一 Linux 环境。此时必须停用宿主 Windows 计划任务；两个操作系统同时打开 bind
+mount 中的 SQLite WAL 已实测会触发 `disk I/O error`。停止 Compose 后再恢复 Windows
+任务，具体命令见 README 的真实试运行步骤。
+
 工作台人工点选时会按 `decision_snapshot_id` 重新读取 S1 候选，而不是沿用当前或执行快照的
 候选列表。预览接口只接受该候选集的子集；确认令牌仍绑定完整预览哈希，冻结成功后再把模型
 原方案、人工最终方案及差异写入决策日志。

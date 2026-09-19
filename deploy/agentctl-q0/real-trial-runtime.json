@@ -1,0 +1,59 @@
+{
+  "ran_at": "2026-09-19T13:56:20.9294140Z",
+  "topology": "docker-compose-real",
+  "current_snapshot": "snap-eod-2026-09-18-longcal-20260919",
+  "data_ready": true,
+  "trial_ready": false,
+  "api": {
+    "running": true,
+    "health": "healthy",
+    "bind": "127.0.0.1:8080"
+  },
+  "scheduler": {
+    "running": true,
+    "health": "healthy",
+    "heartbeat": {
+      "running": true,
+      "status": "RUNNING",
+      "workerId": "scheduler-890dc10e",
+      "pid": 1,
+      "startedAt": "2026-09-19T21:54:18.490066+08:00",
+      "heartbeatAt": "2026-09-19T21:56:18.594922+08:00",
+      "ageSeconds": 0.4,
+      "staleAfterSeconds": 90.0,
+      "detail": "worker 心跳正常（0.4 秒前）"
+    },
+    "dispatch_verification": {
+      "requestId": "run_324dee84e90642ae",
+      "source": "manual",
+      "tradingDay": "2026-09-19",
+      "snapshotId": "pending",
+      "outcome": "SKIPPED",
+      "reason": "目标日 2026-09-19 没有新行情（休市或数据未更新），缓存实际末日 2026-09-18",
+      "exitCode": 0,
+      "startedAt": "2026-09-19T21:55:58.831965+08:00",
+      "finishedAt": "2026-09-19T21:56:03.557051+08:00",
+      "durationSeconds": 4.7,
+      "steps": [
+        {
+          "step": "采集行情",
+          "ok": true,
+          "seconds": 4.0
+        }
+      ]
+    }
+  },
+  "windows_scheduler_task": {
+    "state": "Disabled",
+    "enabled": false,
+    "reason": "disabled while Compose owns the shared SQLite runtime"
+  },
+  "sqlite_integrity": "ok",
+  "blocking_codes": [
+    "DECISION_EXECUTION_PAIR_MISSING",
+    "FEE_VERSION_UNVERIFIED"
+  ],
+  "warning_codes": [
+    "ALERT_WEBHOOK_UNCONFIGURED"
+  ]
+}

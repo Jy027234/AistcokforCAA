@@ -10,4 +10,39 @@ services:
         target: /data
         bind:
           create_host_path: false
-
+  scheduler:
+    image: aquant-lab:local
+    command:
+      - python
+      - tools/scheduler_worker.py
+      - --data-dir
+      - /data
+      - --interpreter
+      - /usr/local/bin/python
+    depends_on:
+      aquant:
+        condition: service_healthy
+    environment:
+      AQUANT_DATA_DIR: /data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import sys; from aquant.operations.scheduler import worker_liveness; sys.exit(0 if worker_liveness('/data')['running'] else 1)"
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    volumes:
+      - type: bind
+        source: ${AQUANT_HOST_DATA_DIR:?请在 real-trial.env 中设置 AQUANT_HOST_DATA_DIR}
+        target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AQUANT_HOST_PIPELINE_DIR:?请在 real-trial.env 中设置 AQUANT_HOST_PIPELINE_DIR}
+        target: /app/deploy/agentctl-q0
+        bind:
+          create_host_path: false
+    restart: unless-stopped

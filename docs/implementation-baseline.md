@@ -382,12 +382,14 @@ ADR-011/012/013 也未被它引用。
    独立长交易日历，行情窗口无需扩张；严格生产发布要求至少覆盖 120 个交易日。
    旧快照仍按其冻结的短日历如实记「不足以判定」，不会被事后改写。
 
-调度 worker 的本机运维缺口已于 2026-09-19 关闭：Windows 任务
-`AQuant Scheduler Worker` 已注册为登录时启动并处于 `Running`，使用项目配置的
-解释器和 `deploy/universe-snapshot`；另有每 5 分钟一次的恢复触发器，worker
-存活时由 `IgnoreNew` 忽略，异常退出时自动拉起，不会改变产品内配置的采集时间。
-这是本机状态；部署到其他机器时仍须按
-`docs/daily-pipeline.md` 重建对应的系统任务。
+调度 worker 的本机运维缺口已于 2026-09-19 关闭。真实试运行当前由
+`docker-compose.real.yml` 同时运行 API 与独立 scheduler，二者在同一 Linux 环境访问
+共享 SQLite；API 通过数据目录中的 `scheduler-worker.json` 心跳核验 worker 活性。
+Windows 任务 `AQuant Scheduler Worker` 仍保留为非容器运行方式，但 Compose 运行期间已
+停用，避免 Windows 与 Linux 同时打开同一个 WAL 文件（该组合已实测触发
+`disk I/O error`）。当前两个容器均为 healthy，库完整性检查为 `ok`，证据见
+`deploy/agentctl-q0/real-trial-runtime.json`。部署到其他机器时须按
+`docs/daily-pipeline.md` 选择唯一运行所有者。
 
 ### 8.7 因子从来没有落过库，以及"配置写着却不生效"的第二例
 
