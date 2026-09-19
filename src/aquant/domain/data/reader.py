@@ -51,6 +51,8 @@ class QuoteRow:
     high_cents: int
     low_cents: int
     close_cents: int
+    #: 前复权收盘价只用于收益/动量研究；成交模拟仍使用上面的原始价格。
+    adjusted_close_cents: int | None
     volume_shares: int
     #: 成交额。免费源不提供成交额（腾讯日线只有量，没有额），
     #: 缺失时如实为 None，**不得用 价格×成交量 之类的方式补造**。
@@ -171,6 +173,7 @@ class SnapshotReader:
                 instrument_id=q["instrument_id"], trading_day=day,
                 open_cents=q["open_cents"], high_cents=q["high_cents"],
                 low_cents=q["low_cents"], close_cents=q["close_cents"],
+                adjusted_close_cents=q.get("adjusted_close_cents"),
                 volume_shares=q["volume_shares"],
                 amount_cents=q.get("amount_cents"),
                 prev_close_cents=q.get("prev_close_cents"),

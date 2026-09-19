@@ -114,8 +114,12 @@ def test_main_appends_tail_without_refetching_existing_rows(
         "2026-09-01", "2026-09-02", "2026-09-03"
     ]
     assert [row["prev_close_cents"] for row in entry["rows"]] == [90, 100, 110]
+    assert entry["rows"][-1]["adjusted_close_cents"] == 120
     security_calls = [call for call in calls if call[0] == "sh.600001"]
-    assert security_calls == [("sh.600001", "2026-09-03", "2026-09-03")]
+    assert security_calls == [
+        ("sh.600001", "2026-09-03", "2026-09-03"),
+        ("sh.600001", "2026-09-03", "2026-09-03"),
+    ]
 
     # 同一窗口再次运行时，已有尾部覆盖足够，不能重复请求证券日线。
     calls.clear()
@@ -156,10 +160,14 @@ def test_format_change_rebuilds_requested_window(
     assert collector.main() == 0
 
     security_calls = [call for call in calls if call[0] == "sh.600001"]
-    assert security_calls == [("sh.600001", "2026-08-22", "2026-09-03")]
+    assert security_calls == [
+        ("sh.600001", "2026-08-22", "2026-09-03"),
+        ("sh.600001", "2026-08-22", "2026-09-03"),
+    ]
     payload = json.loads(out.read_text(encoding="utf-8"))
     entry = payload["bars"]["SH.600001"]
     assert entry["rows_format"] == collector.ROWS_FORMAT
     assert [row["trading_day"] for row in entry["rows"]] == [
         "2026-09-03"
     ]
+    assert entry["rows"][0]["adjusted_close_cents"] == 120

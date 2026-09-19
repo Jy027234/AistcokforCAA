@@ -123,3 +123,50 @@ def test_card_is_archived_once_per_day(ctx):
     assert first["cardId"] == second["cardId"]
     assert first["generatedAt"] == second["generatedAt"]
     assert SNAPSHOT_ID in first["cardId"]
+
+
+def test_evidence_after_snapshot_as_of_is_excluded(ctx):
+    """晚于当前快照时点可得的材料不得进入历史研究卡。"""
+
+    client, con = ctx
+    _seed(con)
+    record_evidence(
+        con, instrument_id=INSTRUMENT, source_id="synthetic-fixture",
+        source_url="http://example.invalid/late.PDF", source_title="晚到公告",
+        source_text="这份公告在快照之后才可见", available_at=datetime(
+            2026, 9, 11, 13, 0, tzinfo=timezone.utc),
+        fact_summary="晚到证据不应进入卡片", verification_status="VERIFIED",
+        extra={"citations": ["这份公告在快照之后才可见"]})
+
+    body = card(client)
+    assert all(item.get("statement") != "晚到证据不应进入卡片"
+               for item in body["evidence"])
+    assert all(datetime.fromisoformat(item["availableAt"]) <= datetime(
+        2026, 9, 11, 12, 30, tzinfo=timezone.utc)
+               for item in body["evidence"])
+
+
+def test_archived_card_returns_complete_first_payload_after_new_evidence(ctx):
+    """卡片首次展示后，后到证据不得改变完整 API 响应。"""
+
+    client, con = ctx
+    _seed(con)
+    first = card(client)
+
+    record_evidence(
+        con, instrument_id=INSTRUMENT, source_id="synthetic-fixture",
+        source_url="http://example.invalid/additional.PDF", source_title="补充公告",
+        source_text="补充公告在首次打开之后到达", available_at=datetime(
+            2026, 9, 10, 15, 0, tzinfo=timezone.utc),
+        fact_summary="首次打开后的新增证据", verification_status="VERIFIED",
+        extra={"citations": ["补充公告在首次打开之后到达"]})
+
+    second = card(client)
+    assert second == first
+    payload_row = con.execute(
+        "SELECT payload_json,payload_hash FROM research_card_payload WHERE card_id=?",
+        (first["cardId"],),
+    ).fetchone()
+    assert payload_row is not None
+    assert payload_row["payload_json"]
+    assert payload_row["payload_hash"].startswith("sha256:")

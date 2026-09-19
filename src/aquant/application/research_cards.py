@@ -17,10 +17,17 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 from datetime import date, datetime, timezone
 
 from aquant.domain.data.db import write_tx
+
+
+def _payload_json(payload: dict) -> str:
+    """用稳定编码保存完整 API 响应，便于哈希校验和复现。"""
+
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 def research_card_id(instrument_id: str, snapshot_id: str, trading_day: date) -> str:
@@ -50,7 +57,25 @@ def persist_card(con: sqlite3.Connection, *, snapshot_id: str, trading_day: date
     card_id = research_card_id(instrument_id, snapshot_id, trading_day)
 
     existing = get_card(con, card_id)
+    generated_at = (existing["generated_at"] if existing is not None
+                    else card.get("generatedAt")
+                    or datetime.now(timezone.utc).isoformat())
+    payload = dict(card)
+    payload["cardId"] = card_id
+    payload["generatedAt"] = generated_at
+    payload_json = _payload_json(payload)
+    payload_hash = "sha256:" + hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+
     if existing is not None:
+        # 迁移前的卡片没有完整 payload。第一次在新版本读取时把当前可重建
+        # 的完整响应冻结下来；之后所有请求都只读这一份，不再随新证据变化。
+        with write_tx(con):
+            con.execute(
+                "INSERT OR IGNORE INTO research_card_payload "
+                "(card_id,payload_json,payload_hash,persisted_at) VALUES (?,?,?,?)",
+                (card_id, payload_json, payload_hash,
+                 datetime.now(timezone.utc).isoformat()),
+            )
         return existing
 
     numeric = {
@@ -62,13 +87,13 @@ def persist_card(con: sqlite3.Connection, *, snapshot_id: str, trading_day: date
         "tradability": card.get("tradability"),
     }
     with write_tx(con):
-        con.execute(
+        inserted = con.execute(
             "INSERT OR IGNORE INTO research_card (card_id,research_run_id,snapshot_id,"
             "instrument_id,generated_at,data_mode,quality_label,numeric_json,"
             "evidence_json,counter_evidence_json,uncertainty_json,limitations_json) "
             "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (card_id, research_run_id, snapshot_id, instrument_id,
-             card.get("generatedAt") or datetime.now(timezone.utc).isoformat(),
+             generated_at,
              # 数据模式由调用方从**快照**读出后传入：合成数据必须一直带着
              # 这个标记，不能因为调用方忘了传就默认为真实数据
              data_mode,
@@ -79,6 +104,16 @@ def persist_card(con: sqlite3.Connection, *, snapshot_id: str, trading_day: date
              json.dumps(card.get("uncertainties") or [], ensure_ascii=False),
              json.dumps(card.get("limitations") or [], ensure_ascii=False)),
         )
+        # Only the transaction that inserted the card may create its payload.
+        # This keeps a concurrent first request from having its response replaced
+        # by a second request that observed the same card identity.
+        if inserted.rowcount:
+            con.execute(
+                "INSERT OR IGNORE INTO research_card_payload "
+                "(card_id,payload_json,payload_hash,persisted_at) VALUES (?,?,?,?)",
+                (card_id, payload_json, payload_hash,
+                 datetime.now(timezone.utc).isoformat()),
+            )
     stored = get_card(con, card_id)
     assert stored is not None, "写入后必须能读回；读不到说明列名或事务有问题"
     return stored
@@ -87,6 +122,29 @@ def persist_card(con: sqlite3.Connection, *, snapshot_id: str, trading_day: date
 def get_card(con: sqlite3.Connection, card_id: str) -> dict | None:
     row = con.execute("SELECT * FROM research_card WHERE card_id=?", (card_id,)).fetchone()
     return _to_dict(row) if row is not None else None
+
+
+def get_card_payload(con: sqlite3.Connection, card_id: str) -> dict | None:
+    """读取首次展示时保存的完整 camelCase 卡片响应。
+
+    校验 payload_hash 是为了让历史读取在 payload 被手工改动时显式失败，
+    而不是静默返回一份无法证明来源的卡片。
+    """
+
+    row = con.execute(
+        "SELECT payload_json,payload_hash FROM research_card_payload WHERE card_id=?",
+        (card_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    payload_json = row["payload_json"]
+    expected = "sha256:" + hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
+    if expected != row["payload_hash"]:
+        raise ValueError(f"research card payload hash mismatch: {card_id}")
+    payload = json.loads(payload_json)
+    if not isinstance(payload, dict):
+        raise ValueError(f"research card payload is not an object: {card_id}")
+    return payload
 
 
 def research_cards(con: sqlite3.Connection, *, instrument_id: str | None = None,

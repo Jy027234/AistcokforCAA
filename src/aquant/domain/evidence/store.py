@@ -200,9 +200,39 @@ def record_evidence(con: sqlite3.Connection, *,
     return bundle
 
 
+def _available_at_is_before(value: str | None, as_of: datetime) -> bool:
+    """判断证据是否在 PIT 截止时点已经可得。
+
+    证据表中的时间是带时区的 ISO 字符串，但历史库里可能存在 ``Z`` 或
+    不同偏移量。先解析成 aware datetime 再比较，避免直接比较字符串时把
+    不同偏移量误当成不同的时间先后。无法解析的时间不能证明在截止点前，
+    因此安全地排除。
+    """
+
+    if not value:
+        return False
+    try:
+        available = datetime.fromisoformat(value)
+    except ValueError:
+        return False
+    if available.tzinfo is None or as_of.tzinfo is None:
+        return False
+    return available <= as_of
+
+
 def evidence_for(con: sqlite3.Connection, *, instrument_id: str,
-                 located_only: bool = False) -> list[dict]:
-    """某只标的已落库的证据与引用。located_only 用于只取可定位的。"""
+                 located_only: bool = False,
+                 as_of: datetime | None = None) -> list[dict]:
+    """某只标的已落库的证据与引用。
+
+    ``as_of`` 是研究快照的时间点；传入时只返回
+    ``available_at <= as_of`` 的证据。缺省仍保留历史调用方的"全部已落库
+    证据"语义，但研究卡与 API 读取路径必须传入快照时点，避免晚到材料
+    反向进入历史判断。
+    """
+
+    if as_of is not None and as_of.tzinfo is None:
+        raise ValueError("as_of must be timezone-aware")
 
     rows = con.execute(
         "SELECT e.event_id,e.event_category,e.fact_summary,e.available_at,"
@@ -217,6 +247,8 @@ def evidence_for(con: sqlite3.Connection, *, instrument_id: str,
         (instrument_id,)).fetchall()
     out = []
     for r in rows:
+        if as_of is not None and not _available_at_is_before(r["available_at"], as_of):
+            continue
         if located_only and not r["located"]:
             continue
         out.append({

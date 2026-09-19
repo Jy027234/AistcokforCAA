@@ -106,7 +106,7 @@ def test_run_log_path_does_not_re_resolve_the_data_dir(isolated):
     assert (data / "meta.sqlite").exists()
 
 
-def test_status_follows_current_snapshot_pointer_without_restart(isolated, monkeypatch):
+def test_status_follows_current_snapshot_pointer_without_restart(isolated):
     """发布新物理快照后，下一次请求应读取新指针而无需重启 API。"""
 
     client, state, data = isolated
@@ -120,15 +120,9 @@ def test_status_follows_current_snapshot_pointer_without_restart(isolated, monke
     build_snapshot(state.con, builder, state.store, snapshot_id=next_snapshot)
     write_current_pointer(data, next_snapshot)
 
-    # 非默认 ID 走与真实快照相同的费率配置闸门；这里显式提供测试费率，
-    # 先确认被闸门拒绝时不会留下“ID 已切、服务未切”的半更新状态。
-    rejected = client.get("/api/v1/status", headers=USER)
-    assert rejected.status_code == 422, rejected.text
+    # 指针变化前内存状态保持旧值；只读请求会完整切换。费率未配置不应
+    # 阻断状态/研究读取，真实快照的模拟入口会单独拒绝占位费率。
     assert state.snapshot_id == previous_snapshot
-
-    # 再提供费率，验证同一进程可在下一次请求完整切换。
-    monkeypatch.setenv("AQUANT_COMMISSION_RATE", "0.00025")
-    monkeypatch.setenv("AQUANT_COMMISSION_MIN_CENTS", "500")
 
     response = client.get("/api/v1/status", headers=USER)
     assert response.status_code == 200, response.text

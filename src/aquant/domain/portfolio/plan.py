@@ -25,8 +25,9 @@ import secrets
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from ..data.db import write_tx
 from ..data.reader import SnapshotReader, QuoteRow
@@ -58,6 +59,10 @@ from ..simulation.simulator import (
 PLAN_STATUSES = ("DRAFT", "PREVIEWED", "FROZEN", "EXECUTING", "EXECUTED",
                  "CANCELLED", "EXPIRED", "SUPERSEDED")
 
+_MARKET_TZ = ZoneInfo("Asia/Shanghai")
+_A_SHARE_OPEN = time(9, 30)
+_A_SHARE_CLOSE = time(15, 0)
+
 
 class PlanError(Exception):
     def __init__(self, code: str, message: str, object_id: str, repair_action: str) -> None:
@@ -77,6 +82,33 @@ def _iso(dt: datetime) -> str:
         raise PlanError("DATA_NOT_READY", "naive datetime rejected (§7.1)", "<timestamp>",
                         "store timezone-aware UTC")
     return dt.astimezone(timezone.utc).isoformat()
+
+
+def _market_datetime(day: date, at: time) -> datetime:
+    """Return a timezone-aware A-share market boundary for ``day``."""
+
+    return datetime.combine(day, at, tzinfo=_MARKET_TZ)
+
+
+def _is_before_execution_open(cutoff: datetime, trading_day: date) -> bool:
+    """Whether a decision cutoff is before the execution day's open.
+
+    The comparison is deliberately made in Asia/Shanghai: the trading day is a
+    local market date, while snapshot timestamps are stored as aware datetimes.
+    """
+
+    if cutoff.tzinfo is None or cutoff.utcoffset() is None:
+        return False
+    return cutoff.astimezone(_MARKET_TZ) < _market_datetime(trading_day, _A_SHARE_OPEN)
+
+
+def _is_execution_day_close(cutoff: datetime, trading_day: date) -> bool:
+    """执行快照必须属于交易日本日且不早于收盘，不能用未来快照回填。"""
+
+    if cutoff.tzinfo is None or cutoff.utcoffset() is None:
+        return False
+    local = cutoff.astimezone(_MARKET_TZ)
+    return local.date() == trading_day and local.time() >= _A_SHARE_CLOSE
 
 
 def _account_version(lots: list[Lot], cash_cents: int) -> str:
@@ -103,11 +135,19 @@ def _account_version(lots: list[Lot], cash_cents: int) -> str:
 
 
 def _plan_version(
-    targets: list[TargetWeight], snapshot_id: str, trading_day: date, orders: list[dict]
+    targets: list[TargetWeight], snapshot_id: str, trading_day: date, orders: list[dict],
+    *, decision_cutoff_at: datetime | None = None,
+    execution_snapshot_id: str | None = None,
+    execution_cutoff_at: datetime | None = None,
 ) -> str:
     payload = json.dumps(
         {
             "snapshot": snapshot_id,
+            "decision_cutoff_at": (_iso(decision_cutoff_at)
+                                   if decision_cutoff_at is not None else None),
+            "execution_snapshot": execution_snapshot_id,
+            "execution_cutoff_at": (_iso(execution_cutoff_at)
+                                    if execution_cutoff_at is not None else None),
             "trading_day": trading_day.isoformat(),
             "targets": sorted([t.instrument_id, str(t.weight_pct)] for t in targets),
             "orders": sorted(
@@ -128,6 +168,9 @@ def _plan_version(
 class PlanPreview:
     plan_id: str
     portfolio_id: str
+    # ``snapshot_id`` remains the public/backward-compatible name for the
+    # decision snapshot.  The explicit fields below are persisted at freeze so
+    # execution can never silently switch to the current pointer.
     snapshot_id: str
     plan_version: str
     account_version: str
@@ -145,12 +188,37 @@ class PlanPreview:
     #: 明确告知调用方：预览不冻结、不产生成交（A08）
     frozen: bool = False
     notes: list[str] = field(default_factory=list)
+    decision_snapshot_id: str | None = None
+    decision_cutoff_at: datetime | None = None
+    execution_snapshot_id: str | None = None
+    execution_cutoff_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        """Normalize the old ``snapshot_id`` call shape.
+
+        Existing callers construct previews with one snapshot.  Treat that as
+        an explicit decision/execution binding for synthetic and legacy flows;
+        new callers can provide separate IDs and cutoffs.  Freeze still writes
+        the normalized binding, so a later execute never consults process-local
+        preview state.
+        """
+
+        if self.decision_snapshot_id is None:
+            self.decision_snapshot_id = self.snapshot_id
+        if self.execution_snapshot_id is None:
+            self.execution_snapshot_id = self.snapshot_id
 
     def as_dict(self) -> dict:
         return {
             "plan_id": self.plan_id,
             "portfolio_id": self.portfolio_id,
             "snapshot_id": self.snapshot_id,
+            "decision_snapshot_id": self.decision_snapshot_id,
+            "decision_cutoff_at": (_iso(self.decision_cutoff_at)
+                                    if self.decision_cutoff_at is not None else None),
+            "execution_snapshot_id": self.execution_snapshot_id,
+            "execution_cutoff_at": (_iso(self.execution_cutoff_at)
+                                     if self.execution_cutoff_at is not None else None),
             "plan_version": self.plan_version,
             "account_version": self.account_version,
             "trading_day": self.trading_day.isoformat(),
@@ -200,6 +268,99 @@ class PlanService:
         return self.con.execute(
             "SELECT * FROM simulation_plan WHERE plan_id=?", (plan_id,)
         ).fetchone()
+
+    def _snapshot_binding(self, preview: PlanPreview) -> dict[str, str]:
+        """Return the explicit snapshot/cutoff values carried by a preview.
+
+        The old preview shape only had ``snapshot_id`` and ``as_of``.  Resolve
+        missing cutoff fields from the immutable snapshot manifest so a direct
+        domain caller remains compatible while a frozen plan still gets a
+        complete durable binding.
+        """
+
+        decision_id = preview.decision_snapshot_id or preview.snapshot_id
+        execution_id = preview.execution_snapshot_id or decision_id
+        if decision_id != preview.snapshot_id:
+            raise PlanError(
+                "PIT_UNVERIFIED",
+                "preview snapshot_id disagrees with decision_snapshot_id",
+                preview.plan_id,
+                "rebuild the preview with one decision snapshot ID",
+            )
+        decision_ref = self.reader.ref(decision_id)
+        execution_ref = self.reader.ref(execution_id)
+        decision_cutoff = preview.decision_cutoff_at or decision_ref.as_of_time
+        execution_cutoff = preview.execution_cutoff_at or execution_ref.as_of_time
+        if decision_cutoff != decision_ref.as_of_time:
+            raise PlanError(
+                "PIT_UNVERIFIED",
+                "preview decision cutoff does not equal its snapshot as_of_time",
+                decision_id,
+                "use the exact cutoff recorded by the decision snapshot",
+            )
+        if execution_cutoff != execution_ref.as_of_time:
+            raise PlanError(
+                "PIT_UNVERIFIED",
+                "preview execution cutoff does not equal its snapshot as_of_time",
+                execution_id,
+                "use the exact cutoff recorded by the execution snapshot",
+            )
+        return {
+            "decision_snapshot_id": decision_id,
+            "decision_cutoff_at": _iso(decision_cutoff),
+            "execution_snapshot_id": execution_id,
+            "execution_cutoff_at": _iso(execution_cutoff),
+        }
+
+    def _load_snapshot_binding(self, plan_id: str, plan_row: sqlite3.Row) -> sqlite3.Row:
+        """Load and verify the immutable binding for an executable plan."""
+
+        try:
+            binding = self.con.execute(
+                "SELECT * FROM plan_snapshot_binding WHERE plan_id=?", (plan_id,)
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            raise PlanError(
+                "DATA_NOT_READY",
+                "plan snapshot binding table is unavailable",
+                plan_id,
+                "apply the plan snapshot binding migration before executing plans",
+            ) from exc
+        if binding is None:
+            raise PlanError(
+                "DATA_NOT_READY",
+                "frozen plan has no decision/execution snapshot binding",
+                plan_id,
+                "freeze a new plan after applying the snapshot binding migration",
+            )
+        if binding["decision_snapshot_id"] != plan_row["snapshot_id"]:
+            raise PlanError(
+                "DATA_NOT_READY",
+                "plan decision snapshot does not match its durable plan snapshot",
+                plan_id,
+                "create a new plan with consistent persisted snapshot bindings",
+            )
+        try:
+            decision_ref = self.reader.ref(binding["decision_snapshot_id"])
+            execution_ref = self.reader.ref(binding["execution_snapshot_id"])
+            decision_cutoff = datetime.fromisoformat(binding["decision_cutoff_at"])
+            execution_cutoff = datetime.fromisoformat(binding["execution_cutoff_at"])
+        except (SnapshotError, TypeError, ValueError) as exc:
+            raise PlanError(
+                "DATA_NOT_READY",
+                "frozen plan references an unreadable decision or execution snapshot",
+                plan_id,
+                "publish both snapshots and freeze a new plan",
+            ) from exc
+        if (decision_cutoff != decision_ref.as_of_time or
+                execution_cutoff != execution_ref.as_of_time):
+            raise PlanError(
+                "PIT_UNVERIFIED",
+                "snapshot binding cutoff no longer matches its immutable snapshot",
+                plan_id,
+                "repair the binding by creating a new frozen plan",
+            )
+        return binding
 
     def _assert_fee_table_allowed(self, snapshot_id: str, trading_day: date,
                                   *, fee_table: FeeTable | None = None) -> None:
@@ -504,17 +665,93 @@ class PlanService:
         cash_available_cents: int,
         lots: list[Lot],
         confirm_subject: str,
+        decision_snapshot_id: str | None = None,
+        decision_cutoff_at: datetime | None = None,
+        execution_snapshot_id: str | None = None,
     ) -> PlanPreview:
         """只算不冻。不写 simulation_plan，不写账本（A08）。"""
 
-        self._assert_fee_table_allowed(snapshot_id, trading_day)
+        # ``snapshot_id`` is the old name for the decision snapshot.  Keep it
+        # as an alias, but make the two roles explicit before any data read.
+        decision_id = decision_snapshot_id or snapshot_id
+        if decision_id != snapshot_id:
+            raise PlanError(
+                "PIT_UNVERIFIED",
+                "snapshot_id and decision_snapshot_id refer to different snapshots",
+                portfolio_id,
+                "pass the same decision snapshot ID through the legacy and explicit fields",
+            )
+        decision_ref = self.reader.ref(decision_id)
+        decision_cutoff = decision_cutoff_at or as_of
+        if decision_cutoff != decision_ref.as_of_time:
+            raise PlanError(
+                "PIT_UNVERIFIED",
+                f"decision cutoff {decision_cutoff.isoformat()} does not equal "
+                f"snapshot {decision_id} as_of_time {decision_ref.as_of_time.isoformat()}",
+                decision_id,
+                "use the snapshot whose as_of_time is exactly the decision cutoff",
+            )
+
+        # An old one-snapshot synthetic call remains usable for existing local
+        # demos.  New callers that opt into explicit timing must prove that the
+        # decision was made before the execution day's open and that the
+        # execution snapshot was captured after that day's close.
+        legacy_single_snapshot = (
+            decision_snapshot_id is None
+            and decision_cutoff_at is None
+            and execution_snapshot_id is None
+        )
+        execution_id = execution_snapshot_id or decision_id
+        execution_ref = self.reader.ref(execution_id)
+        if execution_ref.data_mode != decision_ref.data_mode:
+            raise PlanError(
+                "PIT_UNVERIFIED",
+                "decision and execution snapshots use different data modes",
+                execution_id,
+                "bind both sides to snapshots from the same data provenance",
+            )
+        if decision_ref.data_mode != "SYNTHETIC" and execution_id == decision_id:
+            raise PlanError(
+                "DATA_NOT_READY",
+                "production plans require distinct decision and execution snapshots",
+                decision_id,
+                "publish and pass a pre-open decision snapshot plus an execution snapshot",
+            )
+        if legacy_single_snapshot and decision_ref.data_mode != "SYNTHETIC":
+            raise PlanError(
+                "DATA_NOT_READY",
+                "production plans require decision_snapshot_id, decision_cutoff_at, "
+                "and execution_snapshot_id",
+                decision_id,
+                "pass separate decision and execution snapshots; single-snapshot mode "
+                "is only available for synthetic demos",
+            )
+        if not legacy_single_snapshot:
+            if not _is_before_execution_open(decision_cutoff, trading_day):
+                raise PlanError(
+                    "PIT_UNVERIFIED",
+                    f"decision cutoff {decision_cutoff.isoformat()} is not before "
+                    f"the {trading_day.isoformat()} execution open",
+                    decision_id,
+                    "use an EOD or pre-open decision snapshot",
+                )
+            if not _is_execution_day_close(execution_ref.as_of_time, trading_day):
+                raise PlanError(
+                    "DATA_NOT_READY",
+                    f"execution snapshot {execution_id} is not an end-of-day snapshot "
+                    f"for {trading_day.isoformat()}",
+                    execution_id,
+                    "publish the execution-day EOD snapshot; do not use a later snapshot",
+                )
+
+        self._assert_fee_table_allowed(decision_id, trading_day)
         if not confirm_subject or not confirm_subject.strip():
             raise PlanError("DATA_NOT_READY", "confirm_subject is required for a plan",
                             portfolio_id, "identify the human confirming the plan")
 
         ids = sorted({c.instrument_id for c in candidates}
                      | {l.instrument_id for l in lots if l.quantity_remaining > 0})
-        bars = self._reference_bars(snapshot_id, trading_day, as_of, ids)
+        bars = self._reference_bars(decision_id, trading_day, decision_cutoff, ids)
         held_qty: dict[str, int] = {}
         held_industry_value: dict[str, int] = {}
         for l in lots:
@@ -533,13 +770,13 @@ class PlanService:
         # 配置里写着阈值却不生效，比没有这个配置更糟——使用者会以为
         # 组合已经按流动性筛过了。
         liquid, liquidity_excluded = self._filter_by_liquidity(
-            snapshot_id=snapshot_id, trading_day=trading_day, as_of=as_of,
+            snapshot_id=decision_id, trading_day=trading_day, as_of=decision_cutoff,
             candidates=candidates,
         )
         # 上市天数门槛同理：construct_targets 拿不到交易日历，
         # 而用自然日近似会静默放宽门槛（§3.1）。
         aged, listing_excluded, listing_notes = self._filter_by_listing_age(
-            snapshot_id=snapshot_id, trading_day=trading_day, as_of=as_of,
+            snapshot_id=decision_id, trading_day=trading_day, as_of=decision_cutoff,
             candidates=liquid,
         )
         construction = construct_targets(
@@ -626,8 +863,13 @@ class PlanService:
         plan_id = "plan_" + uuid.uuid4().hex[:20]
         reference_days = [b.trading_day for b in bars.values()]
         return PlanPreview(
-            plan_id=plan_id, portfolio_id=portfolio_id, snapshot_id=snapshot_id,
-            plan_version=_plan_version(construction.targets, snapshot_id, trading_day, orders),
+            plan_id=plan_id, portfolio_id=portfolio_id, snapshot_id=decision_id,
+            plan_version=_plan_version(
+                construction.targets, decision_id, trading_day, orders,
+                decision_cutoff_at=decision_cutoff,
+                execution_snapshot_id=execution_id,
+                execution_cutoff_at=execution_ref.as_of_time,
+            ),
             account_version=_account_version(lots, cash_available_cents),
             trading_day=trading_day,
             reference_price_day=max(reference_days) if reference_days else None,
@@ -636,6 +878,10 @@ class PlanService:
             excluded=construction.excluded, cash_weight_pct=construction.cash_weight_pct,
             cash_after_cents=cash_after_cents,
             frozen=False, notes=construction.notes,
+            decision_snapshot_id=decision_id,
+            decision_cutoff_at=decision_cutoff,
+            execution_snapshot_id=execution_id,
+            execution_cutoff_at=execution_ref.as_of_time,
         )
 
     def _load_lots(self, portfolio_id: str) -> list[Lot]:
@@ -782,7 +1028,10 @@ class PlanService:
                             preview.plan_id, "re-preview against the current account state")
 
         expected_plan_version = _plan_version(
-            preview.targets, preview.snapshot_id, preview.trading_day, preview.orders
+            preview.targets, preview.snapshot_id, preview.trading_day, preview.orders,
+            decision_cutoff_at=preview.decision_cutoff_at,
+            execution_snapshot_id=preview.execution_snapshot_id,
+            execution_cutoff_at=preview.execution_cutoff_at,
         )
         if expected_plan_version != preview.plan_version:
             raise PlanError("STALE_SNAPSHOT", "preview contents changed after calculation",
@@ -860,11 +1109,15 @@ class PlanService:
                             preview.plan_id, "obtain a fresh confirmation token from the UI")
 
         current_plan_version = _plan_version(
-            preview.targets, preview.snapshot_id, preview.trading_day, preview.orders
+            preview.targets, preview.snapshot_id, preview.trading_day, preview.orders,
+            decision_cutoff_at=preview.decision_cutoff_at,
+            execution_snapshot_id=preview.execution_snapshot_id,
+            execution_cutoff_at=preview.execution_cutoff_at,
         )
         if current_plan_version != preview.plan_version:
             raise PlanError("STALE_SNAPSHOT", "preview contents changed after confirmation",
                             preview.plan_id, "calculate and confirm a new preview")
+        snapshot_binding = self._snapshot_binding(preview)
 
         expires_at = now + ttl
         idempotency_key = f"freeze|{preview.portfolio_id}|{preview.plan_version}|{preview.account_version}"
@@ -916,6 +1169,16 @@ class PlanService:
                      preview.estimated_fees_cents, idempotency_key),
                 )
                 self._persist_plan_fee_binding(preview.plan_id, preview.trading_day)
+                self.con.execute(
+                    "INSERT INTO plan_snapshot_binding ("
+                    "plan_id,decision_snapshot_id,decision_cutoff_at,"
+                    "execution_snapshot_id,execution_cutoff_at,created_at) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (preview.plan_id, snapshot_binding["decision_snapshot_id"],
+                     snapshot_binding["decision_cutoff_at"],
+                     snapshot_binding["execution_snapshot_id"],
+                     snapshot_binding["execution_cutoff_at"], _iso(now)),
+                )
             except sqlite3.IntegrityError as exc:
                 # 幂等键（组合 + 计划版本 + 账户版本）已存在。
                 #
@@ -950,6 +1213,10 @@ class PlanService:
                 return {
                     "plan_id": existing["plan_id"],
                     "status": existing["status"],
+                    "decision_snapshot_id": snapshot_binding["decision_snapshot_id"],
+                    "decision_cutoff_at": snapshot_binding["decision_cutoff_at"],
+                    "execution_snapshot_id": snapshot_binding["execution_snapshot_id"],
+                    "execution_cutoff_at": snapshot_binding["execution_cutoff_at"],
                     "frozen_at": existing["frozen_at"],
                     "expires_at": existing["expires_at"],
                     "confirmed_by": existing["confirmed_by"],
@@ -982,6 +1249,10 @@ class PlanService:
         return {
             "plan_id": preview.plan_id,
             "status": "FROZEN",
+            "decision_snapshot_id": snapshot_binding["decision_snapshot_id"],
+            "decision_cutoff_at": snapshot_binding["decision_cutoff_at"],
+            "execution_snapshot_id": snapshot_binding["execution_snapshot_id"],
+            "execution_cutoff_at": snapshot_binding["execution_cutoff_at"],
             "frozen_at": _iso(now),
             "expires_at": _iso(expires_at),
             "confirmed_by": confirm_subject,
@@ -1049,6 +1320,7 @@ class PlanService:
             raise PlanError("DATA_NOT_READY",
                             f"plan {plan_id} is {row['status']}, not FROZEN", plan_id,
                             "only a frozen plan can execute")
+        snapshot_binding = self._load_snapshot_binding(plan_id, row)
         try:
             preview_doc = json.loads(row["diff_preview_json"])
             trading_day = date.fromisoformat(preview_doc["trading_day"])
@@ -1059,6 +1331,18 @@ class PlanService:
                 plan_id,
                 "create a new preview and freeze a complete plan",
             ) from exc
+        decision_ref = self.reader.ref(snapshot_binding["decision_snapshot_id"])
+        decision_cutoff = datetime.fromisoformat(snapshot_binding["decision_cutoff_at"])
+        execution_cutoff = datetime.fromisoformat(snapshot_binding["execution_cutoff_at"])
+        if decision_ref.data_mode != "SYNTHETIC":
+            if not _is_before_execution_open(decision_cutoff, trading_day):
+                raise PlanError(
+                    "PIT_UNVERIFIED", "persisted decision cutoff is not before execution open",
+                    plan_id, "freeze a new plan with a valid decision snapshot")
+            if not _is_execution_day_close(execution_cutoff, trading_day):
+                raise PlanError(
+                    "PIT_UNVERIFIED", "persisted execution snapshot is not from execution-day close",
+                    plan_id, "freeze a new plan with the execution-day EOD snapshot")
         execution_fees = self._persisted_fee_table(plan_id)
         self._assert_fee_table_allowed(
             row["snapshot_id"], trading_day, fee_table=execution_fees)
@@ -1074,7 +1358,10 @@ class PlanService:
         # These identity fields come from the durable plan row.  The JSON preview
         # is retained as audit evidence, but it is not an authority for which
         # portfolio or snapshot an execute request may touch.
-        snapshot_id = row["snapshot_id"]
+        # ``snapshot_id`` on the legacy plan row is the decision snapshot.
+        # Execution data is always read from the immutable binding instead.
+        snapshot_id = snapshot_binding["decision_snapshot_id"]
+        execution_snapshot_id = snapshot_binding["execution_snapshot_id"]
         portfolio_id = row["portfolio_id"]
         portfolio = self.con.execute(
             "SELECT portfolio_id,status FROM portfolio WHERE portfolio_id=?",
@@ -1094,7 +1381,7 @@ class PlanService:
                 plan_id,
                 "execute only while the referenced portfolio is active",
             )
-        as_of = self.reader.ref(snapshot_id).as_of_time
+        execution_as_of = execution_cutoff
 
         ledger_lots = self._load_lots(portfolio_id)
         ledger_cash = self._ledger_cash(portfolio_id)
@@ -1144,13 +1431,17 @@ class PlanService:
                 "restore the persisted orders or create a new plan",
             )
         ids = sorted({o["instrument_id"] for o in stored})
-        bars = self._bars(snapshot_id, trading_day, as_of, ids)
-        adv = self._adv(snapshot_id, trading_day, as_of, ids)
+        bars = self._bars(execution_snapshot_id, trading_day, execution_as_of, ids)
+        # A missing bar for one instrument can mean a genuine suspension; the
+        # simulator must preserve that no-fill outcome.  Missing/unpublished
+        # execution snapshots are rejected above by ``_load_snapshot_binding``
+        # and ``reader.ref`` rather than guessed from the decision snapshot.
+        adv = self._adv(execution_snapshot_id, trading_day, execution_as_of, ids)
         # 执行可能发生在进程重启或 current 指针前移之后。板块决定涨跌停与
         # 手数，必须从计划冻结的快照恢复，不能沿用 AppState 当前快照的映射。
         snapshot_listings = {
             inst["instrument_id"]: (inst["exchange"], inst["board"])
-            for inst in self.reader.instruments(snapshot_id, as_of=as_of)
+            for inst in self.reader.instruments(execution_snapshot_id, as_of=execution_as_of)
             if inst.get("instrument_id") and inst.get("exchange") and inst.get("board")
         }
 
@@ -1290,6 +1581,10 @@ class PlanService:
             "plan_id": plan_id,
             "status": "EXECUTED",
             "trading_day": trading_day.isoformat(),
+            "decision_snapshot_id": snapshot_binding["decision_snapshot_id"],
+            "decision_cutoff_at": snapshot_binding["decision_cutoff_at"],
+            "execution_snapshot_id": snapshot_binding["execution_snapshot_id"],
+            "execution_cutoff_at": snapshot_binding["execution_cutoff_at"],
             "corporate_actions": dividend_outcomes,
             "fills": [
                 {"fill_id": f.fill_id, "order_id": f.order_id,

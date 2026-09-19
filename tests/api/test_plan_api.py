@@ -66,6 +66,20 @@ def test_status_exposes_snapshot_and_watermark(client):
     assert body["watermark"], "合成数据必须带水印"
 
 
+def test_preview_api_passes_explicit_decision_and_execution_timing(client):
+    """API 不能接收了双快照字段却在调用领域层时悄悄丢掉。"""
+
+    as_of = client.get("/api/v1/status").json()["asOfTime"]
+    response = preview(
+        client,
+        decision_snapshot_id=SNAPSHOT_ID,
+        decision_cutoff_at=as_of,
+        execution_snapshot_id=SNAPSHOT_ID,
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "PIT_UNVERIFIED"
+
+
 def test_research_card_carries_no_probability_field(client):
     """§5.3：不得把排名改写成概率。契约层面断言字段不存在。"""
 

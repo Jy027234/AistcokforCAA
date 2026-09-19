@@ -187,6 +187,7 @@ def _build_document(
                 "high_cents": bar.get("high_cents"),
                 "low_cents": bar.get("low_cents"),
                 "close_cents": bar.get("close_cents"),
+                "adjusted_close_cents": bar.get("adjusted_close_cents"),
                 "volume_shares": bar.get("volume_shares"),
                 "amount_cents": bar.get("amount_cents"),
                 "prev_close_cents": prev,
@@ -202,6 +203,11 @@ def _build_document(
     coverage = with_amount / max(len(quotes), 1)
     _mark(checks, "成交额覆盖率 >= 99%", coverage >= 0.99,
           f"{with_amount}/{len(quotes)}")
+    with_adjusted = sum(
+        1 for q in quotes if q.get("adjusted_close_cents") is not None)
+    adjusted_coverage = with_adjusted / max(len(quotes), 1)
+    _mark(checks, "前复权收盘价覆盖率 >= 99%", adjusted_coverage >= 0.99,
+          f"{with_adjusted}/{len(quotes)}")
     seeded = sum(1 for i in instruments
                  if bars_all.get(i["instrument_id"], {}).get("prev_close_before_window") is not None)
     _mark(checks, "窗口首行前收已从行情补齐", seeded >= len(instruments) * 0.99,

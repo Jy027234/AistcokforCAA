@@ -71,11 +71,11 @@ CANDIDATES = [
 ]
 
 
-def preview(svc, *, cash=100_000_000, lots=None, subject="user:alice"):
+def preview(svc, *, cash=100_000_000, lots=None, subject="user:alice", **over):
     return svc.preview(
         portfolio_id="pf-syn-m", snapshot_id="snap-syn-001", trading_day=TRADING_DAY,
         as_of=AS_OF, candidates=CANDIDATES, cash_available_cents=cash,
-        lots=lots or [], confirm_subject=subject,
+        lots=lots or [], confirm_subject=subject, **over,
     )
 
 
@@ -138,6 +138,53 @@ def test_full_loop_from_snapshot_to_reconciliation(world):
     assert rec["invariants"]["fees_booked_once"] is True
     assert rec["reconciled"] is True
     assert rec["cash_cents"] >= 0, "现金不得透支"
+
+
+def test_freeze_persists_separate_decision_and_execution_snapshot_binding(world):
+    """冻结产物必须把决策时点与成交行情来源一起固化。"""
+
+    con, _reader, svc, _store = world
+    pv = preview(svc)
+    freeze_preview(svc, pv)
+    binding = con.execute(
+        "SELECT decision_snapshot_id,decision_cutoff_at,"
+        "execution_snapshot_id,execution_cutoff_at "
+        "FROM plan_snapshot_binding WHERE plan_id=?",
+        (pv.plan_id,),
+    ).fetchone()
+    assert binding is not None
+    assert binding["decision_snapshot_id"] == pv.snapshot_id
+    assert binding["execution_snapshot_id"] == pv.execution_snapshot_id
+    assert binding["decision_cutoff_at"]
+    assert binding["execution_cutoff_at"]
+
+
+def test_explicit_decision_cutoff_after_execution_open_is_rejected(world):
+    """显式时点链路不得把执行日收盘之后的数据当成盘前输入。"""
+
+    _con, _reader, svc, _store = world
+    with pytest.raises(PlanError, match="not before"):
+        preview(
+            svc,
+            # The fixture is after 2026-09-08's open.  Supplying the explicit
+            # fields opts into strict decision/execution timing validation.
+            decision_snapshot_id="snap-syn-001",
+            decision_cutoff_at=AS_OF,
+            execution_snapshot_id="snap-syn-001",
+        )
+
+
+def test_production_preview_rejects_legacy_single_snapshot(world, monkeypatch):
+    """真实快照不能沿用 decision=execution 的旧兼容路径。"""
+
+    _con, reader, svc, _store = world
+    from dataclasses import replace
+
+    original_ref = reader.ref
+    monkeypatch.setattr(reader, "ref", lambda sid: replace(
+        original_ref(sid), data_mode="PRODUCTION"))
+    with pytest.raises(PlanError, match="distinct decision and execution"):
+        preview(svc)
 
 
 def test_snapshot_is_the_single_source_of_prices(world):

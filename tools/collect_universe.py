@@ -58,7 +58,8 @@ BASIC_ATTEMPTS = 2
 #: （本工具真的这样错过一次：补了前收却没重写首行的 prev_close_cents）。
 #:   v1 -> v2：窗口首行的 prev_close_cents 由"当日开盘价占位"改为
 #:             "窗口前最后一个真实收盘价"，并在窗口前多取一小段。
-ROWS_FORMAT = 2
+#:   v2 -> v3：新增前复权 adjusted_close_cents；原始 OHLC 继续用于成交模拟。
+ROWS_FORMAT = 3
 
 # 行里目前只保存成交价、成交量和成交额等不复权日线字段。这个集合单独
 # 放出来是为了让增量合并不依赖供应商返回的额外字段（turn/pctChg 等）。
@@ -252,6 +253,27 @@ def seed_from_fetched(
     return before[-1][1] if before else current_seed
 
 
+def fetch_daily_range(
+    client: object, code: str, start: str, end: str, *, adjust: str,
+) -> tuple[list[dict] | None, str]:
+    """带重连退避地抓一个区间；原始价和前复权价共用同一可靠路径。"""
+
+    last_error = ""
+    for attempt in range(1, FETCH_ATTEMPTS + 1):
+        try:
+            rows, _ = client.daily_bars(code, start=start, end=end, adjust=adjust)
+            return rows, ""
+        except Exception as exc:  # noqa: BLE001
+            last_error = f"{type(exc).__name__}: {str(exc)[:80]}"
+            if attempt < FETCH_ATTEMPTS:
+                try:
+                    client._reconnect()
+                except Exception:  # noqa: BLE001
+                    pass
+                time.sleep(FETCH_BACKOFF_SECONDS * attempt)
+    return None, last_error or "unknown failure"
+
+
 def load_cache() -> dict:
     if OUT.exists():
         return json.loads(OUT.read_text(encoding="utf-8"))
@@ -388,12 +410,10 @@ def _main_unlocked() -> int:
             cached_rows = normalize_rows(cached.get("rows"))
             # 窗口变化本身不代表要重抓：缓存保存的是逐只的历史序列，
             # 本次只补左侧前缀或右侧尾部。真正改变行构造口径时，旧行不能
-            # 与新行混用，才按本次窗口重建。缺失 rows_format 的旧缓存按兼容
-            # 路径处理，并在成功写回时补上当前版本。
-            format_changed = (
-                cached.get("rows_format") is not None
-                and cached.get("rows_format") != ROWS_FORMAT
-            )
+            # 与新行混用，才按本次窗口重建。缺失 rows_format 的旧缓存无法
+            # 证明含有前复权字段，也必须按当前口径重建。
+            format_changed = bool(
+                cached_rows and cached.get("rows_format") != ROWS_FORMAT)
             seeded = (cached.get("prev_close_attempted")
                       and cached.get("window") == target_window
                       and cached.get("rows_format") == ROWS_FORMAT)
@@ -430,34 +450,43 @@ def _main_unlocked() -> int:
             # 一个证券最多会有左前缀和右尾部两个请求；每个区间独立重试，
             # 这样窗口扩展时不会因为重建整段历史而放大供应商压力。
             fetched: list[dict] = []
+            adjusted_fetched: list[dict] = []
             fetch_error = ""
             for fetch_start, fetch_end in fetch_ranges:
-                got = None
-                last_error = ""
-                for attempt in range(1, FETCH_ATTEMPTS + 1):
-                    try:
-                        got, _ = bs.daily_bars(
-                            code, start=fetch_start, end=fetch_end, adjust="3")
-                        break
-                    except Exception as exc:            # noqa: BLE001
-                        last_error = f"{type(exc).__name__}: {str(exc)[:80]}"
-                        if attempt < FETCH_ATTEMPTS:
-                            # 重连是全局动作：会话/连接坏了，单靠重发同一条没用
-                            try:
-                                bs._reconnect()
-                            except Exception:             # noqa: BLE001
-                                pass
-                            time.sleep(FETCH_BACKOFF_SECONDS * attempt)
-                if got is None:
-                    fetch_error = last_error or "unknown failure"
-                else:
-                    fetched.extend(got)
+                raw_rows, raw_error = fetch_daily_range(
+                    bs, code, fetch_start, fetch_end, adjust="3")
+                adjusted_rows, adjusted_error = fetch_daily_range(
+                    bs, code, fetch_start, fetch_end, adjust="2")
+                if raw_rows is None or adjusted_rows is None:
+                    fetch_error = raw_error or adjusted_error
+                    continue
+                fetched.extend(raw_rows)
+                adjusted_fetched.extend(adjusted_rows)
 
             fetched_rows = [
                 row for row in (
                     bar_to_row(bar, target_days=target_days) for bar in fetched
                 ) if row is not None
             ]
+            adjusted_by_day = {
+                row["trading_day"]: row.get("close_cents")
+                for row in adjusted_fetched
+                if isinstance(row, dict)
+                and row.get("trading_day") in target_days
+                and row.get("close_cents") is not None
+            }
+            for row in fetched_rows:
+                row["adjusted_close_cents"] = adjusted_by_day.get(row["trading_day"])
+            missing_adjusted = [
+                row["trading_day"] for row in fetched_rows
+                if row.get("adjusted_close_cents") is None
+            ]
+            if missing_adjusted and not fetch_error:
+                fetch_error = (
+                    f"adjusted close missing for {len(missing_adjusted)} trading days")
+                # 不提交这个区间的原始价，否则缓存末日会前移，下一次增量只看
+                # 尾部而永远不会回来补中间缺失的复权价。
+                fetched_rows = []
 
             if fetch_error:
                 # 已完成的区间仍可安全合并到旧缓存；失败区间留在 failed，

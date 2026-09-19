@@ -39,6 +39,18 @@ def test_synthetic_snapshot_still_previews(client):
     assert r.status_code == 200, r.text
 
 
+def test_unconfigured_real_snapshot_keeps_read_only_service_available(monkeypatch):
+    """未配置佣金时保留只读能力，模拟入口仍由 synthetic 标记阻断。"""
+
+    from main import resolve_fee_table
+
+    monkeypatch.delenv("AQUANT_COMMISSION_RATE", raising=False)
+    monkeypatch.delenv("AQUANT_COMMISSION_MIN_CENTS", raising=False)
+    table = resolve_fee_table("snap-eod-real")
+    assert table.is_synthetic is True
+    assert table.commission_source == "UNCONFIGURED_DEFAULT"
+
+
 def test_fee_error_becomes_a_422_envelope_not_a_500(client):
     """费率问题必须是 422 + §16.4 信封，不能是 500。
 

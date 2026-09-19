@@ -38,7 +38,9 @@ from aquant.adapters.models.deepseek import DeepSeekProvider  # noqa: E402
 from aquant.application.assistant import (  # noqa: E402
     AssistantError, Material, ask_assistant, model_calls,
 )
-from aquant.application.research_cards import persist_card, research_cards
+from aquant.application.research_cards import (
+    get_card_payload, persist_card, research_cards,
+)
 from aquant.domain.ai.model import TextModelProvider  # noqa: E402
 from aquant.domain.evidence.store import evidence_for  # noqa: E402
 from aquant.operations.freshness import freshness  # noqa: E402
@@ -285,13 +287,11 @@ def resolve_fee_table(snapshot_id: str):
 
     规则：
       * 配置了券商佣金（AQUANT_COMMISSION_RATE / _MIN_CENTS）-> 用**经验证**的费率表；
-      * 没配置：
-          - SYNTHETIC 快照 -> 用合成费率表（本来就是为了跑通链路）；
-          - **PRODUCTION 快照 -> 拒绝启动**。
+      * 没配置：使用带明确合成标记的占位费率表；只读研究仍可启动，
+        preview/freeze/execute/value 会在领域闸门拒绝把它用于真实快照。
 
-    为什么真实数据上宁可拒绝启动：原先这张表整张都是合成的，
-    而真实快照上的成交与盈亏一直在用它计算——**数字算得出来，
-    只是没有依据**。启动时明确报错，比跑出一堆看似正常的数字要好。
+    费率缺失不应让候选、研究卡和证据也不可读；风险发生在模拟计算时，
+    所以闸门放在依赖费用的领域入口，并由 API 返回明确 422。
 
     刻意不提供"跳过检查"的参数：要放行就给佣金，那是一个有记录的动作。
     """
@@ -299,15 +299,7 @@ def resolve_fee_table(snapshot_id: str):
     configured = bool(os.environ.get("AQUANT_COMMISSION_RATE", "").strip())
 
     if not configured:
-        # 合成快照用合成费率：它本来就是用来跑通链路的，
-        # 而且界面上会带水印（§15.4）。默认快照 ID 就是合成快照。
-        if snapshot_id != SNAPSHOT_ID:
-            raise FeeError(
-                "FEE_VERSION_UNVERIFIED",
-                f"真实快照 {snapshot_id} 需要一张经验证的费率表，但未配置券商佣金",
-                "设置 AQUANT_COMMISSION_RATE（例如 0.00025 表示万分之 2.5）与 "
-                "AQUANT_COMMISSION_MIN_CENTS（例如 500 表示 5 元）；"
-                "合成费率不得用于真实数据")
+        # 这张表带 synthetic_test_rate 标记；真实快照的模拟入口会拒绝它。
         return synthetic_fee_table()
 
     # 与验收脚本**同一条**取表路径（fee_table_from_env），
@@ -440,6 +432,9 @@ def build_state(data_dir: Path | None = None) -> AppState:
 class PreviewRequest(BaseModel):
     portfolio_id: str = Field(min_length=1, max_length=64)
     snapshot_id: str = Field(default_factory=active_snapshot)
+    decision_snapshot_id: str | None = Field(default=None, min_length=1, max_length=128)
+    decision_cutoff_at: datetime | None = None
+    execution_snapshot_id: str | None = Field(default=None, min_length=1, max_length=128)
     trading_day: date
     cash_available_cents: int | None = Field(
         default=None, ge=0,
@@ -752,7 +747,8 @@ def _assistant_draft(state: "AppState", req: "AssistantDraftRequest") -> dict:
     }
 
 
-def _card_evidence(con: sqlite3.Connection, instrument_id: str) -> list[dict]:
+def _card_evidence(con: sqlite3.Connection, instrument_id: str, *,
+                   as_of: datetime | None = None) -> list[dict]:
     """把落库证据转成研究卡的 evidence 形状。
 
     一条引用一条记录，同一条公告的多个字段各自成条——
@@ -760,7 +756,7 @@ def _card_evidence(con: sqlite3.Connection, instrument_id: str) -> list[dict]:
     """
 
     out: list[dict] = []
-    for row in evidence_for(con, instrument_id=instrument_id):
+    for row in evidence_for(con, instrument_id=instrument_id, as_of=as_of):
         if not row.get("citationId"):
             continue        # 只有事件没有引用：卡片的证据栏不显示它
         out.append({
@@ -776,7 +772,8 @@ def _card_evidence(con: sqlite3.Connection, instrument_id: str) -> list[dict]:
     return out
 
 
-def _card_counter_evidence(con: sqlite3.Connection, instrument_id: str) -> list[dict]:
+def _card_counter_evidence(con: sqlite3.Connection, instrument_id: str, *,
+                           as_of: datetime | None = None) -> list[dict]:
     """从证据本身派生反证。
 
     两条规则，都是"我们不掌握的事实要自己说出来"：
@@ -790,7 +787,7 @@ def _card_counter_evidence(con: sqlite3.Connection, instrument_id: str) -> list[
     """
 
     located_flags: dict[str, list[bool]] = {}
-    for row in evidence_for(con, instrument_id=instrument_id):
+    for row in evidence_for(con, instrument_id=instrument_id, as_of=as_of):
         if row.get("citationId"):
             located_flags.setdefault(row["eventId"], []).append(bool(row["located"]))
 
@@ -804,10 +801,19 @@ def _card_counter_evidence(con: sqlite3.Connection, instrument_id: str) -> list[
                 "noneFound": False,
             })
     unverified = con.execute(
-        "SELECT e.event_id,e.fact_summary FROM event e "
+        "SELECT e.event_id,e.fact_summary,e.available_at FROM event e "
         "JOIN event_subject s ON s.event_id=e.event_id AND s.subject_id=? "
         "WHERE e.verification_status='DISPUTED'", (instrument_id,)).fetchall()
     for row in unverified:
+        if as_of is not None:
+            available_at = row["available_at"]
+            try:
+                visible = (available_at is not None
+                           and datetime.fromisoformat(available_at) <= as_of)
+            except (TypeError, ValueError):
+                visible = False
+            if not visible:
+                continue
         out.append({"statement": "存在被标记为争议的证据",
                     "note": row["fact_summary"], "noneFound": False})
     return out
@@ -888,7 +894,10 @@ def _s1_candidates(state: "AppState", snapshot_id: str
             continue
         rows = state.reader.daily_quotes(snapshot_id, as_of=ref.as_of_time,
                                          instrument_id=iid)
-        prices = [r.close_cents for r in rows]
+        # S1 的收益与动量必须使用前复权收盘价；原始 OHLC 只服务于成交、
+        # 涨跌停和账本。缺失复权价就排除该证券，不能把原始价冒充研究价。
+        prices = [r.adjusted_close_cents for r in rows
+                  if r.adjusted_close_cents is not None]
         if len(prices) < S1_MIN_CLOSES:
             continue
         closes[iid] = prices
@@ -896,7 +905,7 @@ def _s1_candidates(state: "AppState", snapshot_id: str
         boards[iid] = (inst.get("board") or "").upper()
 
     if not closes:
-        return [], (f"快照内没有任何证券同时具备行业分类与 {S1_MIN_CLOSES} 根收盘价，"
+        return [], (f"快照内没有任何证券同时具备行业分类与 {S1_MIN_CLOSES} 根前复权收盘价，"
                     "因此不产出候选")
 
     try:
@@ -1134,8 +1143,9 @@ def create_app(state: AppState | None = None) -> FastAPI:
                 # 证据来自作业的产出（§9）。**不在这里过滤 located**：
                 # 卡片要如实显示"这条引用在原文里定位不到"，
                 # 过滤掉等于让这类问题永远不出现在任何界面上。
-                evidence=_card_evidence(s.con, instrument_id),
-                counter_evidence=_card_counter_evidence(s.con, instrument_id),
+                evidence=_card_evidence(s.con, instrument_id, as_of=ref.as_of_time),
+                counter_evidence=_card_counter_evidence(
+                    s.con, instrument_id, as_of=ref.as_of_time),
             )
         except KeyError as exc:
             # 未覆盖的证券是"查无此物"，不是服务端故障；不得让 500 掩盖它
@@ -1150,6 +1160,12 @@ def create_app(state: AppState | None = None) -> FastAPI:
                               data_mode=ref.data_mode)
         # 返回体必须读留档值，而不是顺手把刚算出来的时刻放回去：
         # 那样接口看起来"每次都是新卡片"，与留档语义矛盾。
+        persisted_payload = get_card_payload(s.con, stored["card_id"])
+        if persisted_payload is not None:
+            return persisted_payload
+        # Existing databases may contain cards written before the full-payload
+        # table was introduced. Keep those rows readable while all new cards use
+        # the immutable complete response above.
         body["cardId"] = stored["card_id"]
         body["generatedAt"] = stored["generated_at"]
         return body
@@ -1511,10 +1527,14 @@ def create_app(state: AppState | None = None) -> FastAPI:
         这一事实，默认藏起来会让它永远不会被看到。
         """
 
+        snapshot_id = s.current_snapshot()
+        ref = s.reader.ref(snapshot_id)
         rows = evidence_for(s.con, instrument_id=instrument_id,
-                            located_only=located_only)
+                            located_only=located_only, as_of=ref.as_of_time)
         return {"instrumentId": instrument_id, "count": len(rows),
                 "evidence": rows,
+                "snapshotId": snapshot_id,
+                "asOfTime": ref.as_of_time.isoformat(),
                 "note": ("located=false 表示该引用在来源正文里**定位不到**；"
                          "locator_kind 区分逐字命中与只差空白两档。")}
 
@@ -1572,10 +1592,17 @@ def create_app(state: AppState | None = None) -> FastAPI:
     def preview(body: PreviewRequest, s: AppState = Depends(svc)) -> dict:
         """只算不冻。不写计划、不写账本（A08）。"""
 
-        snapshot_id = s.current_snapshot()
-        if body.snapshot_id != snapshot_id:
+        current_id = s.current_snapshot()
+        decision_id = body.decision_snapshot_id or body.snapshot_id
+        explicit_timing = any((body.decision_snapshot_id,
+                               body.decision_cutoff_at,
+                               body.execution_snapshot_id))
+        if not explicit_timing and body.snapshot_id != current_id:
             raise HTTPException(status_code=404, detail=f"unknown snapshot {body.snapshot_id!r}")
-        ref = s.reader.ref(snapshot_id)
+        s.store.require_published(decision_id)
+        if body.execution_snapshot_id:
+            s.store.require_published(body.execution_snapshot_id)
+        ref = s.reader.ref(decision_id)
 
         # 账户必须先存在，否则预览记录的 account_version 会基于"空账本"，
         # 而随后的令牌签发会先建账户再读账本，两者版本不一致，冻结永远失败。
@@ -1595,16 +1622,23 @@ def create_app(state: AppState | None = None) -> FastAPI:
             )
         cash = ledger_cash
 
-        # 候选必须与当前快照一致：预览写进计划的目标权重会冻结，
-        # 用另一份快照的排名去建仓，冻结的就是一个无据可查的组合。
-        ranked, _ = _s1_candidates(s, snapshot_id)
-        pv = s.service.preview(
-            portfolio_id=body.portfolio_id, snapshot_id=snapshot_id,
+        # 候选只从显式决策快照计算；执行快照只能提供交易日行情，不能反向
+        # 改写候选。决策快照不是 current 时，板块映射也必须随它切换。
+        ranked, _ = _s1_candidates(s, decision_id)
+        decision_listings = (dict(LISTINGS) if decision_id == SNAPSHOT_ID
+                             else _listings_for(s, decision_id))
+        plan_service = (s.service if decision_id == current_id else PlanService(
+            s.con, s.reader, s.fees, BOARD_RULES, decision_listings, s.params))
+        pv = plan_service.preview(
+            portfolio_id=body.portfolio_id, snapshot_id=decision_id,
             trading_day=body.trading_day, as_of=ref.as_of_time,
             candidates=[Candidate(r.instrument_id, r.industry_code, r.signal_rank,
                                   simulatable=r.simulatable) for r in ranked],
             cash_available_cents=cash,
             lots=ledger_lots, confirm_subject="server:preview",
+            decision_snapshot_id=body.decision_snapshot_id,
+            decision_cutoff_at=body.decision_cutoff_at,
+            execution_snapshot_id=body.execution_snapshot_id,
         )
         # 服务端保留本次预览：令牌签发与冻结都必须针对同一个预览，
         # 否则"绑定预览哈希"就无从谈起。
@@ -1613,6 +1647,12 @@ def create_app(state: AppState | None = None) -> FastAPI:
         # 领域契约用 snake_case；这里补 camelCase 呈现别名供前端使用。
         # 领域对象保持干净，改在 API 层做呈现映射（§14.1）。
         out["planId"] = pv.plan_id
+        out["decisionSnapshotId"] = pv.decision_snapshot_id
+        out["decisionCutoffAt"] = (pv.decision_cutoff_at.isoformat()
+                                   if pv.decision_cutoff_at else None)
+        out["executionSnapshotId"] = pv.execution_snapshot_id
+        out["executionCutoffAt"] = (pv.execution_cutoff_at.isoformat()
+                                    if pv.execution_cutoff_at else None)
         out["estimatedFeesCents"] = pv.estimated_fees_cents
         out["frozenLabel"] = ("未冻结 · 预览不产生成交" if not pv.frozen
                               else "已冻结")
