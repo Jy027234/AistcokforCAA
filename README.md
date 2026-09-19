@@ -55,9 +55,9 @@ API 不在线时界面**明确显示只读状态并禁用写操作**，不会伪
 | M1 数据与证据底座 | 🟡 | 合成快照 D01–D08 通过；真实全市场快照 900 只 / 61 个交易日已发布 |
 | M2 基线与模拟账本 | ✅ | 多日 + 跨进程重启验收通过；T+1 真的跨日生效 |
 | 产品闭环 | ✅ | 预览→确认→冻结→执行→估值→对账，合成与真实数据各跑一遍 |
-| 工作台界面 | 🟡 | 五页可浏览；写链路走通；**界面上的数字有出处检查**（见下文） |
+| 工作台界面 | 🟡 | 六页可浏览（含**设置**）；写链路走通；**界面上的数字有出处检查**（见下文） |
 | 研究作业与证据 | ✅ | 作业提交/执行/幂等、模型独立抽取、引用可定位、交叉核对 |
-| 每日流水线 | 🟡 | 采集→快照→**因子落库**→质量闸门；**尚未接定时任务**（见 `docs/daily-pipeline.md`） |
+| 每日流水线 | ✅ | 采集→快照→**因子落库**→质量闸门；界面**设置页**可配时间与启停（ADR-014） |
 | 研究卡上的因子数值 | ✅ | 因子落库（`research_run`/`feature_value`）→ 接口传入卡片；真实快照上 832/900 有值 |
 | agentctl 接入 | 🟡 | Q0 成立；唯一只读能力 `aquant.research_card.read` 已接 M1 真实存储（含因子值）；其余七个能力未接 |
 
@@ -103,6 +103,22 @@ python -m tests.integration.t10_universe_snapshot --window-start 2026-06-22
 python tools\daily_run.py --skip-if-done
 python tools\show_alerts.py --days 7      # 有 ERROR 时退出码 1
 ```
+
+### 每天自动跑：界面配置 + 独立 worker（ADR-014）
+
+在界面**设置**页填时间与解释器并保存，然后让 worker 长驻：
+
+```powershell
+python tools\scheduler_worker.py            # 到点自动跑，也执行界面的「立刻运行一次」
+python tools\scheduler_worker.py --once     # 只处理一轮（cron / 排查）
+python tools\scheduler_worker.py --now      # 立刻跑一次
+```
+
+**worker 不在跑时，界面上的配置不会让任何东西自动跑**——这句话写在设置页上。
+界面上的「立刻运行一次」只登记请求，执行仍由 worker 做，因此点按钮与到点自动跑
+走的是同一条路径（并发锁、休市判断、留痕、告警都在那条路上）。
+调度默认**停用**，启用时必须填解释器：默认 python 没装 baostock，
+用错的失败信息看起来像数据源坏了。
 
 **因子必须落库，否则研究卡上没有数值。** `tools/compute_factors.py` 走的是产品
 自己的落库路径（与 `POST /api/v1/research/jobs` 的因子作业同一条代码路径），
@@ -231,7 +247,7 @@ node tools\page_dump.mjs --url http://127.0.0.1:8080 --tab portfolio   # 页面�
 | `docs/implementation-baseline.md` | 任务表 + **§8 实施状态**（每条都指向可复核的证据） |
 | `docs/daily-pipeline.md` | 每日流水线：调度接入、退出码、告警、已知限制 |
 | `docs/data-rights-register.md` | 数据权利登记表 + 费率来源 |
-| `docs/adr/` | 架构决策记录（ADR-001…013） |
+| `docs/adr/` | 架构决策记录（ADR-001…014） |
 | `docs/integration/q0-readiness-report.md` | Q0 接入就绪报告（本机实测） |
 
 ## 目录

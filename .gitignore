@@ -95,6 +95,8 @@ deploy/agentctl-q0/prevclose-backfill.log
 deploy/agentctl-q0/daily-run.lock
 deploy/agentctl-q0/daily-runs.jsonl
 deploy/agentctl-q0/daily-run*.log
+# 调度 worker 最近一次执行的本机回执，不属于产品源码或测试夹具
+deploy/agentctl-q0/last-run.json
 
 # 界面截图：可随时用 apps/web/tools/screenshot.mjs 重新生成，
 # 不进版本库（二进制会随时间变得与代码不一致，且无法 diff）

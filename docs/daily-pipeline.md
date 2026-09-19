@@ -42,6 +42,50 @@
 
 ## 怎么接
 
+现在有**两条**路，选一条即可（也可以都留着：锁与"每天至多一次"的判据都是幂等的）。
+
+### 方式一：产品内调度（推荐，ADR-014）
+
+配置在界面**设置**页（`GET/POST /api/v1/schedule`），执行交给独立 worker：
+
+```powershell
+# 长驻 worker：到点自动跑，也执行界面上「立刻运行一次」的请求
+python tools\scheduler_worker.py
+
+# 只处理一轮就退出（cron / 排查用）
+python tools\scheduler_worker.py --once
+
+# 立刻跑一次（不等到点）——与界面按钮是同一条通道
+python tools\scheduler_worker.py --now
+```
+
+| 项 | 行为 |
+|---|---|
+| 默认 | **停用**。装上就自动每天抓数据，是使用者没做过的决定 |
+| 启用条件 | 必须填解释器；留空会被拒绝（见下） |
+| 到点判断 | 每天至多一次；周一至周五（可关）；worker 晚起也会补当天那一次 |
+| 界面按钮 | 只**登记请求**，执行仍由 worker 做——两条入口共用一条通道 |
+| 结果 | 留痕文件仍是权威；`pipeline_last_run` 是给界面读的摘要 |
+
+**它不在跑的时候，界面上的配置不会让任何东西自动跑。** 这句话写在设置页上，
+因为它的反面（"我配了 20:30，数据却三天没动"）是这类功能最常见的失败方式。
+
+解释器为什么必填：这条流水线依赖 baostock 与 pytest，而启动 worker 的那个
+python 未必装了它们。用错的后果是每天都失败，而失败信息是
+「baostock 未安装」——看起来像数据源坏了，不像配置写错了。
+
+希望 worker 开机/登录就起来，把它挂成一条**登录时启动**的任务即可
+（不是定点跑脚本——那会让"到点没跑"重新变成没人看得见的失败）：
+
+```powershell
+$action  = New-ScheduledTaskAction -Execute "E:\IT\Agent\.venv\Scripts\python.exe" `
+  -Argument "tools\scheduler_worker.py" -WorkingDirectory "E:\IT\A股量化交易"
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+Register-ScheduledTask -TaskName "AQuant 调度 worker" -Action $action -Trigger $trigger
+```
+
+### 方式二：系统调度直接跑流水线
+
 **Windows 任务计划程序**（每日 20:30 北京时间，收盘后）：
 
 ```powershell
@@ -62,11 +106,15 @@ Register-ScheduledTask -TaskName "AQuant 每日流水线" -Action $action -Trigg
 
 ## 退出码
 
-| 码 | 含义 | 定时任务应如何对待 |
+| 码 | 含义 | 调度方应如何对待 |
 |---|---|---|
 | 0 | 已发布，**或**按计划跳过（休市、已有运行在跑） | 正常 |
 | 1 | 失败（采集失败 / 快照未通过校验） | **应当告警** |
 | 2 | 环境缺失（缓存或研究池不存在） | **应当告警** |
+
+`tools/scheduler_worker.py` 自己也有退出码：`--once` / `--now` 时
+0 = 本轮无事可做或执行成功，1 = 本轮执行失败，2 = 数据目录不可用
+（没有 `meta.sqlite`——它连"该写哪本账"都不知道）。
 
 0 里包含"跳过"：休市不是错误，报失败会让任务重试到天亮而结果不变。
 但**跳过与发布都会写留痕**，因此"昨天到底跑了没有"永远可查：
@@ -129,10 +177,9 @@ Get-Content deploy/agentctl-q0/daily-runs.jsonl -Tail 5
 
 * **失败告警没有接**。脚本只写留痕与退出码，把它接到邮件/IM
   是运维侧的事（本项目不引入消息中间件，见 §14.2）。
-* **定时任务没有注册**。脚本、退出码与留痕都齐了，但**没有任何调度在跑它**：
-  `deploy/agentctl-q0/daily-runs.jsonl` 的最后一条是 2026-09-16（数据日 09-14）。
-  在有人把上面的任务计划程序/cron 真正注册之前，数据会一直停在最后一天，
-  而界面上不会出现任何异常——只有 `/api/v1/status` 的 freshness 会说它 stale。
+* **调度 worker 默认不在跑**。脚本、界面配置、退出码与留痕都齐了，
+  但"每天到点跑"这件事仍需要一个长驻进程：没有它，界面上配置**不会**
+  让任何东西自动跑（设置页会把这句写出来）。
 * **财报与公司行为没有进每日流程**。F10 依赖财报缓存，
   而财报按季度更新，不该每天抓。当前是手工在季报季跑一次——
   这是一个**已知的、有意的**手工环节，不是遗漏。但注意：快照必须带上

@@ -196,6 +196,7 @@ Q0 期间出现过一次"把测试接线错误当成产品缺陷"的误判（见
 | ADR-011 | 复用 agentctl 作为受治理的 AI 运行与助手能力，**不**让其接管量化事实、计算与账本 | **已采纳**（2026-09-15） | `docs/adr/ADR-011-agentctl-boundary.md` |
 | ADR-012 | `TextModelProvider` 保留为领域窄接口，agentctl 网关为其**生产实现**之一，离线测试替身不变 | **已采纳**（2026-09-15） | `docs/adr/ADR-012-text-model-provider.md` |
 | ADR-013 | 静态 master 令牌不下发到产品；部署一律 `--token-env`；产品使用独立签发的受限令牌 | **已采纳**（2026-09-15） | `docs/adr/ADR-013-deployment-token-discipline.md` |
+| ADR-014 | 调度配置进产品界面（`run_schedule` + 设置页），执行留在独立 worker；API 只登记运行请求 | **已采纳**（2026-09-19） | `docs/adr/ADR-014-scheduling-ownership.md` |
 
 ADR-011 的边界（领域层不得依赖 agentctl）由
 `tests/security/test_agentctl_boundary.py` **强制**，不靠约定。
@@ -306,9 +307,11 @@ ADR-011/012/013 也未被它引用。
 2. **Q5 接入侧验收报告**——T12 的另一半，与量化侧报告**分别出具，互不替代**。
    Q1 的 handler 接线已在 §8.6 关闭，但"接入侧验收"指的是**在真实接入
    拓扑下重跑一遍并出具报告**，不是"代码写完了"。两者不能相互替代。
-3. **定时任务未注册**——流水线（`tools/daily_run.py`）已能跑完并留痕，
-   但机器上没有任何调度在跑它：留痕末日 2026-09-16（数据日 09-14）。
-   在注册之前，数据会一直停在最后一天，而界面不会报错。
+3. **调度 worker 需要长驻**——界面配置已经能写进产品库（ADR-014，
+   `run_schedule` + 设置页 + `/api/v1/schedule`），但"每天到点跑"仍依赖
+   `tools/scheduler_worker.py` 在跑。它不在时，界面上配置**不会**让任何东西
+   自动跑（设置页写明这一句）。推荐挂成"登录时启动"的任务，
+   而不是定点跑一次脚本——后者会让"到点没跑"重新变成没人看得见的失败。
 4. **失败告警通道**——`AQUANT_ALERT_WEBHOOK` 未配置，告警只落盘。
 5. **券商佣金**——`commission_source=UNCONFIGURED_DEFAULT`，需要使用者填真实费率。
 6. **分红个税（§12.6）**——规格允许 PRE-TAX 标注，当前已如此；未实现完整税制。
