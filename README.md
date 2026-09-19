@@ -50,8 +50,25 @@ $env:PYTHONPATH='src'
 python -m uvicorn main:app --app-dir apps/api --host 127.0.0.1 --port 8000
 ```
 
-上面的宿主机目录不会自动挂进 Docker 命名卷；默认 Compose 路径仍用于合成数据试运行。
-若要让容器读取宿主机真实快照，需要先显式配置 bind mount，不能只设置 Windows 路径环境变量。
+### 用 Docker 读取调度器维护的真实快照
+
+基础 `docker-compose.yml` 使用独立命名卷和合成快照。真实试运行必须显式叠加
+`docker-compose.real.yml`，把宿主机每日流水线维护的目录绑定到容器 `/data`；否则界面和
+调度器会读取两份不同的数据：
+
+```powershell
+Copy-Item configs\real-trial.example.env real-trial.env
+# 编辑 real-trial.env，填写自己的券商佣金；不要把该文件提交到 Git。
+docker compose --env-file real-trial.env `
+  -f docker-compose.yml -f docker-compose.real.yml up --build -d
+
+# 启动后以 readiness.trial.ready 为唯一放行结论
+Invoke-RestMethod http://127.0.0.1:8080/api/v1/readiness | ConvertTo-Json -Depth 8
+```
+
+覆盖层要求 `AQUANT_HOST_DATA_DIR` 已存在，并继续沿用基础 Compose 的
+`127.0.0.1:8080` 绑定。停止容器不会删除宿主机真实快照；不要对这条真实目录使用
+`docker compose down -v` 作为清理手段。
 
 未配置佣金时，真实数据仍可用于状态、候选、研究卡和证据等只读接口；
 `preview` / `freeze` / `execute` / `value` 会在领域费率闸门返回拒绝，

@@ -1,0 +1,13 @@
+# 真实 S1 本机试运行覆盖层。
+#
+# 与 docker-compose.yml 一起使用。它把宿主机调度器维护的同一份真实数据目录
+# 只绑定到本机容器的 /data，避免容器继续读取独立命名卷中的合成快照。
+services:
+  aquant:
+    volumes:
+      - type: bind
+        source: ${AQUANT_HOST_DATA_DIR:?请在 real-trial.env 中设置 AQUANT_HOST_DATA_DIR}
+        target: /data
+        bind:
+          create_host_path: false
+
