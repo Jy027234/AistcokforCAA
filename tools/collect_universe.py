@@ -331,6 +331,11 @@ def _main_unlocked() -> int:
             b["trading_day"] for b in idx
             if isinstance(b, dict) and _valid_trading_day(b.get("trading_day"))
         })
+        # 行情窗口只需支撑因子计算，但上市年龄门槛需要更长的交易日历。
+        # 指数请求本来就向前取了 800 个自然日；把这份日历单独保存，不必
+        # 为池内每只股票额外抓取两年行情。发布器会按快照末日再次裁剪，
+        # 因而缓存里即使以后出现更晚日期，也不会泄漏到历史快照。
+        doc["trading_calendar"] = [day for day in all_days if day <= str(end_day)]
         if args.start:
             # 显式钉住窗口起点。日常增量必须用它：不指定时窗口是
             # "最后 N 个交易日"，**跟着当天日期滑动**——同一个脚本今天和

@@ -109,6 +109,9 @@ def test_main_appends_tail_without_refetching_existing_rows(
     assert collector.main() == 0
 
     payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["trading_calendar"] == [
+        "2026-09-01", "2026-09-02", "2026-09-03"
+    ]
     entry = payload["bars"]["SH.600001"]
     assert [row["trading_day"] for row in entry["rows"]] == [
         "2026-09-01", "2026-09-02", "2026-09-03"

@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +40,11 @@ from .snapshot_lifecycle import (
 
 class UniverseSnapshotError(RuntimeError):
     """生产快照不能发布时抛出的可操作错误。"""
+
+
+# 研究配置的默认上市年龄门槛。生产快照必须至少带这么多天的权威日历，
+# 否则门槛对“早于行情窗口、但上市仍未满 120 日”的标的无法生效。
+MIN_LISTING_CALENDAR_DAYS = 120
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +124,32 @@ def _cache_days(bars_all: dict[str, dict], *, window_start: str | None,
     return days
 
 
+def _cache_calendar(cache: dict, *, quote_days: list[str],
+                    window_end: str | None) -> list[str]:
+    """读取独立长日历，并把它钉在本次快照末日以内。
+
+    旧缓存没有 ``trading_calendar`` 时退回行情日期，便于诊断和显式的
+    degraded replay；生产严格发布会由覆盖率检查拒绝短日历。
+    """
+
+    upper = window_end or quote_days[-1]
+    raw = cache.get("trading_calendar")
+    source = raw if isinstance(raw, list) else quote_days
+    days: set[str] = set()
+    for value in source:
+        text = str(value)
+        try:
+            date.fromisoformat(text)
+        except ValueError:
+            continue
+        if text <= upper:
+            days.add(text)
+    # 行情实际出现的日期也是已证实的交易日。并集可避免指数源偶发漏行
+    # 导致行情日在自己的快照日历中消失。
+    days.update(day for day in quote_days if day <= upper)
+    return sorted(days)
+
+
 def _mark(checks: list[SnapshotCheck], name: str, ok: bool, detail: str = "") -> None:
     checks.append(SnapshotCheck(name=name, ok=bool(ok), detail=detail))
 
@@ -142,6 +173,14 @@ def _build_document(
     if not days:
         raise UniverseSnapshotError("快照窗口为空：检查 --window-start / --window 与缓存")
     kept = set(days)
+    calendar_days = _cache_calendar(
+        cache, quote_days=days, window_end=window_end or days[-1])
+    _mark(
+        checks,
+        f"交易日历覆盖 >= {MIN_LISTING_CALENDAR_DAYS} 日",
+        len(calendar_days) >= MIN_LISTING_CALENDAR_DAYS,
+        f"{len(calendar_days)} 个交易日（行情窗口 {len(days)} 日）",
+    )
     picked = pool.get("instruments") or []
     if not isinstance(picked, list) or not picked:
         raise UniverseSnapshotError("研究池没有 instruments")
@@ -246,7 +285,7 @@ def _build_document(
         "as_of_time": days[-1] + "T15:00:00+08:00",
         "input_cutoff_at": days[-1] + "T07:00:00Z",
         "published_at": datetime.now(timezone.utc).isoformat(),
-        "trading_days": days,
+        "trading_days": calendar_days,
         "instruments": instruments,
         "daily_quotes": quotes,
         "corporate_actions": actions,

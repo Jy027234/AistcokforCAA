@@ -647,16 +647,14 @@ class PlanService:
             去读这个参数，也没有数据可供判断。数据补齐之后（BaoStock ipoDate），
             "参数没人读"这件事才暴露出来。
 
-        **必须说清楚的一件事：门槛判不了"精确的 120 个交易日"。**
-        研究池只有 61 个交易日的历史，快照日历也只有这么多天。一只 2019 年
-        上市的股票，它的上市天数远超 120，但用快照日历去数只能数出 61。
-        因此这里判的不是"上市天数"，而是**可判定的那一部分**：
+        快照可把因子行情窗口与交易日历覆盖范围分开：行情只需保留因子所需
+        的 61 日左右，日历则应覆盖至少 ``exclude_listing_days`` 天。因此这里
+        按**快照携带的权威交易日历**判断：
 
           1. 上市日晚于决策日 —— 那时它还不是可交易证券（§7.1）；
-          2. 上市日落在快照窗口**之内** —— 用窗口内的交易日数判定，
-             窗口内不够 120 天，就必然不够 120 天（单调），结论可靠；
-          3. 上市日在窗口起点**之前** —— 窗口内的天数不足以证明或否证门槛。
-             此时**不排除**，并把"历史长度不足、门槛无法判定"写成一条 note。
+          2. 上市日落在日历覆盖范围**之内** —— 精确计算上市交易日数；
+          3. 上市日在日历起点**之前** —— 若从日历起点到决策日已经有至少
+             门槛天数，则可单调证明其达标；否则保留并披露覆盖不足。
 
         把情形 3 当成"不合格"会清空整池；当成"合格"而不留痕，则是拿未知做
         准入判断。两者都是本项目已经踩过的错。
@@ -673,8 +671,11 @@ class PlanService:
             return list(candidates), [], []
 
         try:
-            calendar = [date.fromisoformat(d)
-                        for d in self.reader.trading_calendar(snapshot_id, as_of=as_of)]
+            calendar = sorted({
+                date.fromisoformat(d)
+                for d in self.reader.trading_calendar(snapshot_id, as_of=as_of)
+                if date.fromisoformat(d) <= trading_day
+            })
         except (SnapshotError, FileNotFoundError) as exc:
             # 数据集"登记了但读不到"（哈希校验失败、文件被删）也是读不到。
             # 只吞这两种：它们是数据可用性问题，不是代码缺陷，
@@ -696,6 +697,8 @@ class PlanService:
                 "instruments are allowed",
             ) from None
         window_start = calendar[0]
+        covered_days = listed_trading_days(
+            listed_on=window_start, trading_day=trading_day, calendar=calendar)
         instruments = {i["instrument_id"]: i
                        for i in self.reader.instruments(snapshot_id, as_of=as_of)}
 
@@ -724,18 +727,18 @@ class PlanService:
             age = listed_trading_days(listed_on=listed_on, trading_day=trading_day,
                                       calendar=calendar)
             if listed_on >= window_start:
-                # 情形 2：窗口内上市。窗口内不够，则一定不够（单调）。
+                # 情形 2：日历覆盖范围内上市，可以精确计算。
                 if age < threshold:
                     excluded.append({
                         "instrument_id": candidate.instrument_id,
                         "reason": "LISTED_TOO_RECENTLY",
-                        "detail": (f"上市日 {listed_on.isoformat()} 落在快照窗口内，"
+                        "detail": (f"上市日 {listed_on.isoformat()} 落在快照交易日历覆盖范围内，"
                                    f"截至 {trading_day.isoformat()} 仅 {age} 个交易日 "
                                    f"< 门槛 {threshold} 个交易日（§3.1）"),
                     })
                     continue
-            else:
-                # 情形 3：窗口外上市。快照日历覆盖不了门槛所需的长度。
+            elif covered_days < threshold:
+                # 情形 3：虽在日历起点前上市，但覆盖长度仍不足以证明达标。
                 partial.append(candidate.instrument_id)
             kept.append(candidate)
 
@@ -747,9 +750,9 @@ class PlanService:
                 + ("..." if len(unknown) > 5 else ""))
         if partial:
             notes.append(
-                f"{len(partial)} 只标的的上市日早于快照窗口起点 "
-                f"{window_start.isoformat()}，窗口内 "
-                f"{listed_trading_days(listed_on=window_start, trading_day=trading_day, calendar=calendar)} "
+                f"{len(partial)} 只标的的上市日早于快照交易日历起点 "
+                f"{window_start.isoformat()}，日历覆盖 "
+                f"{covered_days} "
                 f"个交易日不足以判定 {threshold} 个交易日门槛；未排除，"
                 f"其历史长度也未纳入因子计算范围")
         return kept, excluded, notes

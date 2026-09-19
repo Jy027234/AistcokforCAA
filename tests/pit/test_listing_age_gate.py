@@ -204,6 +204,25 @@ def test_old_listing_is_not_excluded_but_its_window_is_disclosed(world):
     assert "2 只标的" in note
 
 
+def test_listing_before_calendar_start_is_proven_old_when_coverage_is_enough(
+    world, monkeypatch: pytest.MonkeyPatch,
+):
+    """日历覆盖已达到门槛时，起点前上市可由单调性证明达标。"""
+
+    con, reader, patch = world
+    patch({"SYN.A.600519": "2001-08-27", "SYN.A.000001": "2001-08-27"})
+    monkeypatch.setattr(
+        reader,
+        "trading_calendar",
+        lambda *_args, **_kwargs: [d.isoformat() for d in SYN_CALENDAR],
+    )
+    svc = _service(con, reader, exclude_listing_days=len(SYN_CALENDAR))
+    pv = _preview(svc)
+
+    assert not pv.excluded
+    assert not [n for n in pv.notes if "不足以判定" in n]
+
+
 def test_future_listing_date_is_excluded_as_not_listed_yet(world):
     """上市日晚于决策日：那不是"新"，是"还没有"。"""
 
