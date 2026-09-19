@@ -347,7 +347,10 @@ ADR-011/012/013 也未被它引用。
    `offline_contract`，也不证明当前演示 `X-Aquant-Subject` 头具备生产认证强度；A15 也只有离线扫描证据。
    总计 13 通过、0 失败、3 未覆盖，真实拓扑通过 10 项。A02 的六个既有能力和 A09 可信用户桥
    均返回与 invocation_id 及规范化结果摘要绑定的 `evidence_ref`，manifest doctor 已通过；
-   A01 只观察到 profile mismatch，尚未观察到明确拒绝；A06 因模型请求未完成而未覆盖；
+   A01 只观察到 profile mismatch，且 SDK invoke 不传 client mode，须由 agentctl 基座升级后提供
+   服务端拒绝契约；A06 的账本前后摘要和业务表均未变化，但真实 DeepSeek 请求被提供商以
+   `Provider authentication failed` 拒绝，因此保持未覆盖，不能用 echo fallback 冒充真实模型完成；
+   egress destination 已修正为当前基座要求的精确 `deepseek:deepseek-v4-flash`；
    A14 已接好严格解析、发布和独立分页读取，但当前 Lite server 没有
    Platform Core `conversation_replay` 传输，所以保持 fail closed 与未覆盖。另有基座漂移：锁定 `b5cad…`，当前本机为
    `f10bb…`，11 个 `src/agentctl` 文件有变化，未完成显式升级评审。
@@ -362,7 +365,9 @@ ADR-011/012/013 也未被它引用。
    `LOCAL_LOOPBACK_DEMO` + 固定单用户标签形成明确的本地试运行边界；未声明或开发自报头模式会
    阻断 `trial.ready`。这仍不是生产认证，跨机器或公网部署前必须接入服务端验证的凭证到主体映射。
 5. **失败告警通道**——`AQUANT_ALERT_WEBHOOK` 未配置，告警只落盘。
-6. **券商佣金**——`commission_source=UNCONFIGURED_DEFAULT`，需要使用者填真实费率。
+6. **券商佣金**——`commission_source=UNCONFIGURED_DEFAULT`，需要使用者同时填写实际
+   `AQUANT_COMMISSION_RATE` 与 `AQUANT_COMMISSION_MIN_CENTS`。两项缺一都保持未配置并阻断
+   真实写路径；运行状态抽屉和 `/api/v1/fees` 会显示实际生效值，修改后须重启 API。
 7. **分红个税（§12.6）**——规格允许 PRE-TAX 标注，当前已如此；未实现完整税制。
 8. **F07/F09 绝对财务值**——BaoStock 当前缺失；Tushare Pro 已确认存在文档层候选字段，且 Token 有效，但当前账户的三项财报接口均返回 `40203` 无权限，尚未取得真实数据；巨潮/交易所原始披露是高成本兜底。S2 仍关闭，见 ADR-005、ADR-015。领域层和 API 已同步阻止新建 `family=S2`，实验登记也会拒绝升级前遗留的 S2 版本，并通过 `familyGates` 返回关闭原因。该项不阻断 S1 首期试运行。
 9. **master 令牌持有人**（§8.4 第三项）。

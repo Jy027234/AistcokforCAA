@@ -24,6 +24,7 @@ deploy/agentctl-q0/fee-sources.json（含 URL、抓取时间与内容哈希）�
 from __future__ import annotations
 
 import json
+import os
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -131,18 +132,32 @@ def fee_table_from_env(*, commission_rate: Decimal | None = None,
     返回的第二个值是"本次实际用的是哪个费率"，供日志与报告引用。
     """
 
-    import os
-
     raw_rate = (str(commission_rate) if commission_rate is not None
                 else os.environ.get("AQUANT_COMMISSION_RATE", "").strip())
     raw_min = (str(commission_min_cents) if commission_min_cents is not None
                else os.environ.get("AQUANT_COMMISSION_MIN_CENTS", "").strip())
 
-    if raw_rate:
+    # 两个值必须成对出现。尤其不能把缺失的最低佣金解释成 0：那会让
+    # 小额订单的真实费用被低估，并把一张未完成的用户配置标成
+    # USER_CONFIGURED。
+    if raw_rate and raw_min:
         return (verified_fee_table(commission_rate=Decimal(raw_rate),
-                                   commission_min_cents=int(raw_min or "0"),
+                                   commission_min_cents=int(raw_min),
                                    commission_source="USER_CONFIGURED"),
-                f"用户配置：佣金 {raw_rate}，最低 {raw_min or '0'} 分")
+                f"用户配置：佣金 {raw_rate}，最低 {raw_min} 分")
+
+    if raw_rate or raw_min:
+        missing = []
+        if not raw_rate:
+            missing.append("AQUANT_COMMISSION_RATE")
+        if not raw_min:
+            missing.append("AQUANT_COMMISSION_MIN_CENTS")
+        return (verified_fee_table(
+                    commission_rate=EXAMPLE_COMMISSION_RATE,
+                    commission_min_cents=EXAMPLE_COMMISSION_MIN_CENTS,
+                    commission_source="UNCONFIGURED_DEFAULT"),
+                "配置不完整：缺少 " + ", ".join(missing)
+                + "；使用示例费率——这是一个假设")
 
     return (verified_fee_table(commission_rate=EXAMPLE_COMMISSION_RATE,
                                commission_min_cents=EXAMPLE_COMMISSION_MIN_CENTS,

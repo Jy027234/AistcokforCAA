@@ -141,7 +141,7 @@ runtime_protocol:
     secret_refs:
     - env:DEEPSEEK_API_KEY
   data_egress_declarations:
-  - destination: deepseek
+  - destination: deepseek:deepseek-v4-flash
     channel: model
     purpose: research_assist_and_evidence_extraction
     data_categories:
@@ -157,5 +157,4 @@ runtime_protocol:
     owner: aquant_lab
     review_version: q0-v1
     decision: allow
-
 

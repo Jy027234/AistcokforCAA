@@ -145,7 +145,7 @@ class FeeTable:
         return any(s.synthetic_test_rate for s in self._schedules)
 
     def assert_usable_for_data_mode(self, data_mode: str, *, trading_day: date) -> None:
-        """真实数据（PRODUCTION）上不得使用合成费率（§12.6）。
+        """真实数据（PRODUCTION）上不得使用合成或未确认的费率（§12.6）。
 
         这条闸门必须由**调用路径**触发，不能只作为工具方法存在：
         原先 assert_usable_for_formal_research() 只被一个测试调用过，
@@ -157,6 +157,13 @@ class FeeTable:
         if (data_mode or "").upper() != "PRODUCTION":
             return
         if not self.is_synthetic:
+            if self.commission_source != "USER_CONFIGURED":
+                raise FeeError(
+                    "FEE_VERSION_UNVERIFIED",
+                    ("快照是真实数据（PRODUCTION），但券商佣金来源仍是"
+                     f" {self.commission_source!r}，不是用户确认的费率"),
+                    "同时设置 AQUANT_COMMISSION_RATE 与 "
+                    "AQUANT_COMMISSION_MIN_CENTS，并重启 API")
             return
         version = self.schedule_for(trading_day).fee_version
         raise FeeError(

@@ -18,6 +18,50 @@ export interface ApiError {
   repairAction: string;
 }
 
+export interface FeeStatus {
+  snapshotId: string;
+  feeVersion: string;
+  syntheticTestRate: boolean;
+  commissionSource: "USER_CONFIGURED" | "UNCONFIGURED_DEFAULT" | string;
+  commissionRate: string;
+  commissionMinCents: number;
+  stampDutyRateSell: string;
+  transferFeeRate: string;
+  provenance: {
+    item: string;
+    value: string | null;
+    effectiveFrom: string | null;
+    authority: string | null;
+    kind: string;
+    note: string;
+  }[];
+  note: string;
+}
+
+export interface TrialReadiness {
+  mode: string;
+  ready: boolean;
+  blockingIssues: {
+    code: string;
+    message: string;
+    repairAction: string;
+  }[];
+  operationalWarnings: {
+    code: string;
+    message: string;
+    repairAction: string;
+  }[];
+}
+
+export interface ReadinessResponse {
+  ready: boolean;
+  identity: Record<string, unknown>;
+  data: Record<string, unknown>;
+  jobs: Record<string, number>;
+  trial: TrialReadiness;
+  note: string;
+}
+
 /** API 基地址。
  *
  * 优先取运行时注入的 `window.__AQUANT_API_BASE__`，其次取构建期的
@@ -424,6 +468,10 @@ export const api = {
   health: () => request<{ status: string }>("/api/v1/health"),
 
   status: () => request<DataStatus>("/api/v1/status"),
+
+  readiness: () => request<ReadinessResponse>("/api/v1/readiness"),
+
+  fees: () => request<FeeStatus>("/api/v1/fees"),
 
   snapshots: () => request<SnapshotCatalogResponse>("/api/v1/snapshots"),
 

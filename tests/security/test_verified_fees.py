@@ -29,7 +29,8 @@ from aquant.domain.simulation.fees import (  # noqa: E402
 )
 from aquant.domain.simulation.verified_fees import (  # noqa: E402
     STAMP_DUTY_EFFECTIVE_FROM, STAMP_DUTY_RATE_SELL, TRANSFER_FEE_NOTICE,
-    TRANSFER_FEE_RATE, load_fee_sources, provenance, verified_fee_table,
+    TRANSFER_FEE_RATE, fee_table_from_env, load_fee_sources, provenance,
+    verified_fee_table,
 )
 
 DAY = date(2026, 9, 8)
@@ -79,6 +80,32 @@ def test_float_rate_is_rejected():
     with pytest.raises(ValueError):
         verified_fee_table(commission_rate=0.00025,       # type: ignore[arg-type]
                            commission_min_cents=500)
+
+
+@pytest.mark.parametrize(
+    ("rate", "minimum", "missing"),
+    [
+        ("0.00025", None, "AQUANT_COMMISSION_MIN_CENTS"),
+        (None, "500", "AQUANT_COMMISSION_RATE"),
+    ],
+)
+def test_partial_env_commission_is_not_user_configured(
+    monkeypatch, rate, minimum, missing,
+):
+    """佣金率和最低佣金必须成对配置，缺一不能被当成真实费率。"""
+
+    for name in ("AQUANT_COMMISSION_RATE", "AQUANT_COMMISSION_MIN_CENTS"):
+        monkeypatch.delenv(name, raising=False)
+    if rate is not None:
+        monkeypatch.setenv("AQUANT_COMMISSION_RATE", rate)
+    if minimum is not None:
+        monkeypatch.setenv("AQUANT_COMMISSION_MIN_CENTS", minimum)
+
+    fees, note = fee_table_from_env()
+    assert fees.commission_source == "UNCONFIGURED_DEFAULT"
+    assert missing in note
+    with pytest.raises(FeeError):
+        fees.assert_usable_for_data_mode("PRODUCTION", trading_day=DAY)
 
 
 def test_provenance_names_an_authority_for_every_non_contractual_item():
@@ -147,6 +174,20 @@ def test_synthetic_table_is_allowed_on_synthetic_data():
 
 def test_verified_table_passes_on_production_data():
     table().assert_usable_for_data_mode("PRODUCTION", trading_day=DAY)
+
+
+def test_unconfigured_non_synthetic_table_is_blocked_on_production_data(monkeypatch):
+    """未配置表即使没有 synthetic 标记，也不能绕过真实数据闸门。"""
+
+    monkeypatch.delenv("AQUANT_COMMISSION_RATE", raising=False)
+    monkeypatch.delenv("AQUANT_COMMISSION_MIN_CENTS", raising=False)
+    fees, _ = fee_table_from_env(commission_rate=None,
+                                 commission_min_cents=None)
+    assert fees.is_synthetic is False
+    assert fees.commission_source == "UNCONFIGURED_DEFAULT"
+    with pytest.raises(FeeError) as exc:
+        fees.assert_usable_for_data_mode("PRODUCTION", trading_day=DAY)
+    assert "用户确认" in exc.value.message
 
 
 def test_mixed_table_is_treated_as_synthetic():

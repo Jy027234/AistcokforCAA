@@ -1,6 +1,8 @@
+import { useEffect, useState } from "react";
+import { api, type FeeStatus, type ReadinessResponse } from "../lib/api";
 import type { DataStatus } from "../lib/types";
 import { formatAsOf, readinessTone } from "../lib/format";
-import { Badge } from "./ui";
+import { Badge, Callout } from "./ui";
 
 export type Tab = "today" | "research" | "portfolio" | "workspace" | "experiments" | "settings";
 
@@ -75,6 +77,29 @@ export function TopBar({
 export function StatusDrawer({
   status, onClose,
 }: { status: DataStatus; onClose: () => void }) {
+  const [fees, setFees] = useState<FeeStatus | null>(null);
+  const [trial, setTrial] = useState<ReadinessResponse["trial"] | null>(null);
+  const [feeError, setFeeError] = useState<string | null>(null);
+  const [trialError, setTrialError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void api.fees().then((value) => {
+      if (active) { setFees(value); setFeeError(null); }
+    }).catch((err: unknown) => {
+      if (active) setFeeError(err instanceof Error ? err.message : String(err));
+    });
+    void api.readiness().then((value) => {
+      if (active) { setTrial(value.trial); setTrialError(null); }
+    }).catch((err: unknown) => {
+      if (active) setTrialError(err instanceof Error ? err.message : String(err));
+    });
+    return () => { active = false; };
+  }, []);
+
+  const feeIsVerified = fees?.commissionSource === "USER_CONFIGURED" &&
+    fees.syntheticTestRate === false;
+
   return (
     <>
       <div className="drawer-scrim" onClick={onClose} />
@@ -103,6 +128,55 @@ export function StatusDrawer({
             </dd>
             <dt>质量状态</dt><dd>{status.qualityStatus}</dd>
           </dl>
+
+          <h4 style={{ margin: "18px 0 6px" }}>真实 S1 试运行</h4>
+          {trialError ? (
+            <Callout tone="danger" title="无法读取试运行就绪状态">{trialError}</Callout>
+          ) : trial ? (
+            <>
+              <dl className="kv">
+                <dt>试运行门槛</dt>
+                <dd><Badge tone={trial.ready ? "ok" : "danger"}>
+                  {trial.ready ? "可以开始" : "未就绪"}
+                </Badge></dd>
+              </dl>
+              {trial.blockingIssues.length > 0 && (
+                <ul className="list" style={{ marginTop: 8 }}>
+                  {trial.blockingIssues.map((issue) => (
+                    <li key={issue.code}>
+                      <Badge tone="danger">{issue.code}</Badge>
+                      <div style={{ marginTop: 4 }}>{issue.message}</div>
+                      <div className="note">修复：{issue.repairAction}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : <p className="note">正在读取试运行门槛…</p>}
+
+          <h4 style={{ margin: "18px 0 6px" }}>费用口径</h4>
+          {feeError ? (
+            <Callout tone="danger" title="无法读取费率口径">{feeError}</Callout>
+          ) : fees ? (
+            <>
+              <dl className="kv">
+                <dt>佣金来源</dt>
+                <dd><Badge tone={feeIsVerified ? "ok" : "warn"}>
+                  {feeIsVerified ? "USER_CONFIGURED" : "UNCONFIGURED_DEFAULT · 示例假设"}
+                </Badge></dd>
+                <dt>佣金率</dt><dd className="mono">{fees.commissionRate}</dd>
+                <dt>最低佣金</dt><dd className="mono">{fees.commissionMinCents} 分</dd>
+                <dt>费率版本</dt><dd className="mono">{fees.feeVersion}</dd>
+              </dl>
+              {!feeIsVerified && (
+                <Callout tone="warn" title="真实佣金尚未确认">
+                  这些佣金数字是示例假设，不能用于真实 S1 模拟。请在 API 进程环境变量中同时设置
+                  <span className="mono"> AQUANT_COMMISSION_RATE </span>和
+                  <span className="mono"> AQUANT_COMMISSION_MIN_CENTS </span>，然后重启 API。
+                </Callout>
+              )}
+            </>
+          ) : <p className="note">正在读取费率口径…</p>}
 
           {status.watermark && (
             <div style={{ marginTop: 12 }}>

@@ -472,7 +472,10 @@ def resolve_fee_table(snapshot_id: str):
     刻意不提供"跳过检查"的参数：要放行就给佣金，那是一个有记录的动作。
     """
 
-    configured = bool(os.environ.get("AQUANT_COMMISSION_RATE", "").strip())
+    configured = bool(
+        os.environ.get("AQUANT_COMMISSION_RATE", "").strip()
+        and os.environ.get("AQUANT_COMMISSION_MIN_CENTS", "").strip()
+    )
 
     if not configured:
         # 这张表带 synthetic_test_rate 标记；真实快照的模拟入口会拒绝它。

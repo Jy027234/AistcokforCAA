@@ -139,7 +139,8 @@ legacy renegotiation。转载页保留了文号、发布部门、发布日期与
 足以核对费率；但它不是原件，这一点记在档案的 note 里，不假装是原件。
 
 **佣金为什么不做默认值：** 替使用者填一个数字，等于又制造一处
-「看起来有依据的事实」。因此它是显式参数（`AQUANT_COMMISSION_RATE`），
+「看起来有依据的事实」。因此它是显式参数（`AQUANT_COMMISSION_RATE` 与
+`AQUANT_COMMISSION_MIN_CENTS`），
 不给就不许在真实数据上跑；用示例值时必须标
 `commission_source=UNCONFIGURED_DEFAULT`，让「这是个假设」可见。
 

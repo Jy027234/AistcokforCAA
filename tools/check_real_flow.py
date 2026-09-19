@@ -452,12 +452,19 @@ def main() -> int:
     env["PYTHONPATH"] = str(ROOT / "src")
     env["AQUANT_DATA_DIR"] = str(work / "data")
     env["AQUANT_SNAPSHOT_ID"] = SNAPSHOT_ID
-    commission_ready = bool(env.get("AQUANT_COMMISSION_RATE", "").strip())
+    commission_ready = bool(
+        env.get("AQUANT_COMMISSION_RATE", "").strip()
+        and env.get("AQUANT_COMMISSION_MIN_CENTS", "").strip()
+    )
     if commission_ready:
-        print(f"[费率] 使用配置的券商佣金：{env['AQUANT_COMMISSION_RATE']}")
+        print(f"[费率] 使用配置的券商佣金：{env['AQUANT_COMMISSION_RATE']}，"
+              f"最低 {env['AQUANT_COMMISSION_MIN_CENTS']} 分")
     else:
-        print("[费率] 未配置 AQUANT_COMMISSION_RATE；只运行只读与时点检查，"
-              "跳过预览、冻结、执行、估值和分红写路径。")
+        missing = [name for name in (
+            "AQUANT_COMMISSION_RATE", "AQUANT_COMMISSION_MIN_CENTS")
+                   if not env.get(name, "").strip()]
+        print("[费率] 佣金配置不完整（缺少 " + ", ".join(missing)
+              + "）；只运行只读与时点检查，跳过预览、冻结、执行、估值和分红写路径。")
 
     # 分红底仓同样必须在 API 启动前建立；只有对应 EOD 快照和同源决策
     # 快照都存在时才准备它，避免没有证据时靠手工日期制造一条“通过”。

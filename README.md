@@ -46,6 +46,7 @@ $env:AQUANT_COMMISSION_MIN_CENTS='500'       # 最低 5 元
 $env:AQUANT_IDENTITY_MODE='LOCAL_LOOPBACK_DEMO'
 $env:AQUANT_TRIAL_SUBJECT='user:demo'         # 标签，不是共享秘密
 $env:PYTHONPATH='src'
+# 费率在 API 启动时读取；修改环境变量后必须停止并重新启动 API。
 python -m uvicorn main:app --app-dir apps/api --host 127.0.0.1 --port 8000
 ```
 
@@ -268,6 +269,35 @@ python tools\fetch_fee_sources.py    # 抓取并留证（URL + 时间 + 内容�
 合成费率**不得**用于真实数据：`preview` / `freeze` / `execute` / `value` 四个入口都会拦。
 真实快照 + 未配置佣金时 API 仍可启动并提供只读接口；只有依赖费用的模拟与估值入口拒绝。
 配置费率是放行这些入口的唯一方式，不能用开关绕过。
+
+### 真实 S1 试运行怎样录入和复核佣金
+
+佣金是券商与客户的合同参数，没有公开权威值；必须由使用者从自己的券商约定中填写。费率用小数比例表示，
+例如万分之 2.5 写成 `0.00025`；最低佣金用整数分表示，5 元写成 `500`。两个环境变量必须同时设置，
+缺少任意一个时仍只能读真实数据，`trial.ready` 不会放行真实模拟写链路，也不会把缺失的最低佣金当成 0：
+
+```powershell
+$env:AQUANT_COMMISSION_RATE='0.00025'
+$env:AQUANT_COMMISSION_MIN_CENTS='500'
+# 已运行的 API 不会热加载；停止旧进程后，用同一组环境变量重新启动 API。
+```
+
+重启后用 API 回读实际生效的费率和来源：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/fees | ConvertTo-Json -Depth 5
+Invoke-RestMethod http://127.0.0.1:8000/api/v1/readiness | ConvertTo-Json -Depth 8
+```
+
+真实 S1 试运行的硬门槛是 `readiness.trial.ready=true`，而不是顶层 `ready` 或
+`trial` 之外的 `data.readiness=READY`。费率回读应同时显示 `commissionSource=USER_CONFIGURED`、
+`syntheticTestRate=false`、用户填写的 `commissionRate` 和 `commissionMinCents`；
+`commissionSource=UNCONFIGURED_DEFAULT` 表示示例假设，不能当作券商费率。`provenance` 会把印花税和过户费列为
+有出处的规则，把佣金列为 `CONTRACTUAL`（没有权威来源）；它证明的是来源分类，不替用户证明合同数字。
+
+界面不提供券商费率编辑框；在设置页之外按上面的 API 进程环境变量配置，再重启 API。运行状态抽屉与预览拒绝信息应以
+`USER_CONFIGURED` / `FEE_VERSION_UNVERIFIED` 为准。`python tools\check_real_flow.py` 也要求两个变量成对出现；
+不完整时只做只读与时点检查并明确跳过真实写路径。
 
 ## 界面上的数字从哪来
 
