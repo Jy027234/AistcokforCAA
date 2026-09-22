@@ -21,13 +21,14 @@ import { Badge, Callout, Card } from "./ui";
  *      绝不因为"数字看起来正常"就把它显示成已发布。
  */
 export function LedgerPanel({
-  portfolioId, snapshotId, tradingDay, planId, frozen,
+  portfolioId, snapshotId, tradingDay, planId, frozen, persistedPlanStatus,
 }: {
   portfolioId: string;
   snapshotId: string;
   tradingDay: string;
   planId: string | null;
   frozen: boolean;
+  persistedPlanStatus: "FROZEN" | "EXECUTED" | null;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +71,7 @@ export function LedgerPanel({
   const onValue = () =>
     run("日终估值", () => api.value({
       portfolio_id: portfolioId, snapshot_id: snapshotId, trading_day: tradingDay,
+      ...(planId ? { execution_plan_id: planId } : {}),
     }), setValuation);
 
   const onReconcile = () =>
@@ -82,6 +84,7 @@ export function LedgerPanel({
     run("载入账本", () => api.ledger(portfolioId), setLedger);
 
   const stale = executed !== null && valuation === null;
+  const hasExecuted = executed !== null || persistedPlanStatus === "EXECUTED";
 
   return (
     <Card
@@ -100,12 +103,18 @@ export function LedgerPanel({
 
       {frozen && (
         <>
+          {persistedPlanStatus && (
+            <Callout tone="info" title="已从服务端恢复计划">
+              计划 <span className="mono">{planId}</span> 当前状态为 {persistedPlanStatus}；
+              页面刷新不会丢失后续执行、估值和对账入口。
+            </Callout>
+          )}
           <div className="row-actions">
             <button className="btn btn-primary" onClick={onExecute}
-                    disabled={busy !== null || executed !== null}>
-              {busy === "执行" ? "执行中…" : executed ? "本交易日已执行" : "执行本交易日"}
+                    disabled={busy !== null || hasExecuted}>
+              {busy === "执行" ? "执行中…" : hasExecuted ? "本交易日已执行" : "执行本交易日"}
             </button>
-            <button className="btn" onClick={onValue} disabled={busy !== null || !executed}>
+            <button className="btn" onClick={onValue} disabled={busy !== null || !hasExecuted}>
               {busy === "日终估值" ? "估值中…" : "计算日终净值"}
             </button>
             <button className="btn" onClick={onReconcile} disabled={busy !== null}>
@@ -266,6 +275,9 @@ export function LedgerPanel({
           </div>
 
           <dl className="kv">
+            <dt>估值快照</dt><dd className="mono">{valuation.snapshot_id}</dd>
+            <dt>执行计划</dt><dd className="mono">{valuation.execution_plan_id ?? "—"}</dd>
+            <dt>数据截止</dt><dd className="mono">{valuation.as_of}</dd>
             <dt>应收（已确认未到账）</dt>
             <dd className="mono">{formatCents(valuation.receivables_cents)}</dd>
             <dt>冻结现金</dt>

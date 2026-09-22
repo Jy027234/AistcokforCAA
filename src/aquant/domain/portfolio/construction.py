@@ -23,7 +23,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 
 from ..simulation.simulator import Bar, Lot, SimError
@@ -327,10 +327,19 @@ class ValuationResult:
     positions: list[PositionValue]
     invariants: dict
     published: bool
+    # These fields are populated by the persisted portfolio valuation entry
+    # point.  Keeping them on the domain result makes the returned object carry
+    # the same provenance that is written to SQLite.
+    snapshot_id: str | None = None
+    execution_plan_id: str | None = None
+    as_of: datetime | None = None
 
     def as_dict(self) -> dict:
         return {
             "trading_day": self.trading_day.isoformat(),
+            "snapshot_id": self.snapshot_id,
+            "execution_plan_id": self.execution_plan_id,
+            "as_of": self.as_of.isoformat() if self.as_of else None,
             "cash_available_cents": self.cash_available_cents,
             "cash_frozen_cents": self.cash_frozen_cents,
             "receivables_cents": self.receivables_cents,
@@ -403,6 +412,9 @@ def compute_valuation(
     lots: list[Lot] | None = None,
     extra_issues: list[dict] | None = None,
     ledger_invariants: dict[str, bool] | None = None,
+    snapshot_id: str | None = None,
+    execution_plan_id: str | None = None,
+    as_of: datetime | None = None,
 ) -> ValuationResult:
     """§12.8 日终估值与不变量。
 
@@ -491,4 +503,7 @@ def compute_valuation(
         positions=positions,
         invariants=invariants,
         published=not violations,
+        snapshot_id=snapshot_id,
+        execution_plan_id=execution_plan_id,
+        as_of=as_of,
     )

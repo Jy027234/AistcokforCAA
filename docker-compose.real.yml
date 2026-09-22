@@ -24,6 +24,9 @@ services:
         condition: service_healthy
     environment:
       AQUANT_DATA_DIR: /data
+      # 本机透明代理把所有外部域名解析到 fake-IP 网段。仍保留主机名
+      # 白名单、协议、端口、响应体积和逐跳重定向复校。
+      AQUANT_TRUSTED_PROXY_NETWORKS: ${AQUANT_TRUSTED_PROXY_NETWORKS:-}
     healthcheck:
       test:
         - CMD

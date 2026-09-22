@@ -24,6 +24,7 @@ from datetime import datetime
 from typing import Any
 
 from aquant.domain.data.reader import SnapshotReader
+from aquant.domain.research.runs import factor_values_for_snapshot
 
 
 class SnapshotCardReader:
@@ -152,36 +153,5 @@ class SnapshotCardReader:
         与"只读能力"的契约冲突。
         """
 
-        rows = self.con.execute(
-            "SELECT rr.research_run_id, rr.feature_version, rr.status, "
-            "       rr.as_of_time, rr.snapshot_id "
-            "FROM research_run rr WHERE rr.snapshot_id=? "
-            "ORDER BY rr.started_at DESC", (snapshot_id,)).fetchall()
-        if not rows:
-            return [], ("该快照上尚未计算任何因子。"
-                        "如需卡片数值，请在该快照上运行研究作业"
-                        "（POST /api/v1/research/jobs，或 tools/daily_run.py）。")
-
-        out: list[dict] = []
-        for run in rows:
-            values = self.con.execute(
-                "SELECT factor_id, raw_value, cross_sectional_rank, "
-                "       exclusion_reason, coverage_ratio "
-                "FROM feature_value WHERE research_run_id=? AND instrument_id=?",
-                (run["research_run_id"], instrument_id)).fetchall()
-            for v in values:
-                # §10.2：算不出时必须给**原因**，不能给 0 或省略。
-                # 这里把原因一并带出，让上游能如实展示"没进排名"。
-                out.append({
-                    "factor_id": v["factor_id"],
-                    "value": v["raw_value"],
-                    "rank_pct": v["cross_sectional_rank"],
-                    "coverage": v["coverage_ratio"],
-                    "exclusion_reason": v["exclusion_reason"],
-                    "research_run_id": run["research_run_id"],
-                })
-        note = None
-        if not out:
-            note = ("该快照上已登记研究运行，但本标的没有因子值"
-                    "（可能被质量门排除）。详见 exclusion_reason。")
-        return out, note
+        return factor_values_for_snapshot(
+            self.con, snapshot_id=snapshot_id, instrument_id=instrument_id)

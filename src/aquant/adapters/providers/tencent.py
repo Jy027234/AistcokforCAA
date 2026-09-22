@@ -10,11 +10,13 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from urllib.parse import urlsplit
 
 from aquant.adapters.providers.eastmoney import FetchOutcome, _ValidatingRedirectHandler
@@ -34,6 +36,7 @@ from aquant.adapters.providers.resilience import (
 from aquant.domain.data.forward_archive import ForwardArchive
 
 SOURCE_ID = "tencent-ifzq"
+SNAPSHOT_SOURCE_ID = "tencent-qt"
 QUOTE_HOST = "web.ifzq.gtimg.cn"
 SNACK_HOST = "qt.gtimg.cn"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -42,6 +45,7 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 #: 复权参数（腾讯命名）：0 不复权 / 1 前复权 / 2 后复权
 ADJUST_PARAM = {0: "", 1: "qfq", 2: "hfq"}
 PROXY_ENV = "AQUANT_TRUSTED_PROXY_NETWORKS"
+_SNAPSHOT_ROW = re.compile(r'v_((?:sh|sz)\d{6})="([^"]*)";')
 
 
 def default_policy() -> FetchPolicy:
@@ -86,12 +90,13 @@ class TencentClient:
     def fetch(self, url: str, *, label: str = "") -> FetchOutcome:
         requested_at = datetime.now(timezone.utc)
         host = urlsplit(url).hostname or ""
+        source_id = SNAPSHOT_SOURCE_ID if host == SNACK_HOST else SOURCE_ID
 
         try:
             self.breaker.assert_closed()
         except CircuitOpen as exc:
             r = self.archive.record(
-                source_id=SOURCE_ID, url=url, outcome="DENIED", requested_at=requested_at,
+                source_id=source_id, url=url, outcome="DENIED", requested_at=requested_at,
                 detail=f"circuit open, retry after {exc.retry_after_seconds:.0f}s",
             )
             return FetchOutcome(False, None, r.receipt_id, None, r.detail)
@@ -100,7 +105,7 @@ class TencentClient:
             assert_url_allowed(url, self.policy)
         except FetchDenied as exc:
             r = self.archive.record(
-                source_id=SOURCE_ID, url=url, outcome="DENIED", requested_at=requested_at,
+                source_id=source_id, url=url, outcome="DENIED", requested_at=requested_at,
                 detail=f"{exc.reason}: {exc.detail}",
             )
             return FetchOutcome(False, None, r.receipt_id, None, r.detail)
@@ -120,7 +125,7 @@ class TencentClient:
                 self.breaker.record_success()
                 digest, _ = self.archive.store_bytes(body, media_type="application/json")
                 r = self.archive.record(
-                    source_id=SOURCE_ID, url=url, outcome="OK",
+                    source_id=source_id, url=url, outcome="OK",
                     requested_at=requested_at, http_status=status,
                     content_hash=digest, byte_size=len(body), detail=label or None,
                 )
@@ -128,7 +133,7 @@ class TencentClient:
             except FetchDenied as exc:
                 self.breaker.record_failure()
                 r = self.archive.record(
-                    source_id=SOURCE_ID, url=url,
+                    source_id=source_id, url=url,
                     outcome="TOO_LARGE" if exc.reason == "response-too-large" else "DENIED",
                     requested_at=requested_at, detail=f"{exc.reason}: {exc.detail}",
                 )
@@ -137,7 +142,7 @@ class TencentClient:
                 last_detail = f"HTTP {exc.code}"
                 self.breaker.record_failure()
                 r = self.archive.record(
-                    source_id=SOURCE_ID, url=url, outcome="HTTP_ERROR",
+                    source_id=source_id, url=url, outcome="HTTP_ERROR",
                     requested_at=requested_at, http_status=exc.code, detail=last_detail,
                 )
                 return FetchOutcome(False, None, r.receipt_id, None, last_detail, exc.code)
@@ -149,7 +154,7 @@ class TencentClient:
                     self._sleep(self.retry.delay_for(attempt))
                     continue
                 r = self.archive.record(
-                    source_id=SOURCE_ID, url=url, outcome="TRANSPORT_ERROR",
+                    source_id=source_id, url=url, outcome="TRANSPORT_ERROR",
                     requested_at=requested_at,
                     detail=f"{last_detail} (after {attempt} attempts)",
                 )
@@ -157,6 +162,52 @@ class TencentClient:
         return FetchOutcome(False, None, "", None, last_detail)
 
     # ------------------------------------------------------------ endpoints
+    def market_caps(self, symbols: list[str]) -> tuple[FetchOutcome, list[dict]]:
+        """读取一批收盘快照中的总市值。
+
+        腾讯快照字段 30 为行情时间（``YYYYmmddHHMMSS``），字段 44/45
+        分别为流通/总市值，单位亿元。调用方仍须验证行情日期与目标决策日
+        一致；本方法只负责严格解析并保留原始抓取收据。
+        """
+
+        if not symbols or len(symbols) > 80:
+            raise ValueError("market-cap batch needs 1..80 symbols")
+        normalized = [str(symbol).strip().lower() for symbol in symbols]
+        if any(not re.fullmatch(r"(?:sh|sz)\d{6}", symbol)
+               for symbol in normalized):
+            raise ValueError("invalid Tencent market-cap symbol")
+        url = f"https://{SNACK_HOST}/q=" + ",".join(normalized)
+        out = self.fetch(url, label=f"market-caps:{len(normalized)}")
+        if not out.ok or out.payload is None:
+            return out, []
+
+        text = out.payload.decode("gbk", errors="replace")
+        rows: list[dict] = []
+        for match in _SNAPSHOT_ROW.finditer(text):
+            symbol, body = match.groups()
+            fields = body.split("~")
+            if len(fields) <= 45:
+                continue
+            try:
+                cap_yi = Decimal(fields[45])
+                last_price = Decimal(fields[3])
+                market_time = datetime.strptime(fields[30], "%Y%m%d%H%M%S")
+            except (InvalidOperation, ValueError, IndexError):
+                continue
+            if not cap_yi.is_finite() or cap_yi <= 0:
+                continue
+            if not last_price.is_finite() or last_price <= 0:
+                continue
+            exchange = "SH" if symbol.startswith("sh") else "SZ"
+            rows.append({
+                "instrument_id": f"{exchange}.{symbol[2:]}",
+                "symbol": symbol,
+                "market_time": market_time.isoformat(),
+                "last_price_yuan": str(last_price),
+                "market_cap_yuan": str(cap_yi * Decimal("100000000")),
+            })
+        return out, rows
+
     def daily_quotes(self, symbol: str, begin: str, end: str, *,
                      adjust: int = 0) -> tuple[FetchOutcome, list[list[str]]]:
         """日线。symbol 形如 sh600519；adjust: 0 不复权 / 1 qfq / 2 hfq。

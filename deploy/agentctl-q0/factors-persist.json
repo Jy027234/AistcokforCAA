@@ -1,13 +1,17 @@
 {
-  "ran_at": "2026-09-19T21:36:03.031233+08:00",
-  "snapshot_id": "snap-eod-2026-09-18-longcal-20260919",
-  "as_of_time": "2026-09-18T07:00:00+00:00",
-  "research_run_id": "rr-709f2e35f8ca5ed4f9fa1a9b",
+  "ran_at": "2026-09-22T09:43:03.368323+00:00",
+  "snapshot_id": "snap-eod-2026-09-22-ee07b71a6aa24604",
+  "as_of_time": "2026-09-22T07:00:00+00:00",
+  "research_run_id": "rr-07b81ed0a5fbe51b701d312c",
   "factor_id": "F10",
+  "feature_version": "f10-v2",
+  "validity_status": "VALID",
+  "withdrawal_reason": null,
+  "output_hash": "sha256:16774ccedc912b22936a1dfa1a2b7e1257716fdb37fef4b27179d5168fad490e",
   "feature_value_rows": 900,
-  "valued_rows": 832,
+  "valued_rows": 898,
   "exclusion_breakdown": {
-    "TTM 不可得（缺上年同期或口径不成立）": 68
+    "TTM 不可得（缺上年同期或口径不成立）": 2
   },
   "financial_statements": 5397,
   "skipped_statements": 0

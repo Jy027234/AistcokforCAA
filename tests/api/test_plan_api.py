@@ -22,11 +22,12 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 sys.path.insert(0, str(ROOT / "src"))
 
-from main import SNAPSHOT_ID, create_app  # noqa: E402
+from main import SNAPSHOT_ID, _manual_trial_readiness, create_app  # noqa: E402
 from aquant.domain.data.db import write_tx  # noqa: E402
 from aquant.domain.portfolio.plan import PlanError, PlanPreview  # noqa: E402
 
 TRADING_DAY = "2026-09-08"
+VALUATION_DAY = "2026-09-11"
 USER = {"X-Aquant-Subject": "user:alice"}
 
 
@@ -247,6 +248,15 @@ def test_happy_path_preview_confirm_freeze_execute_value(client):
     assert fr.json()["status"] == "FROZEN"
     assert fr.json()["decision"]["decision_type"] == "ACCEPT_MODEL"
 
+    recovered = client.get("/api/v1/plans", params={"portfolio_id": "pf-syn-m"})
+    assert recovered.status_code == 200, recovered.text
+    recovered_plan = recovered.json()["plans"][0]
+    assert recovered_plan["planId"] == pid
+    assert recovered_plan["status"] == "FROZEN"
+    assert recovered_plan["decisionSnapshotId"] == SNAPSHOT_ID
+    assert recovered_plan["executionSnapshotId"] == SNAPSHOT_ID
+    assert recovered_plan["tradingDay"] == TRADING_DAY
+
     logged = client.get("/api/v1/decisions", params={"portfolio_id": "pf-syn-m"})
     assert logged.status_code == 200
     assert logged.json()["count"] == 1
@@ -257,10 +267,14 @@ def test_happy_path_preview_confirm_freeze_execute_value(client):
                      json={"plan_id": pid}, headers=USER)
     assert ex.status_code == 200, ex.text
     assert ex.json()["fills"], "冻结的计划应当成交"
+    assert client.get("/api/v1/plans", params={
+        "portfolio_id": "pf-syn-m",
+    }).json()["plans"][0]["status"] == "EXECUTED"
 
     val = client.post("/api/v1/valuations",
                       json={"portfolio_id": "pf-syn-m", "snapshot_id": SNAPSHOT_ID,
-                            "trading_day": TRADING_DAY})
+                            "execution_plan_id": pid,
+                            "trading_day": VALUATION_DAY})
     assert val.status_code == 200
     assert val.json()["published"] is True
 
@@ -904,6 +918,30 @@ def test_readiness_reports_dimensions_separately(client):
     }
 
 
+def test_partial_optional_data_does_not_block_s1_manual_trial(client):
+    """F10 等增强数据降级时，不能反过来阻断已合格的行情型 S1。"""
+
+    state = client.app.state.aquant
+    # Published snapshot immutable: 这里直接检验 readiness 边界的输入合同，
+    # 不通过修改已发布合成快照制造一个现实中不可能的状态。
+    trial = _manual_trial_readiness(state, {
+        "dataMode": "PRODUCTION",
+        "snapshotId": SNAPSHOT_ID,
+        "readiness": "PARTIAL",
+        "readinessLabel": "数据部分缺失",
+        "blockingIssues": [],
+    })
+    assert "DATA_NOT_READY" not in {
+        item["code"] for item in trial["blockingIssues"]
+    }
+    assert "DECISION_EXECUTION_PAIR_MISSING" in {
+        item["code"] for item in trial["blockingIssues"]
+    }
+    assert "OPTIONAL_DATA_DEGRADED" in {
+        item["code"] for item in trial["operationalWarnings"]
+    }
+
+
 def test_job_endpoints_are_read_only_shapes(client):
     listing = client.get("/api/v1/jobs")
     assert listing.status_code == 200
@@ -982,7 +1020,7 @@ def test_execute_recognises_dividend_receivable_on_ex_date(client):
     # 应收必须体现在估值里，且由服务端从账本读取，而不是由请求传入
     val = client.post("/api/v1/valuations",
                       json={"portfolio_id": "pf-syn-m", "snapshot_id": SNAPSHOT_ID,
-                            "trading_day": TRADING_DAY}).json()
+                            "trading_day": VALUATION_DAY}).json()
     assert val["published"] is True
     assert val["receivables_cents"] == stage["receivable_cents"] > 0
     assert val["net_value_cents"] == (

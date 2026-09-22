@@ -203,6 +203,16 @@ KNOWN_FEATURE_SPECS: dict[str, dict] = {
         "ttm_rule": "当期累计 − 上年同期累计",
         "pit_basis": "RECONSTRUCTED",
         "availability_rule": "公布日之后第一个交易日的盘前",
+        "status": "WITHDRAWN",
+        "withdrawal_reason": "累计报表 TTM 公式漏加上一完整年度",
+    },
+    "f10-v2": {
+        "factor_id": "F10",
+        "formula": "归母净利润TTM / 时点总市值",
+        "ttm_rule": "上一完整年度 + 本年累计 − 上年同期累计；Q4 直接使用年度值",
+        "pit_basis": "RECONSTRUCTED",
+        "availability_rule": "公布日之后第一个交易日的盘前",
+        "status": "ACTIVE",
     },
 }
 

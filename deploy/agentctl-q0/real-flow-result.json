@@ -1,15 +1,196 @@
 {
-  "decision_snapshot_id": null,
-  "execution_snapshot_id": null,
-  "trading_day": null,
-  "portfolio_id": null,
-  "selected_instrument_id": null,
-  "checks": [],
-  "skips": [
+  "decision_snapshot_id": "snap-eod-2026-09-18-longcal-20260919",
+  "execution_snapshot_id": "snap-eod-2026-09-21-45b87f24cfb64550",
+  "trading_day": "2026-09-21",
+  "portfolio_id": "pf-real-m",
+  "selected_instrument_id": "SH.601169",
+  "checks": [
     {
-      "name": "真实双快照",
-      "detail": "无法选择满足 S1 门禁的已发布快照对：没有在执行日开盘前实际发布且满足 S1 计算条件的决策快照"
+      "name": "状态可读",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "name": "快照 ID 正确",
+      "ok": true,
+      "detail": "snap-eod-2026-09-21-45b87f24cfb64550"
+    },
+    {
+      "name": "数据模式为真实数据",
+      "ok": true,
+      "detail": "PRODUCTION"
+    },
+    {
+      "name": "真实数据带水印",
+      "ok": true,
+      "detail": "REAL MARKET DATA, RECONSTRUCTED POINT-IN-TIME -- NOT VALID FOR FORMAL PIT BACKTESTS"
+    },
+    {
+      "name": "候选绑定决策快照",
+      "ok": true,
+      "detail": "snap-eod-2026-09-18-longcal-20260919"
+    },
+    {
+      "name": "候选非空",
+      "ok": true,
+      "detail": "899 只"
+    },
+    {
+      "name": "候选全部来自真实池",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "存在可模拟（沪深主板）候选",
+      "ok": true,
+      "detail": "300 只"
+    },
+    {
+      "name": "成长板块候选被标为不可模拟",
+      "ok": true,
+      "detail": "GEM/STAR 应不可模拟"
+    },
+    {
+      "name": "模型基线预览成功",
+      "ok": true,
+      "detail": "{\"plan_id\": \"plan_1b6c9aa79ccd415a84ff\", \"portfolio_id\": \"pf-real-m\", \"snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_c"
+    },
+    {
+      "name": "人工点选预览成功",
+      "ok": true,
+      "detail": "{\"plan_id\": \"plan_0f0f75595ec64a57bcef\", \"portfolio_id\": \"pf-real-m\", \"snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_c"
+    },
+    {
+      "name": "人工预览只包含点选标的",
+      "ok": true,
+      "detail": "selected=SH.601169 planned=['SH.601169']"
+    },
+    {
+      "name": "参考价日早于执行日",
+      "ok": true,
+      "detail": "2026-09-18 < 2026-09-21"
+    },
+    {
+      "name": "预览未冻结",
+      "ok": true,
+      "detail": "False"
+    },
+    {
+      "name": "有订单或全部有排除原因",
+      "ok": true,
+      "detail": "orders=1 excluded=0"
+    },
+    {
+      "name": "预估费用非负",
+      "ok": true,
+      "detail": "2593"
+    },
+    {
+      "name": "签发令牌",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "name": "冻结成功",
+      "ok": true,
+      "detail": "{\"plan_id\": \"plan_0f0f75595ec64a57bcef\", \"status\": \"FROZEN\", \"decision_snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_cutoff_at\": \"2026-09-18T07:00:00+00:00\", \"execution_snapshot_id\":"
+    },
+    {
+      "name": "冻结记录人工修改决策",
+      "ok": true,
+      "detail": "{\"decision_id\": \"dec-plan_0f0f75595ec64a57bcef\", \"decision_type\": \"MODIFY_MODEL\", \"diff\": {\"comparable\": true, \"identical\": false, \"changed_keys\": [\"cash_after_cents\", \"estimated_fees_cents\", \"orders\""
+    },
+    {
+      "name": "人工决策已持久化并绑定计划",
+      "ok": true,
+      "detail": "[{\"decision_id\": \"dec-plan_0f0f75595ec64a57bcef\", \"portfolio_id\": \"pf-real-m\", \"plan_id\": \"plan_0f0f75595ec64a57bcef\", \"snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_type\": \"MODIFY_M"
+    },
+    {
+      "name": "执行成功",
+      "ok": true,
+      "detail": "{\"plan_id\": \"plan_0f0f75595ec64a57bcef\", \"status\": \"EXECUTED\", \"trading_day\": \"2026-09-21\", \"decision_snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_cutoff_at\": \"2026-09-18T07:00:00+0"
+    },
+    {
+      "name": "执行结果自洽：成交+未成交=订单数",
+      "ok": true,
+      "detail": "fills=1 rejections=0"
+    },
+    {
+      "name": "成交价为正整数分",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "成交数量为正整数",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "估值成功",
+      "ok": true,
+      "detail": "{\"trading_day\": \"2026-09-21\", \"snapshot_id\": \"snap-eod-2026-09-21-45b87f24cfb64550\", \"execution_plan_id\": \"plan_0f0f75595ec64a57bcef\", \"as_of\": \"2026-09-21T07:00:00+00:00\", \"cash_available_cents\": 900"
+    },
+    {
+      "name": "净值恒等式成立",
+      "ok": true,
+      "detail": "100051421 vs 100051421"
+    },
+    {
+      "name": "净值已发布",
+      "ok": true,
+      "detail": "True"
+    },
+    {
+      "name": "对账成功",
+      "ok": true,
+      "detail": "{\"portfolio_id\": \"pf-real-m\", \"cash_cents\": 90079421, \"positions\": {\"SH.601169\": 18000}, \"receivables_cents\": 0, \"fill_count\": 1, \"fees_total_cents\": 2579, \"invariants\": {\"fill_le_order\": true, \"fees_"
+    },
+    {
+      "name": "对账结论为一致",
+      "ok": true,
+      "detail": "{\"portfolio_id\": \"pf-real-m\", \"cash_cents\": 90079421, \"positions\": {\"SH.601169\": 18000}, \"receivables_cents\": 0, \"fill_count\": 1, \"fees_total_cents\": 2579, \"invariants\": {\"fill_le_order\": true, \"fees_"
+    },
+    {
+      "name": "现金与账本一致",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "应收与账本一致",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "不变量 fill_le_order",
+      "ok": true,
+      "detail": "True"
+    },
+    {
+      "name": "不变量 fees_booked_once",
+      "ok": true,
+      "detail": "True"
+    },
+    {
+      "name": "不变量 cash_lines_sum_to_balance",
+      "ok": true,
+      "detail": "True"
+    },
+    {
+      "name": "不变量 lots_match_fills",
+      "ok": true,
+      "detail": "True"
+    },
+    {
+      "name": "合成快照 ID 被拒绝",
+      "ok": true,
+      "detail": "404"
     }
   ],
-  "conclusion": "ENV_NOT_READY"
+  "skips": [
+    {
+      "name": "真实分红闭环",
+      "detail": "没有 2026-06-26 对应的同源已发布 EOD 快照；独立验证见 tests/golden/test_dividend_persistence.py"
+    }
+  ],
+  "conclusion": "PASS_WITH_SKIPS"
 }

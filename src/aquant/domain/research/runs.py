@@ -31,6 +31,86 @@ from typing import Callable
 from ..data.db import write_tx
 
 
+# 只作为迁移前调用方的兼容回退。正常读取必须以 feature_version 表为准，
+# 这样撤回状态不会随着 Python 发布包变化而丢失。
+LEGACY_WITHDRAWN_FEATURE_VERSIONS: dict[str, str] = {
+    "f10-v1": "F10 v1 的累计报表 TTM 公式漏加上一完整年度，结果已撤回",
+}
+
+
+def feature_version_metadata(con: sqlite3.Connection,
+                             feature_version: str | None) -> dict | None:
+    """读取持久化的特征版本登记。"""
+
+    if not feature_version:
+        return None
+    row = con.execute(
+        "SELECT feature_version, factor_id, status, validity_status, "
+        "withdrawal_reason, registered_at, notes "
+        "FROM feature_version WHERE feature_version=?", (feature_version,)
+    ).fetchone()
+    return dict(row) if row is not None else None
+
+
+def feature_version_withdrawal_reason(
+        feature_version: str | None,
+        con: sqlite3.Connection | None = None) -> str | None:
+    """返回撤回理由；有连接时以数据库注册状态为唯一事实来源。"""
+
+    if con is not None:
+        metadata = feature_version_metadata(con, feature_version)
+        return (str(metadata["withdrawal_reason"])
+                if metadata and metadata.get("withdrawal_reason") else None)
+    return LEGACY_WITHDRAWN_FEATURE_VERSIONS.get(feature_version or "")
+
+
+def research_run_metadata(con: sqlite3.Connection,
+                          research_run_id: str) -> dict | None:
+    """返回研究运行及其科学有效性，供显式 run_id 读取和 API 留痕。"""
+
+    row = con.execute(
+        "SELECT rr.research_run_id, rr.feature_version, rr.status, "
+        "       rr.output_hash, fv.status AS version_status, "
+        "       COALESCE(rv.validity_status, fv.validity_status, 'UNVERIFIED') "
+        "           AS validity_status, "
+        "       COALESCE(rv.withdrawal_reason, fv.withdrawal_reason) "
+        "           AS withdrawal_reason "
+        "FROM research_run AS rr "
+        "LEFT JOIN feature_version AS fv "
+        "  ON fv.feature_version=rr.feature_version "
+        "LEFT JOIN research_run_feature_validity AS rv "
+        "  ON rv.research_run_id=rr.research_run_id "
+        "WHERE rr.research_run_id=?", (research_run_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    out = dict(row)
+    # A legacy database without the migration can still be read explicitly;
+    # it is never considered valid for the default snapshot view.
+    if not out.get("withdrawal_reason"):
+        out["withdrawal_reason"] = feature_version_withdrawal_reason(
+            out.get("feature_version"))
+    return out
+
+
+def _ensure_feature_version(con: sqlite3.Connection,
+                            feature_version: str) -> dict:
+    """登记未知版本为 UNVERIFIED，避免运行与版本状态脱钩。"""
+
+    metadata = feature_version_metadata(con, feature_version)
+    if metadata is None:
+        con.execute(
+            "INSERT INTO feature_version "
+            "(feature_version, factor_id, status, validity_status, "
+            " withdrawal_reason, registered_at, notes) "
+            "VALUES (?,NULL,'UNVERIFIED','UNVERIFIED',NULL,?,?)",
+            (feature_version, _now(), "运行创建时发现，尚未完成科学有效性登记"),
+        )
+        metadata = feature_version_metadata(con, feature_version)
+    assert metadata is not None
+    return metadata
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -96,6 +176,8 @@ def create_research_run(con: sqlite3.Connection, *, snapshot_id: str,
                         (snapshot_id,)).fetchone()
     if known is None:
         raise KeyError("unknown snapshot " + repr(snapshot_id))
+    if not feature_version:
+        raise ValueError("feature_version is required")
 
     run_id = "rr-" + hashlib.sha256(
         (snapshot_id + "|" + as_of_time.isoformat() + "|" + feature_version)
@@ -104,12 +186,31 @@ def create_research_run(con: sqlite3.Connection, *, snapshot_id: str,
     with write_tx(con):
         if write_guard is not None:
             write_guard()
+        version = _ensure_feature_version(con, feature_version)
         con.execute(
-            "INSERT OR REPLACE INTO research_run (research_run_id,experiment_id,"
+            "INSERT INTO research_run (research_run_id,experiment_id,"
             "snapshot_id,as_of_time,code_version,strategy_version,feature_version,"
-            "started_at,status,notes) VALUES (?,?,?,?,?,?,?,?,'RUNNING',?)",
+            "started_at,status,notes) VALUES (?,?,?,?,?,?,?,?,'RUNNING',?) "
+            "ON CONFLICT(research_run_id) DO UPDATE SET "
+            "experiment_id=excluded.experiment_id, snapshot_id=excluded.snapshot_id, "
+            "as_of_time=excluded.as_of_time, code_version=excluded.code_version, "
+            "strategy_version=excluded.strategy_version, "
+            "feature_version=excluded.feature_version, started_at=excluded.started_at, "
+            "status='RUNNING', finished_at=NULL, output_hash=NULL, notes=excluded.notes",
             (run_id, experiment_id, snapshot_id, as_of_time.isoformat(),
              code_version, strategy_version, feature_version, _now(), notes))
+        con.execute(
+            "INSERT INTO research_run_feature_validity "
+            "(research_run_id,feature_version,validity_status,withdrawal_reason,"
+            " associated_at) VALUES (?,?,?,?,?) "
+            "ON CONFLICT(research_run_id) DO UPDATE SET "
+            "feature_version=excluded.feature_version, "
+            "validity_status=excluded.validity_status, "
+            "withdrawal_reason=excluded.withdrawal_reason, "
+            "associated_at=excluded.associated_at",
+            (run_id, feature_version, version["validity_status"],
+             version.get("withdrawal_reason"), _now()),
+        )
     return run_id
 
 
@@ -158,12 +259,14 @@ def store_factor_values(con: sqlite3.Connection, *, research_run_id: str,
             (_now(), _output_hash(values), research_run_id))
 
     counted = sum(1 for v in values if v.raw_value is not None)
+    output_hash = _output_hash(values)
     return {
         "research_run_id": research_run_id,
         "stored": len(values),
         "valued": counted,
         "excluded": len(values) - counted,
         "factors": sorted(by_factor),
+        "output_hash": output_hash,
     }
 
 
@@ -213,11 +316,28 @@ def factor_values_for_snapshot(con: sqlite3.Connection, *, snapshot_id: str,
     调用方要如实展示原因，不能显示成"值为空"。
     """
 
-    run = con.execute(
-        "SELECT research_run_id, feature_version, status, started_at "
-        "FROM research_run WHERE snapshot_id=? AND status='SUCCEEDED' "
-        "ORDER BY started_at DESC LIMIT 1", (snapshot_id,)).fetchone()
+    runs = con.execute(
+        "SELECT rr.research_run_id, rr.feature_version, rr.status, rr.started_at, "
+        "       fv.status AS version_status, rv.validity_status, "
+        "       COALESCE(rv.withdrawal_reason, fv.withdrawal_reason) "
+        "           AS withdrawal_reason "
+        "FROM research_run AS rr "
+        "JOIN research_run_feature_validity AS rv "
+        "  ON rv.research_run_id=rr.research_run_id "
+        "JOIN feature_version AS fv ON fv.feature_version=rv.feature_version "
+        "WHERE rr.snapshot_id=? AND rr.status='SUCCEEDED' "
+        "ORDER BY rr.started_at DESC", (snapshot_id,)).fetchall()
+    run = next((candidate for candidate in runs
+                if candidate["version_status"] == "ACTIVE"
+                and candidate["validity_status"] == "VALID"), None)
     if run is None:
+        if runs:
+            retired = sorted({str(r["feature_version"]) for r in runs
+                              if r["validity_status"] == "WITHDRAWN"})
+            if retired:
+                return [], ("该快照只有已撤回的因子版本：" + ", ".join(retired)
+                            + "。请用当前公式重新运行因子作业；旧记录仅供审计。")
+            return [], "该快照上的因子运行尚未通过科学有效性校验；请使用当前有效版本重新运行。"
         any_run = con.execute(
             "SELECT COUNT(*) FROM research_run WHERE snapshot_id=?",
             (snapshot_id,)).fetchone()[0]
@@ -242,6 +362,9 @@ def factor_values_for_snapshot(con: sqlite3.Connection, *, snapshot_id: str,
             "instrument_id": r["instrument_id"],
             "research_run_id": run["research_run_id"],
             "factor_id": r["factor_id"],
+            "feature_version": run["feature_version"],
+            "validity_status": run["validity_status"],
+            "withdrawal_reason": run["withdrawal_reason"],
             # 视图层的命名约定（见 build_research_card 的 breakdown）
             "value": r["raw_value"],
             "rank_pct": r["cross_sectional_rank"],

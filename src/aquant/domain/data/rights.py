@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import date
 from enum import Enum
 
-REGISTER_VERSION = "2026-09-19"
+REGISTER_VERSION = "2026-09-20"
 
 #: 使用者授权日期。与 REGISTER_VERSION 分开记录：
 #: 登记表整体更新与某一项被授权是两件事，混在一起日后无法追溯。
@@ -73,9 +73,16 @@ _FIELDS = ("research_use", "local_storage", "model_processing",
 
 
 def _entry(source_id: str, *, allowed: tuple[str, ...], basis: Basis,
+           prohibited: tuple[str, ...] = (),
            note: str = "", decided: str = REGISTER_VERSION) -> RightsEntry:
-    rights = {f: (Rights.ALLOWED if f in allowed else Rights.UNKNOWN)
-              for f in _FIELDS}
+    overlap = set(allowed) & set(prohibited)
+    if overlap:
+        raise ValueError(f"rights cannot be both allowed and prohibited: {sorted(overlap)}")
+    rights = {
+        f: (Rights.ALLOWED if f in allowed else
+            Rights.PROHIBITED if f in prohibited else Rights.UNKNOWN)
+        for f in _FIELDS
+    }
     return RightsEntry(source_id=source_id, rights=rights, basis=basis,
                        decided_on=date.fromisoformat(decided), note=note)
 
@@ -175,10 +182,14 @@ def default_rights() -> RightsRegistry:
                basis=Basis.TERMS_NOT_REVIEWED,
                note=("免费 S2 结构化候选；项目声明仅供学习交流，"
                      "字段、PIT、修订、缺失语义与使用范围尚未完成验收")),
-        _entry("sina-financial", allowed=(),
-               basis=Basis.TERMS_NOT_REVIEWED,
-               note=("新浪三表 HTML 免费候选；与既有 sina-hq 行情端点分开登记，"
-                     "财务页面条款、PIT、修订和稳定性尚未验收")),
+        _entry(
+            "sina-financial", allowed=(),
+            prohibited=("commercial_use", "third_party_redistribution"),
+            basis=Basis.TERMS_REVIEWED,
+            note=("2026-09-20 复核《新浪财经用户协议》6.1/6.2：未经书面许可"
+                  "不得商业使用或向第三方提供相关数据；研究使用、本地保存、"
+                  "片段展示和模型处理仍无明确许可，保持 UNKNOWN"),
+        ),
         _entry("synthetic-fixture", allowed=_FIELDS,
                basis=Basis.WRITTEN_LICENSE,
                note="本资料包自带的合成数据，可用于任何用途包括模型处理"),

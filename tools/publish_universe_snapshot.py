@@ -36,6 +36,10 @@ def main() -> int:
     ap.add_argument("--window", type=int, default=None)
     ap.add_argument("--financials", default=None)
     ap.add_argument("--actions", default=None)
+    ap.add_argument("--market-caps", default=None,
+                    help="决策日总市值 sidecar（默认 deploy/agentctl-q0/decision-market-caps.json）")
+    ap.add_argument("--check-market-caps", action="store_true",
+                    help="启用决策日总市值覆盖率质量检查；缺失时拒绝严格发布")
     ap.add_argument("--allow-degraded", action="store_true",
                     help="允许质量检查未通过的快照发布（仍记录检查结果）")
     ap.add_argument("--defer-promotion", action="store_true",
@@ -56,6 +60,8 @@ def main() -> int:
             window=args.window,
             financials_path=args.financials,
             actions_path=args.actions,
+            market_caps_path=args.market_caps,
+            check_market_caps=args.check_market_caps,
             strict_quality=not args.allow_degraded,
             promote=not args.defer_promotion,
         )

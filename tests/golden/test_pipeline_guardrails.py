@@ -151,3 +151,156 @@ def test_cache_last_day_survives_a_corrupt_cache(tmp_path):
     cache = tmp_path / "broken.json"
     cache.write_text("{not json", encoding="utf-8")
     assert _daily_run_module(cache)._cache_last_day() is None
+
+
+def test_daily_run_layers_optional_financial_quality_below_s1(tmp_path):
+    """F10 财务检查失败只应降级，S1 所需行情检查仍需完整。"""
+
+    import json
+
+    cache = tmp_path / "bars.json"
+    cache.write_text(json.dumps({"bars": {}}), encoding="utf-8")
+    module = _daily_run_module(cache)
+    checks = [
+        {"name": name, "ok": True, "detail": ""}
+        for name in module._S1_REQUIRED_CHECKS
+    ]
+    checks.append({"name": "财务缓存存在", "ok": False,
+                   "detail": "missing optional cache"})
+    report = tmp_path / "snapshot-publish.json"
+    report.write_text(json.dumps({"snapshot_id": "snap-1", "checks": checks}),
+                      encoding="utf-8")
+
+    quality = module._read_snapshot_quality(report, snapshot_id="snap-1")
+
+    assert quality.core_ok
+    assert quality.degraded
+    assert [item["name"] for item in quality.financial_failures] == ["财务缓存存在"]
+
+
+def test_daily_run_layers_unreadable_financial_cache_below_s1(tmp_path):
+    """财务缓存已存在但不可解析时，仍必须只形成 F10 降级。"""
+
+    import json
+
+    cache = tmp_path / "bars.json"
+    cache.write_text(json.dumps({"bars": {}}), encoding="utf-8")
+    module = _daily_run_module(cache)
+    checks = [
+        {"name": name, "ok": True, "detail": ""}
+        for name in module._S1_REQUIRED_CHECKS
+    ]
+    checks.append({
+        "name": "财务缓存存在",
+        "ok": False,
+        "detail": "无法读取或解析财务缓存：invalid JSON",
+    })
+    report = tmp_path / "snapshot-publish.json"
+    report.write_text(json.dumps({"snapshot_id": "snap-1", "checks": checks}),
+                      encoding="utf-8")
+
+    quality = module._read_snapshot_quality(report, snapshot_id="snap-1")
+
+    assert quality.core_ok
+    assert quality.degraded
+    assert quality.financial_failures[0]["detail"].startswith("无法读取或解析财务缓存")
+
+
+def test_daily_run_keeps_price_gate_blocking_even_when_f10_is_degraded(tmp_path):
+    """不能用财务降级开关放过 S1 的前复权价质量失败。"""
+
+    import json
+
+    cache = tmp_path / "bars.json"
+    cache.write_text(json.dumps({"bars": {}}), encoding="utf-8")
+    module = _daily_run_module(cache)
+    checks = [
+        {"name": name, "ok": name != "前复权收盘价覆盖率 >= 99%",
+         "detail": "0/100" if name == "前复权收盘价覆盖率 >= 99%" else ""}
+        for name in module._S1_REQUIRED_CHECKS
+    ]
+    checks.append({"name": "财务数据覆盖池内标的 >= 90%", "ok": False,
+                   "detail": "0/100"})
+    report = tmp_path / "snapshot-publish.json"
+    report.write_text(json.dumps({"snapshot_id": "snap-1", "checks": checks}),
+                      encoding="utf-8")
+
+    quality = module._read_snapshot_quality(report, snapshot_id="snap-1")
+
+    assert not quality.core_ok
+    assert quality.degraded
+    assert any(item["name"] == "前复权收盘价覆盖率 >= 99%"
+               for item in quality.core_failures)
+
+
+def test_daily_run_refuses_to_promote_without_a_complete_quality_report(tmp_path):
+    """质量报告缺失/错配时必须失败关闭，避免切换半成品快照。"""
+
+    import json
+
+    cache = tmp_path / "bars.json"
+    cache.write_text(json.dumps({"bars": {}}), encoding="utf-8")
+    module = _daily_run_module(cache)
+    report = tmp_path / "snapshot-publish.json"
+    report.write_text(json.dumps({"snapshot_id": "other", "checks": []}),
+                      encoding="utf-8")
+
+    quality = module._read_snapshot_quality(report, snapshot_id="snap-1")
+
+    assert not quality.core_ok
+    assert any("ID 不匹配" in item["name"] for item in quality.core_failures)
+    assert any("缺少 S1 核心检查" in item["name"]
+               for item in quality.core_failures)
+
+
+def test_daily_run_treats_missing_market_cap_as_optional_f10_degradation(tmp_path):
+    import json
+
+    cache = tmp_path / "bars.json"
+    cache.write_text(json.dumps({"bars": {}}), encoding="utf-8")
+    module = _daily_run_module(cache)
+    checks = [
+        {"name": name, "ok": True, "detail": ""}
+        for name in module._S1_REQUIRED_CHECKS
+    ]
+    checks.append({"name": "决策日总市值覆盖率 >= 90%", "ok": False,
+                   "detail": "0/900；sidecar 缺失"})
+    report = tmp_path / "snapshot-publish.json"
+    report.write_text(json.dumps({"snapshot_id": "snap-1", "checks": checks}),
+                      encoding="utf-8")
+
+    quality = module._read_snapshot_quality(report, snapshot_id="snap-1")
+
+    assert quality.core_ok
+    assert quality.degraded
+    assert quality.financial_failures[0]["name"] == "决策日总市值覆盖率 >= 90%"
+
+
+def test_daily_run_rejects_empty_or_wrong_version_factor_report(tmp_path):
+    import json
+
+    cache = tmp_path / "bars.json"
+    cache.write_text(json.dumps({"bars": {}}), encoding="utf-8")
+    module = _daily_run_module(cache)
+    report = tmp_path / "factors.json"
+    report.write_text(json.dumps({
+        "snapshot_id": "snap-1",
+        "feature_version": "f10-v1",
+        "validity_status": "WITHDRAWN",
+        "output_hash": "sha256:old",
+        "feature_value_rows": 900,
+        "valued_rows": 832,
+    }), encoding="utf-8")
+    assert "特征版本无效" in module._factor_report_problem(
+        report, snapshot_id="snap-1")
+
+    report.write_text(json.dumps({
+        "snapshot_id": "snap-1",
+        "feature_version": "f10-v2",
+        "validity_status": "VALID",
+        "output_hash": "sha256:new",
+        "feature_value_rows": 900,
+        "valued_rows": 0,
+    }), encoding="utf-8")
+    assert "没有任何可用数值" in module._factor_report_problem(
+        report, snapshot_id="snap-1")

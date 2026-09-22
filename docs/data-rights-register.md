@@ -173,7 +173,7 @@ legacy renegotiation。转载页保留了文号、发布部门、发布日期与
 |---|---|---|---|---|---|---|---|
 | `tushare-pro` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | 付费权限不可接受，当前产品不采用；保留历史登记 |
 | `mootdx-tdx` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | 免费结构化财务候选；项目声明仅供学习交流，字段、PIT、修订与使用范围待验收 |
-| `sina-financial` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | 新浪三表 HTML 候选；与已授权的 `sina-hq` 行情端点分开登记，财务页面条款尚未审阅 |
+| `sina-financial` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `PROHIBITED` | `PROHIBITED` | 2026-09-20 复核[《新浪财经用户协议》](https://finance.sina.com.cn/roll/2021-05-12/doc-ikmxzfmm2033220.shtml)第 6.1/6.2 条：未经书面许可不得商业使用或向第三方提供相关数据；其余用途未取得明确许可，保持 `UNKNOWN` |
 | `akshare-upstream` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | AKShare 软件仓库与上游数据源必须分别核验；仓库声明仅供学术研究和参考 |
 | `efinance-upstream` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | 项目 README 有个人学习交流及非商业限制；上游数据权利仍需单独核验 |
 | `easyquotation-upstream` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | `UNKNOWN` | 实时行情候选，尚未进入 S2；数据源条款未核验 |

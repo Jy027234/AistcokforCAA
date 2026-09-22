@@ -14,7 +14,7 @@ import { LedgerPanel } from "../components/LedgerPanel";
  */
 export function PortfolioView({
   data, onConfirm, onRequestPreview, livePreview, apiUp, confirming, confirmResult,
-  frozenPlanId, snapshots, timing, onTimingChange,
+  frozenPlanId, persistedPlanStatus, snapshots, timing, onTimingChange,
   planCandidates, selectedInstrumentIds, onPlanSelectionChange,
 }: {
   data: WorkspaceData;
@@ -26,6 +26,7 @@ export function PortfolioView({
   confirmResult: { ok: boolean; message: string } | null;
   /** 已成功冻结的计划 ID；为空表示还没有可执行的计划。 */
   frozenPlanId: string | null;
+  persistedPlanStatus: "FROZEN" | "EXECUTED" | null;
   snapshots: PublishedSnapshot[];
   timing: PlanTimingSelection | null;
   onTimingChange: (role: "decision" | "execution", snapshotId: string) => void;
@@ -225,6 +226,7 @@ export function PortfolioView({
             tradingDay={timing?.tradingDay ?? data.draft.tradingDay}
             planId={frozenPlanId}
             frozen={frozenPlanId !== null}
+            persistedPlanStatus={persistedPlanStatus}
           />
         )}
       </Section>

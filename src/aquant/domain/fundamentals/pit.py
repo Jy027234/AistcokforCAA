@@ -124,9 +124,10 @@ class FinancialsStore:
         口径（T9 实测）：BaoStock 的 netProfit 是**年内累计**，
         因此某期累计值 = 该年期初到该期末。TTM 用规范 §10.1 的规则：
 
-            最近完整年度值 + 当年累计值 − 上年同期累计值
+            上一完整年度值 + 当年累计值 − 上年同期累计值
 
-        Q1 的"上年同期累计区间"起点是年初，故该项为 0。
+        Q1--Q3 必须同时能看到上一完整年度和上年同期；任一缺失都不能
+        用 0 或季累加替代。Q4 直接使用当年年报值。
         """
 
         rows = self.available_statements(instrument_id, as_of=as_of)
@@ -139,42 +140,25 @@ class FinancialsStore:
         for s in rows:
             by_period[s.period_key] = s
 
-        # 数据质量闸门只作用于**同一自然年内的累计序列**，且只用于
-        # 判断"该字段是否真的是累计口径"。
-        #
-        # 注意不要把 Q4 与 Q3 的比较当成违规：Q4 是**年报**，
-        # 经审计并可能重述，它与三季报的关系不必满足累计递推。
-        # 我第一版把这种情况判为"累计口径不成立"并拒算，
-        # 结果覆盖率被压到 8.4%——是逻辑过严，不是数据差。
-        interim = [s for s in rows if s.stat_date.year == year
-                   and s.period_key[1] < 4 and s.net_profit_micros is not None]
-        interim.sort(key=lambda s: s.stat_date)
-        for earlier, later in zip(interim, interim[1:]):
-            if abs(later.net_profit_micros) < abs(earlier.net_profit_micros):
-                return None
-
-        # TTM 的正确表述是"最近连续 12 个月的累计"：
-        #
-        #   当期累计 − 上年同期累计
-        #
-        # 因为当期累计覆盖"年初到当期期末"，上年同期累计覆盖"年初到上年同期末"，
-        # 两者相减恰好剩下中间的 12 个月。这个式子对所有季度都成立。
-        #
-        # 唯一不需要相减的是 Q4：它本身就是完整的 12 个月，
-        # 而且**年报经过审计、可能重述**，比用三季报推导更权威。
-        # 因此 Q4 直接取全年值，也不要求有上年数据。
+        # TTM 的正确表述是"最近连续 12 个月的累计"：上一完整年度加上
+        # 当年累计，再减去上年同期累计。不要用同一年内累计值的绝对值
+        # 单调性作数据质量闸门；后续季度亏损可以让累计值下降。
         if latest.net_profit_micros is None:
             return None
         if quarter == 4:
             ttm = latest.net_profit_micros
             basis = f"{year} 年报即完整 12 个月"
         else:
+            prior_annual = by_period.get((year - 1, 4))
             prev_same = by_period.get((year - 1, quarter))
-            if prev_same is None or prev_same.net_profit_micros is None:
+            if (prior_annual is None or prior_annual.net_profit_micros is None
+                    or prev_same is None or prev_same.net_profit_micros is None):
                 return None
-            ttm = latest.net_profit_micros - prev_same.net_profit_micros
-            basis = (f"{year}Q{quarter} 累计 − {year - 1}Q{quarter} 累计"
-                     "（最近连续 12 个月）")
+            ttm = (prior_annual.net_profit_micros
+                   + latest.net_profit_micros
+                   - prev_same.net_profit_micros)
+            basis = (f"{year - 1} 年报 + {year}Q{quarter} 累计"
+                     f" − {year - 1}Q{quarter} 累计（最近连续 12 个月）")
 
         return {
             "instrument_id": instrument_id,

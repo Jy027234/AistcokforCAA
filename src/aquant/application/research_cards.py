@@ -10,8 +10,9 @@
   * 决策日志里的"当时依据"无从对照。§11.3 要求保存模型原方案与人工差异，
     如果卡片不留存，事后复盘只能靠记忆。
 
-因此卡片按 (instrument_id, snapshot_id, trading_day) 冻结：
-同一天同一快照同一标的重复打开得到**同一张**卡片，时间戳不刷新。
+因此卡片按 (instrument_id, snapshot_id, trading_day, research_basis) 冻结：
+同一天同一快照同一标的、同一研究版本重复打开得到**同一张**卡片，时间戳
+不刷新；公式修订产生新的研究运行和新卡片，旧卡仍保留供审计。
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ import sqlite3
 from datetime import date, datetime, timezone
 
 from aquant.domain.data.db import write_tx
+from aquant.domain.research.runs import feature_version_withdrawal_reason
 
 
 def _payload_json(payload: dict) -> str:
@@ -30,19 +32,28 @@ def _payload_json(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def research_card_id(instrument_id: str, snapshot_id: str, trading_day: date) -> str:
+def research_card_id(instrument_id: str, snapshot_id: str, trading_day: date,
+                     *, research_basis: str | None = None) -> str:
     """卡片的稳定标识。
 
-    刻意**不含生成时刻**：含了就等于"每次打开都是新卡片"，
-    而我们要的恰恰是同一天同一快照只有一份证据。
+    刻意**不含生成时刻**：含了就等于"每次打开都是新卡片"。
+    ``research_basis`` 只在研究公式或运行变化时改变，防止已撤回版本冻结的
+    卡片遮住修正后的结果。
     """
 
-    return f"card-{instrument_id}-{snapshot_id}-{trading_day.isoformat()}"
+    base = f"card-{instrument_id}-{snapshot_id}-{trading_day.isoformat()}"
+    if research_basis is None:
+        return base
+    # 新因子版本或新研究运行必须产生新卡片；旧卡片仍保留为当时所见证据。
+    # 只放短哈希，避免把任意上游标识直接拼进业务主键。
+    suffix = hashlib.sha256(research_basis.encode("utf-8")).hexdigest()[:12]
+    return f"{base}-basis-{suffix}"
 
 
 def persist_card(con: sqlite3.Connection, *, snapshot_id: str, trading_day: date,
                  card: dict, data_mode: str,
-                 research_run_id: str | None = None) -> dict:
+                 research_run_id: str | None = None,
+                 research_basis: str | None = None) -> dict:
     """把一张卡片落库。已存在则原样返回已存的那份。
 
     **不覆盖**已存在的卡片：它是"当时看到的证据"，事后被后来的数据盖掉，
@@ -54,7 +65,8 @@ def persist_card(con: sqlite3.Connection, *, snapshot_id: str, trading_day: date
     """
 
     instrument_id = card["instrumentId"]
-    card_id = research_card_id(instrument_id, snapshot_id, trading_day)
+    card_id = research_card_id(
+        instrument_id, snapshot_id, trading_day, research_basis=research_basis)
 
     existing = get_card(con, card_id)
     generated_at = (existing["generated_at"] if existing is not None
@@ -171,6 +183,7 @@ def research_cards(con: sqlite3.Connection, *, instrument_id: str | None = None,
         summary = _to_dict(row)
         payload = get_card_payload(con, row["card_id"])
         if payload is None:
+            _mark_retired_or_unversioned_f10(con, row, summary)
             cards.append(summary)
             continue
         complete = dict(payload)
@@ -182,8 +195,39 @@ def research_cards(con: sqlite3.Connection, *, instrument_id: str | None = None,
             "generated_at": summary["generated_at"],
             "data_mode": summary["data_mode"],
         })
+        _mark_retired_or_unversioned_f10(con, row, complete)
         cards.append(complete)
     return cards
+
+
+def _mark_retired_or_unversioned_f10(con: sqlite3.Connection, row: sqlite3.Row,
+                                      card: dict) -> None:
+    """历史卡片保持原样可读，同时显式标出已知失效的财务版本。"""
+
+    run_id = row["research_run_id"]
+    reason = None
+    if run_id:
+        run = con.execute(
+            "SELECT feature_version FROM research_run WHERE research_run_id=?",
+            (run_id,),
+        ).fetchone()
+        if run is not None:
+            reason = feature_version_withdrawal_reason(
+                run["feature_version"], con)
+    else:
+        breakdown = card.get("rankBreakdown") or card.get("rank_breakdown") or []
+        if any((item.get("factorId") or item.get("factor_id")) == "F10"
+               for item in breakdown if isinstance(item, dict)):
+            reason = ("该历史卡片含 F10，但未绑定 research_run_id，无法证明其公式"
+                      "版本；不得作为当前财务研究依据")
+    if reason is None:
+        return
+    key = "limitations" if "rankBreakdown" in card else "limitations"
+    limitations = list(card.get(key) or [])
+    if reason not in limitations:
+        limitations.append(reason)
+    card[key] = limitations
+    card["factorValidity"] = "WITHDRAWN_OR_UNVERIFIED"
 
 
 def _to_dict(row: sqlite3.Row) -> dict:

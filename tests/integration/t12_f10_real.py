@@ -4,8 +4,8 @@
 一个只报成功率的验收没有价值——必须同时报告：
 
   * 有多少标的算出了 F10；
-  * 有多少因**数据质量闸门**被拒绝（累计口径不成立）；
-  * 有多少因**缺上年年报**被拒绝（TTM 需要）；
+  * 有多少因 PIT 缺少 TTM 所需的上一完整年度或上年同期被拒绝；
+  * 记录级数值检查是否通过（不按累计值的绝对值单调性拒绝）；
   * 算出来的值域是否合理（收益率不可能是几百）。
 
 最后一条最重要：单位错了 10 倍时值域会明显异常，而单看一只看不出来。
@@ -25,15 +25,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from aquant.domain.fundamentals.pit import (  # noqa: E402
-    CST, FinancialsStore, earning_yield_f10,
-)
+from aquant.domain.fundamentals.pit import CST, FinancialsStore  # noqa: E402
 from aquant.domain.fundamentals.records import (  # noqa: E402
     build_statements, consistency_violations,
+)
+from aquant.operations.decision_market_caps import (  # noqa: E402
+    DecisionMarketCapError, load_sidecar,
 )
 
 FIN_CACHE = ROOT / "deploy" / "agentctl-q0" / "financials-cache.json"
 BARS_CACHE = ROOT / "deploy" / "agentctl-q0" / "universe-bars.json"
+MARKET_CAPS = ROOT / "deploy" / "agentctl-q0" / "decision-market-caps.json"
 
 checks: list[tuple[str, bool, str]] = []
 
@@ -41,6 +43,40 @@ checks: list[tuple[str, bool, str]] = []
 def check(name: str, ok: bool, detail: str = "") -> None:
     checks.append((name, bool(ok), detail))
     print(("  PASS  " if ok else "  FAIL  ") + name + (("  -- " + detail) if detail else ""))
+
+
+def independently_recompute_ttm_net_profit(rows: list) -> int | None:
+    """用验收脚本自己的公式重算 TTM，避免只验证生产函数自身。"""
+
+    if not rows:
+        return None
+
+    by_period = {}
+    for statement in rows:
+        key = statement.period_key
+        previous = by_period.get(key)
+        if (previous is None
+                or (statement.stat_date, statement.pub_date)
+                > (previous.stat_date, previous.pub_date)):
+            by_period[key] = statement
+
+    latest = max(by_period.values(),
+                 key=lambda statement: (statement.stat_date, statement.pub_date))
+    if latest.net_profit_micros is None:
+        return None
+
+    year, quarter = latest.period_key
+    if quarter == 4:
+        return latest.net_profit_micros
+
+    prior_annual = by_period.get((year - 1, 4))
+    prior_same = by_period.get((year - 1, quarter))
+    if (prior_annual is None or prior_annual.net_profit_micros is None
+            or prior_same is None or prior_same.net_profit_micros is None):
+        return None
+    return (prior_annual.net_profit_micros
+            + latest.net_profit_micros
+            - prior_same.net_profit_micros)
 
 
 def main() -> int:
@@ -59,18 +95,58 @@ def main() -> int:
 
     problems = consistency_violations(statements)
     bad_instruments = len({p["instrument_id"] for p in problems})
-    print("一致性检查：" + str(len(problems)) + " 条违规（" + str(bad_instruments) + " 只证券）")
+    print("记录级数值检查：" + str(len(problems)) + " 条问题（"
+          + str(bad_instruments) + " 只证券）")
     ratio = len(problems) / max(len(statements), 1)
-    check("一致性违规比例可控（<10%）", ratio < 0.10,
+    check("记录级数值问题比例可控（<10%）", ratio < 0.10,
           str(len(problems)) + "/" + str(len(statements)))
 
     sample = next(iter(bars["bars"].values()))
     trading_days = [date.fromisoformat(b["trading_day"]) for b in sample["rows"]]
     last_day = date.fromisoformat(bars["window"]["last_day"])
+    try:
+        market_caps = load_sidecar(MARKET_CAPS, expected_as_of=last_day)
+    except DecisionMarketCapError as exc:
+        print("决策日总市值不可用：" + str(exc))
+        print("先在该交易日收盘后运行：python tools/collect_market_caps.py --as-of "
+              + last_day.isoformat())
+        return 2
     cutoff = datetime(last_day.year, last_day.month, last_day.day, 15, 0, tzinfo=CST)
     print("决策时点 " + cutoff.isoformat() + "（快照末日收盘后）")
 
     store = FinancialsStore(statements=statements, trading_days=trading_days)
+
+    # 这段重算故意不调用 trailing_twelve_months 的内部公式；它只复用
+    # PIT 过滤后的记录，独立验证“上一完整年度 + 本年累计 − 上年同期累计”。
+    # 只抽查 Q1--Q3，确保真正覆盖需要滚动公式的分支；Q4 直接取年度值。
+    formula_samples: list[dict] = []
+    formula_mismatches: list[dict] = []
+    for iid in sorted(bars["bars"]):
+        visible = store.available_statements(iid, as_of=cutoff)
+        if not visible:
+            continue
+        latest = visible[-1]
+        if latest.period_key[1] == 4:
+            continue
+        expected = independently_recompute_ttm_net_profit(visible)
+        actual = store.trailing_twelve_months(iid, as_of=cutoff)
+        if expected is None or actual is None:
+            continue
+        sample = {
+            "instrument_id": iid,
+            "stat_date": latest.stat_date.isoformat(),
+            "expected": expected,
+            "actual": actual["ttm_net_profit_micros"],
+        }
+        formula_samples.append(sample)
+        if expected != actual["ttm_net_profit_micros"]:
+            formula_mismatches.append(sample)
+        if len(formula_samples) >= 10:
+            break
+    check("TTM 公式抽样重算一致",
+          bool(formula_samples) and not formula_mismatches,
+          str(len(formula_samples)) + " 条非 Q4 样本，"
+          + str(len(formula_mismatches)) + " 条不一致")
 
     computed: list[dict] = []
     no_ttm = 0
@@ -86,14 +162,15 @@ def main() -> int:
         if ttm is None or ttm["ttm_net_profit_micros"] is None:
             no_ttm += 1
             continue
-        shares = ttm.get("total_share")
-        value = earning_yield_f10(
-            ttm_net_profit_micros=ttm["ttm_net_profit_micros"],
-            total_share=Decimal(shares) if shares else None,
-            close_cents=last["close_cents"])
-        if value is None:
+        cap = market_caps.items.get(iid)
+        if cap is None:
             no_price += 1
             continue
+        # 与生产实现相同的单位换算，但不复用生产函数：净利润为微元，
+        # 市值为分，因此分母乘 10,000 后同为微元。
+        value = (Decimal(ttm["ttm_net_profit_micros"])
+                 / (Decimal(cap.market_cap_cents) * Decimal(10_000))).quantize(
+                     Decimal("0.000001"))
         computed.append({
             "instrument_id": iid,
             "f10": str(value),
@@ -118,7 +195,7 @@ def main() -> int:
     total = len(computed) + no_ttm + no_price
     print("")
     print("全市场：成功 " + str(len(computed)) + " / TTM 不可得 " + str(no_ttm)
-          + " / 缺股本或价格 " + str(no_price) + "（合计 " + str(total) + "）")
+          + " / 缺决策日总市值 " + str(no_price) + "（合计 " + str(total) + "）")
     print("研究池 " + str(len(in_pool)) + " 只，其中有财务记录 " + str(pool_with_fin) + " 只")
     check("有标的算出 F10", len(computed) > 100, str(len(computed)) + " 只")
     # 分母是"池内**且有财务记录**的标的"：没有财务记录的标的不是
@@ -170,7 +247,11 @@ def main() -> int:
         "consistency_violations": len(problems),
         "computed": len(computed),
         "no_ttm": no_ttm,
-        "no_price": no_price,
+        "no_market_cap": no_price,
+        "market_cap_as_of": market_caps.market_cap_as_of,
+        "market_cap_receipt_id": market_caps.receipt_id,
+        "ttm_formula_samples": len(formula_samples),
+        "ttm_formula_mismatches": len(formula_mismatches),
         "value_range": ([values[0], values[-1]] if computed else None),
         "negatives": sum(1 for c in computed if c["value_float"] < 0),
         "checks": [{"name": n, "ok": o, "detail": d} for n, o, d in checks],

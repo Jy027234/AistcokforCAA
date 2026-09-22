@@ -206,23 +206,49 @@ class EastmoneyClient:
         return FetchOutcome(False, None, "", None, last_detail)
 
     # ------------------------------------------------------------ endpoints
-    def universe(self, *, page_size: int = 100) -> tuple[FetchOutcome, list[dict]]:
-        """全 A 股列表。f12 代码, f13 市场(0深/1沪), f14 名称, f100 行业, f26 上市日期。"""
+    def universe_page(
+        self, *, page: int = 1, page_size: int = 100,
+    ) -> tuple[FetchOutcome, list[dict], int | None]:
+        """全 A 股列表。
+
+        ``f20`` 是接口返回的总市值（元），与证券身份字段一起取回，供
+        ``collect_market_caps.py`` 生成前向观察 sidecar。这个值没有历史
+        版本，调用方必须把抓取时刻和原始响应收据一并保存，不能把它当作
+        历史 PIT 数据。接口实测会把超大 ``pz`` 截断到 100 条，所以全量
+        采集必须显式翻页；本方法同时返回服务端声明的总条数。
+        """
+
+        if page < 1:
+            raise ValueError("page must be >= 1")
+        if not 1 <= page_size <= 100:
+            raise ValueError("page_size must be between 1 and 100")
 
         url = (
             "https://" + LIST_HOST + "/api/qt/clist/get?"
-            f"pn=1&pz={page_size}&po=1&np=1&fltt=2&invt=2&fid=f12"
+            f"pn={page}&pz={page_size}&po=1&np=1&fltt=2&invt=2&fid=f12"
             "&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
-            "&fields=f12,f13,f14,f100,f26"
+            "&fields=f12,f13,f14,f100,f26,f20"
         )
-        out = self.fetch(url, label="universe")
+        out = self.fetch(url, label=f"universe:page:{page}")
         if not out.ok or out.payload is None:
-            return out, []
+            return out, [], None
         try:
-            rows = ((json.loads(out.payload).get("data") or {}).get("diff")) or []
+            data = json.loads(out.payload).get("data") or {}
+            rows = data.get("diff") or []
+            total_raw = data.get("total")
+            total = int(total_raw) if total_raw is not None else None
         except json.JSONDecodeError as exc:
             return FetchOutcome(False, None, out.receipt_id, out.content_hash,
-                                f"malformed JSON: {exc}"), []
+                                f"malformed JSON: {exc}"), [], None
+        except (TypeError, ValueError) as exc:
+            return FetchOutcome(False, None, out.receipt_id, out.content_hash,
+                                f"invalid universe total: {exc}"), [], None
+        return out, rows, total
+
+    def universe(self, *, page_size: int = 100) -> tuple[FetchOutcome, list[dict]]:
+        """向后兼容的单页探针；生产全量采集使用 ``universe_page``。"""
+
+        out, rows, _total = self.universe_page(page=1, page_size=page_size)
         return out, rows
 
     def daily_quotes(self, secid: str, begin: str, end: str, *,

@@ -31,6 +31,7 @@ class Domain(str, Enum):
     CORPORATE_ACTIONS = "CORPORATE_ACTIONS"
     INDUSTRY_CONSTITUENTS = "INDUSTRY_CONSTITUENTS"
     FINANCIALS = "FINANCIALS"
+    MARKET_CAPS = "MARKET_CAPS"
     ANNOUNCEMENTS = "ANNOUNCEMENTS"
     MACRO = "MACRO"
     NEWS = "NEWS"
@@ -154,6 +155,7 @@ def default_registry() -> SourceRegistry:
             domains=frozenset({
                 Domain.DAILY_QUOTES, Domain.CALENDAR_IDENTITY,
                 Domain.INDUSTRY_CONSTITUENTS, Domain.FINANCIALS,
+                Domain.MARKET_CAPS,
             }),
             priority=10,
             pit_available="NO",
@@ -184,13 +186,18 @@ def default_registry() -> SourceRegistry:
         SourceSpec(
             source_id="tencent-qt",
             display_name="腾讯证券实时快照（qt.gtimg.cn）",
-            domains=frozenset({Domain.DAILY_QUOTES, Domain.CALENDAR_IDENTITY}),
+            domains=frozenset({Domain.DAILY_QUOTES, Domain.CALENDAR_IDENTITY,
+                               Domain.MARKET_CAPS}),
             priority=30,
             pit_available="NO",
             integration_state=IntegrationState.TEST_PASSED,
             health=SourceHealth.HEALTHY,
             rights=dict(_UNKNOWN_RIGHTS),
-            notes=["轻量快照，适合逐日观察而非历史序列"],
+            notes=[
+                "轻量快照，适合逐日观察而非历史序列",
+                "字段 45 提供总市值（亿元），字段 30 提供行情时间；"
+                "生产使用必须收盘后前向归档并核对决策日",
+            ],
         ),
         SourceSpec(
             source_id="sina-hq",

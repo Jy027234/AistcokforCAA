@@ -55,6 +55,7 @@ def test_submit_creates_a_pending_job(ctx):
     assert row["status"] == "PENDING"
     assert row["attempt_count"] == 0
     assert row["input_snapshot_id"] == SNAPSHOT_ID
+    assert row["config_version"] == "f10-v2"
 
 
 def test_resubmitting_the_same_job_returns_the_same_one(ctx):

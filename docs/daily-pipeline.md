@@ -8,8 +8,8 @@
 ## 它做什么
 
 ```
-采集行情（窗口起点固定） -> 发布不可变物理快照（暂不切 current） -> 因子落库
--> F10 质量闸门 -> 提升 current_snapshot.json -> 追加运行留痕
+采集行情（窗口起点固定） -> 收盘后采集决策日总市值 -> 发布不可变物理快照
+-> S1 行情/价格质量闸门 -> 可选 F10 落库与质量告警 -> 提升 current_snapshot.json -> 追加运行留痕
 ```
 
 三件手工流程没有的东西：**休市判断、并发锁、运行留痕**。
@@ -17,8 +17,9 @@
 生产发布由 `tools/publish_universe_snapshot.py` 完成：每次写入
 `<data-root>/api/datasets/<snapshot-id>/` 的新目录，禁止覆盖已有物理快照；
 `tools/promote_snapshot.py` 只负责在后续闸门通过后原子替换
-`<data-root>/current_snapshot.json`。`daily_run.py` 默认延迟提升，只有行情、因子和
-质量闸门全部通过才会切换 current。
+`<data-root>/current_snapshot.json`。`daily_run.py` 默认延迟提升；S1 行情/价格门槛
+通过即可切换 current。财务缓存、决策日总市值或 F10 验收失败时，快照以
+`DEGRADED` 发布并告警，S1 仍可继续使用。
 
 ## 最小本机试运行（合成数据）
 
@@ -57,15 +58,15 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/status
 | 步骤 | 命令 | 作用 |
 |---|---|---|
 | 因子落库 | `tools/compute_factors.py` | 走产品自己的路径（与 `POST /api/v1/research/jobs` 的因子作业同一条代码），写 `research_run` + `feature_value`，并**回读**确认行数 |
-| F10 质量闸门 | `tests.integration.t12_f10_real` | 值域、中位数量级、亏损股是否被截断为 0、覆盖率——判数值本身可不可信 |
+| F10 质量闸门 | `tests.integration.t12_f10_real` | 可选财务能力；失败时记录降级和告警，不再阻断已通过价格门槛的 S1 快照 |
 
 两步都失败不改变"快照已发布"这个事实，但各自告警：前者意味着**研究卡没有数值**，
 后者意味着**数值可能不可信**。这两句话不一样，因此不能合成一条。
 
-前提：快照必须**带上 financials 数据集**。生产发布 CLI 从 `--financials` 指定的
+F10 前提：快照必须**带上 financials 数据集和决策日总市值**。生产发布 CLI 从 `--financials` 指定的
 `financials-cache.json` 取数据（默认是 `deploy/agentctl-q0/financials-cache.json`），
-再按研究池过滤。没有它，因子会全部标成
-「快照未包含财务数据」——落库成功、900 行，一行值都没有。
+并从 `--market-caps` 指定的收盘后 sidecar 取总市值，再按研究池过滤。缺任一项，
+因子会逐标的写明排除原因；流水线会把 F10 标为降级，不能把“900 行都为空”当成成功。
 
 ## 怎么接
 
@@ -304,7 +305,7 @@ python tools/show_alerts.py --days 7      # 最近 7 天的 ERROR；有 ERROR �
 [07:17:35] OK   采集行情（1028.6s）   5219 只，321132 条行情，失败 0 只
 [07:17:38] OK   发布快照（1.8s）      证券 900 只，行情 58484 条
 [07:17:42] OK   因子落库（3.9s）      回读：feature_value 900 行，其中 832 行有值
-[07:17:43] OK   F10 质量闸门（0.7s）  T12 F10 真实验收 7/7 通过
+[历史示例] F10 v1 质量闸门曾通过，但其公式预期本身错误，结论已撤回
 [07:17:43] OK   切换当前快照（0.3s） snap-eod-2026-09-18-53df1f23e8754984
 [07:17:43] 结果 PUBLISHED
 ```
@@ -320,8 +321,8 @@ python tools/show_alerts.py --days 7      # 最近 7 天的 ERROR；有 ERROR �
 
 | 检查 | 结果 |
 |---|---|
-| 最新 `research_run` | `status=SUCCEEDED`，`feature_version=f10-v1` |
-| 最新 `feature_value` | 900 行，其中 832 行 `raw_value` 非空 |
+| 当前有效 `research_run` | 必须是未撤回的特征版本；`f10-v1` 即使状态为 `SUCCEEDED` 也只供审计 |
+| 当前 `feature_value` | 等待 `f10-v2` 使用决策日总市值重新验收；不得沿用旧 832 行结论 |
 | `instrument.listed_on` 非空 | 900 / 900 |
 | `snapshot_dataset` | 含 `financials`（此前没有这个数据集） |
 | `GET /status` | current 为新物理 ID，`dataMode=PRODUCTION` |

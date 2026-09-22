@@ -370,6 +370,38 @@ class PlanService:
             "SELECT * FROM simulation_plan WHERE plan_id=?", (plan_id,)
         ).fetchone()
 
+    def persisted_plans(
+        self,
+        *,
+        portfolio_id: str,
+        statuses: tuple[str, ...] = ("FROZEN", "EXECUTED"),
+        limit: int = 20,
+    ) -> list[dict]:
+        """Return durable plans needed to resume the product flow after restart."""
+
+        allowed = {
+            "DRAFT", "PREVIEWED", "FROZEN", "EXECUTING", "EXECUTED",
+            "CANCELLED", "EXPIRED", "SUPERSEDED",
+        }
+        if not statuses or any(status not in allowed for status in statuses):
+            raise ValueError("statuses must contain known simulation plan states")
+        bounded_limit = max(1, min(int(limit), 100))
+        placeholders = ",".join("?" for _ in statuses)
+        rows = self.con.execute(
+            "SELECT p.plan_id,p.portfolio_id,p.snapshot_id,p.status,p.created_at,"
+            "p.frozen_at,p.expires_at,p.confirmed_by,p.plan_version,"
+            "b.decision_snapshot_id,b.decision_cutoff_at,"
+            "b.execution_snapshot_id,b.execution_cutoff_at,"
+            "(SELECT MIN(o.trading_day) FROM \"order\" o "
+            " WHERE o.plan_id=p.plan_id) AS trading_day "
+            "FROM simulation_plan p "
+            "LEFT JOIN plan_snapshot_binding b ON b.plan_id=p.plan_id "
+            f"WHERE p.portfolio_id=? AND p.status IN ({placeholders}) "
+            "ORDER BY COALESCE(p.frozen_at,p.created_at) DESC,p.plan_id DESC LIMIT ?",
+            (portfolio_id, *statuses, bounded_limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def _snapshot_binding(self, preview: PlanPreview) -> dict[str, str]:
         """Return the explicit snapshot/cutoff values carried by a preview.
 
@@ -480,6 +512,185 @@ class PlanService:
         ref = self.reader.ref(snapshot_id)
         (fee_table or self.fee_table).assert_usable_for_data_mode(
             ref.data_mode, trading_day=trading_day)
+
+    def _assert_valuation_snapshot(self, *, snapshot_id: str,
+                                   trading_day: date, as_of: datetime) -> None:
+        """Validate the immutable snapshot requested by a valuation.
+
+        Valuation is a market-day result, so accepting the process' current
+        pointer or a non-EOD snapshot here would make a later pointer move
+        silently change the prices used for an existing portfolio/day.
+        """
+
+        # ``ref`` and ``require_published`` deliberately remain separate: the
+        # former supplies the exact immutable timestamp while the latter makes
+        # the PUBLISHED requirement explicit at this write boundary.
+        snapshot = self.reader.store.require_published(snapshot_id)
+        if snapshot["kind"] != "EOD":
+            raise PlanError(
+                "PIT_UNVERIFIED",
+                f"valuation snapshot {snapshot_id!r} is {snapshot['kind']}, not EOD",
+                snapshot_id,
+                "request a published EOD snapshot for the valuation trading day",
+            )
+
+        ref = self.reader.ref(snapshot_id)
+        if as_of.tzinfo is None or as_of.utcoffset() is None:
+            raise PlanError(
+                "PIT_UNVERIFIED", "valuation as_of must be timezone-aware",
+                snapshot_id, "use the exact timezone-aware as_of from the snapshot",
+            )
+        if as_of != ref.as_of_time:
+            raise PlanError(
+                "PIT_UNVERIFIED",
+                f"valuation as_of {as_of.isoformat()} does not equal snapshot "
+                f"{snapshot_id} as_of_time {ref.as_of_time.isoformat()}",
+                snapshot_id,
+                "use the exact as_of_time recorded by the requested snapshot",
+            )
+
+        snapshot_day = as_of.astimezone(_MARKET_TZ).date()
+        if snapshot_day != trading_day:
+            raise PlanError(
+                "PIT_UNVERIFIED",
+                f"valuation trading_day {trading_day.isoformat()} does not match "
+                f"EOD snapshot {snapshot_id} market day {snapshot_day.isoformat()}",
+                snapshot_id,
+                "request the published EOD snapshot for the requested trading day",
+            )
+
+    def _resolve_execution_plan_id(self, *, portfolio_id: str,
+                                   trading_day: date, snapshot_id: str,
+                                   execution_plan_id: str | None) -> str | None:
+        """Resolve an executed plan only when its durable snapshot binding agrees.
+
+        A caller may pass the plan explicitly.  For the common API path we can
+        recover one unambiguous executed plan from its order day, but never
+        associate a plan whose execution snapshot differs from the valuation
+        snapshot.
+        """
+
+        if execution_plan_id:
+            plan = self.con.execute(
+                "SELECT plan_id,portfolio_id,status FROM simulation_plan "
+                "WHERE plan_id=?", (execution_plan_id,),
+            ).fetchone()
+            if plan is None:
+                raise PlanError(
+                    "DATA_NOT_READY", f"unknown execution plan {execution_plan_id!r}",
+                    execution_plan_id, "use an executed plan from this portfolio",
+                )
+            if plan["portfolio_id"] != portfolio_id:
+                raise PlanError(
+                    "STALE_SNAPSHOT", "execution plan belongs to another portfolio",
+                    execution_plan_id, "request the plan that executed this portfolio",
+                )
+            if plan["status"] != "EXECUTED":
+                raise PlanError(
+                    "DATA_NOT_READY",
+                    f"execution plan {execution_plan_id!r} is {plan['status']}, not EXECUTED",
+                    execution_plan_id, "value after the plan has executed",
+                )
+            try:
+                binding = self.con.execute(
+                    "SELECT execution_snapshot_id FROM plan_snapshot_binding "
+                    "WHERE plan_id=?", (execution_plan_id,),
+                ).fetchone()
+            except sqlite3.OperationalError as exc:
+                raise PlanError(
+                    "DATA_NOT_READY", "plan snapshot binding table is unavailable",
+                    execution_plan_id,
+                    "apply the plan snapshot binding migration before valuing",
+                ) from exc
+            if binding is None:
+                raise PlanError(
+                    "DATA_NOT_READY", "execution plan has no durable snapshot binding",
+                    execution_plan_id,
+                    "freeze a new plan after applying the snapshot binding migration",
+                )
+            if binding["execution_snapshot_id"] != snapshot_id:
+                raise PlanError(
+                    "STALE_SNAPSHOT",
+                    "execution plan is bound to a different execution snapshot",
+                    execution_plan_id,
+                    "request the EOD snapshot used by the execution plan",
+                )
+            return execution_plan_id
+
+        rows = self.con.execute(
+            "SELECT DISTINCT p.plan_id FROM simulation_plan p "
+            "JOIN \"order\" o ON o.plan_id=p.plan_id "
+            "WHERE p.portfolio_id=? AND p.status='EXECUTED' AND o.trading_day=?",
+            (portfolio_id, trading_day.isoformat()),
+        ).fetchall()
+        if len(rows) != 1:
+            return None
+        candidate = str(rows[0]["plan_id"])
+        try:
+            binding = self.con.execute(
+                "SELECT execution_snapshot_id FROM plan_snapshot_binding "
+                "WHERE plan_id=?", (candidate,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return None
+        if binding is not None and binding["execution_snapshot_id"] == snapshot_id:
+            return candidate
+        return None
+
+    def _assert_valuation_binding_available(self, *, portfolio_id: str,
+                                            trading_day: date,
+                                            valuation_id: str,
+                                            snapshot_id: str,
+                                            execution_plan_id: str | None,
+                                            as_of: str) -> sqlite3.Row | None:
+        """Reject legacy or differently-bound rows before replacing positions."""
+
+        try:
+            existing = self.con.execute(
+                "SELECT valuation_id FROM valuation "
+                "WHERE portfolio_id=? AND trading_day=?",
+                (portfolio_id, trading_day.isoformat()),
+            ).fetchone()
+            provenance = self.con.execute(
+                "SELECT * FROM valuation_provenance WHERE portfolio_id=? "
+                "AND trading_day=?",
+                (portfolio_id, trading_day.isoformat()),
+            ).fetchone()
+        except sqlite3.OperationalError as exc:
+            raise PlanError(
+                "DATA_NOT_READY", "valuation provenance table is unavailable",
+                valuation_id,
+                "apply the valuation provenance migration before valuing",
+            ) from exc
+
+        if existing is None and provenance is not None:
+            raise PlanError(
+                "DATA_NOT_READY", "valuation provenance has no valuation row",
+                valuation_id, "repair the valuation store before valuing",
+            )
+        if existing is None:
+            return None
+        if existing["valuation_id"] != valuation_id or provenance is None:
+            raise PlanError(
+                "DATA_NOT_READY" if provenance is None else "STALE_SNAPSHOT",
+                "a valuation already exists for this portfolio and trading day "
+                "without the requested immutable binding",
+                valuation_id,
+                "keep the existing valuation or create a versioned valuation row",
+            )
+
+        values = (provenance["snapshot_id"], provenance["execution_plan_id"],
+                  provenance["as_of"])
+        expected = (snapshot_id, execution_plan_id, as_of)
+        if values != expected:
+            raise PlanError(
+                "STALE_SNAPSHOT",
+                "valuation already exists for this portfolio/day with a different "
+                "snapshot provenance",
+                valuation_id,
+                "request the existing binding or create a versioned valuation row",
+            )
+        return provenance
 
     def _persist_plan_fee_binding(self, plan_id: str, trading_day: date) -> None:
         """冻结时保存当天实际使用的费率输入，而不只保存版本名。"""
@@ -2071,12 +2282,25 @@ class PlanService:
         snapshot_id: str,
         trading_day: date,
         as_of: datetime,
+        execution_plan_id: str | None = None,
         lots: list[Lot],
         cash_available_cents: int,
     ) -> dict:
         """日终估值并落库。不变量失败则 published=0，净值不得发布（§12.8）。"""
 
         from .construction import compute_valuation, value_positions
+
+        # The requested snapshot is the only market-data source for this
+        # valuation.  In particular, do not resolve current_snapshot here:
+        # the current pointer may advance while a historical request is being
+        # replayed.
+        self._assert_valuation_snapshot(
+            snapshot_id=snapshot_id, trading_day=trading_day, as_of=as_of,
+        )
+        resolved_execution_plan_id = self._resolve_execution_plan_id(
+            portfolio_id=portfolio_id, trading_day=trading_day,
+            snapshot_id=snapshot_id, execution_plan_id=execution_plan_id,
+        )
 
         # 估值会发布净值和损益；领域入口本身必须执行费率闸门，避免非 API
         # 调用方用合成费率在真实快照上生成一份看似正式的结果。
@@ -2120,36 +2344,73 @@ class PlanService:
             receivables_cents=ledger_receivables,
             positions=positions, lots=ledger_lots, extra_issues=issues,
             ledger_invariants=ledger_invariants,
+            snapshot_id=snapshot_id,
+            execution_plan_id=resolved_execution_plan_id,
+            as_of=as_of,
         )
 
         now = datetime.now(timezone.utc)
         inv = result.invariants
         valuation_id = f"val-{portfolio_id}-{trading_day.isoformat()}"
+        as_of_value = _iso(as_of)
         with write_tx(self.con):
+            self._assert_valuation_binding_available(
+                portfolio_id=portfolio_id, trading_day=trading_day,
+                valuation_id=valuation_id, snapshot_id=snapshot_id,
+                execution_plan_id=resolved_execution_plan_id, as_of=as_of_value,
+            )
             self.con.execute("DELETE FROM valuation_position WHERE valuation_id=?",
                              (valuation_id,))
-            self.con.execute(
-                "INSERT OR REPLACE INTO valuation (valuation_id,portfolio_id,trading_day,"
-                "cash_available_cents,cash_frozen_cents,receivables_cents,"
-                "positions_value_cents,payables_cents,net_value_cents,"
-                "invariant_cash_not_overdrawn,invariant_positions_not_negative,"
-                "invariant_shares_match_lots,invariant_fill_le_order,"
-                "invariant_fees_booked_once,invariant_cash_lines_sum,published,"
-                "violations_json,computed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (valuation_id, portfolio_id,
-                 trading_day.isoformat(), result.cash_available_cents,
-                 result.cash_frozen_cents, result.receivables_cents,
-                 result.positions_value_cents, result.payables_cents,
-                 result.net_value_cents,
-                 1 if inv["cash_not_overdrawn"] else 0,
-                 1 if inv["positions_not_negative"] else 0,
-                 1 if inv["shares_match_lots"] else 0,
-                 1 if inv["fill_le_order"] else 0,
-                 1 if inv["fees_booked_once"] else 0,
-                 1 if inv["cash_lines_sum_to_balance"] else 0,
-                 1 if result.published else 0,
-                 json.dumps(inv["violations"], ensure_ascii=False), _iso(now)),
+            values = (
+                result.cash_available_cents, result.cash_frozen_cents,
+                result.receivables_cents, result.positions_value_cents,
+                result.payables_cents, result.net_value_cents,
+                1 if inv["cash_not_overdrawn"] else 0,
+                1 if inv["positions_not_negative"] else 0,
+                1 if inv["shares_match_lots"] else 0,
+                1 if inv["fill_le_order"] else 0,
+                1 if inv["fees_booked_once"] else 0,
+                1 if inv["cash_lines_sum_to_balance"] else 0,
+                1 if result.published else 0,
+                json.dumps(inv["violations"], ensure_ascii=False), _iso(now),
             )
+            existing = self.con.execute(
+                "SELECT valuation_id FROM valuation WHERE portfolio_id=? "
+                "AND trading_day=?", (portfolio_id, trading_day.isoformat()),
+            ).fetchone()
+            if existing is None:
+                self.con.execute(
+                    "INSERT INTO valuation (valuation_id,portfolio_id,trading_day,"
+                    "cash_available_cents,cash_frozen_cents,receivables_cents,"
+                    "positions_value_cents,payables_cents,net_value_cents,"
+                    "invariant_cash_not_overdrawn,invariant_positions_not_negative,"
+                    "invariant_shares_match_lots,invariant_fill_le_order,"
+                    "invariant_fees_booked_once,invariant_cash_lines_sum,published,"
+                    "violations_json,computed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (valuation_id, portfolio_id, trading_day.isoformat(), *values),
+                )
+                self.con.execute(
+                    "INSERT INTO valuation_provenance (valuation_id,portfolio_id,"
+                    "trading_day,snapshot_id,execution_plan_id,as_of,created_at) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    (valuation_id, portfolio_id, trading_day.isoformat(), snapshot_id,
+                     resolved_execution_plan_id, as_of_value, _iso(now)),
+                )
+            else:
+                # The helper above has already proved this is the same binding;
+                # update the facts in place only for an idempotent retry.
+                self.con.execute(
+                    "UPDATE valuation SET cash_available_cents=?,"
+                    "cash_frozen_cents=?,receivables_cents=?,"
+                    "positions_value_cents=?,payables_cents=?,net_value_cents=?,"
+                    "invariant_cash_not_overdrawn=?,"
+                    "invariant_positions_not_negative=?,"
+                    "invariant_shares_match_lots=?,invariant_fill_le_order=?,"
+                    "invariant_fees_booked_once=?,invariant_cash_lines_sum=?,"
+                    "published=?,violations_json=?,computed_at=? "
+                    "WHERE valuation_id=?",
+                    (*values, valuation_id),
+                )
             for p in result.positions:
                 self.con.execute(
                     "INSERT INTO valuation_position (valuation_id,instrument_id,quantity,"
@@ -2157,7 +2418,9 @@ class PlanService:
                     (valuation_id, p.instrument_id, p.quantity, p.price_cents,
                      p.price_basis, p.staleness_days, p.value_cents),
                 )
-        return result.as_dict()
+        output = result.as_dict()
+        output["portfolio_id"] = portfolio_id
+        return output
 
     # ------------------------------------------------------------ reconcile
     def reconcile(self, *, portfolio_id: str) -> dict:

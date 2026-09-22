@@ -117,6 +117,10 @@ def test_planned_mootdx_source_is_registered_but_closed_by_default():
 
 def test_sina_financial_rights_are_not_inherited_from_quote_endpoint():
     entry = default_rights().get("sina-financial")
-    assert entry.basis is Basis.TERMS_NOT_REVIEWED
-    assert all(value is Rights.UNKNOWN for value in entry.rights.values())
+    assert entry.basis is Basis.TERMS_REVIEWED
+    assert entry.rights["commercial_use"] is Rights.PROHIBITED
+    assert entry.rights["third_party_redistribution"] is Rights.PROHIBITED
+    for purpose in ("research_use", "local_storage", "excerpt_display",
+                    "model_processing"):
+        assert entry.rights[purpose] is Rights.UNKNOWN
     assert not entry.can_enter_model_context()

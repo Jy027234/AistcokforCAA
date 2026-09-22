@@ -205,6 +205,11 @@ def test_default_registry_has_independent_quote_sources():
     assert len(ids) >= 3, ids
 
 
+def test_default_registry_has_two_decision_market_cap_sources():
+    ids = [s.source_id for s in default_registry().candidates(Domain.MARKET_CAPS)]
+    assert ids[:2] == ["eastmoney-direct", "tencent-qt"]
+
+
 def test_paid_tushare_is_retained_only_as_a_blocked_decision_record():
     """付费源已明确不采用，不能继续显示为等待凭证。"""
 

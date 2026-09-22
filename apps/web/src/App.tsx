@@ -179,6 +179,7 @@ export default function App() {
   const [livePreview, setLivePreview] = useState<PreviewResponse | null>(null);
   const [apiUp, setApiUp] = useState<boolean | null>(null);
   const [frozenPlanId, setFrozenPlanId] = useState<string | null>(null);
+  const [persistedPlanStatus, setPersistedPlanStatus] = useState<"FROZEN" | "EXECUTED" | null>(null);
   const [snapshots, setSnapshots] = useState<PublishedSnapshot[]>([]);
   const [timing, setTiming] = useState<PlanTimingSelection | null>(null);
   const [planCandidates, setPlanCandidates] = useState<CandidateResponseRow[]>([]);
@@ -209,7 +210,7 @@ export default function App() {
   const load = useCallback(async () => {
     setState({ kind: "loading" });
     setNotice(null); setLivePreview(null); setConfirmResult(null);
-    setSnapshots([]); setTiming(null); setFrozenPlanId(null);
+    setSnapshots([]); setTiming(null); setFrozenPlanId(null); setPersistedPlanStatus(null);
     setPlanCandidates([]); setSelectedInstrumentIds(null);
     if (demoMode) {
       try {
@@ -224,8 +225,9 @@ export default function App() {
       return;
     }
     try {
-      const [status, candidateResponse, eventResponse, snapshotResponse] = await Promise.all([
-        api.status(), api.candidates(), api.events(), api.snapshots(),
+      const portfolioId = configuredPortfolioId();
+      const [status, candidateResponse, eventResponse, snapshotResponse, planResponse] = await Promise.all([
+        api.status(), api.candidates(), api.events(), api.snapshots(), api.plans(portfolioId),
       ]);
       const expected = status.snapshotId;
       if (candidateResponse.snapshotId !== expected || eventResponse.snapshotId !== expected) {
@@ -240,10 +242,24 @@ export default function App() {
       }
       setSnapshots(snapshotResponse.snapshots);
       setPlanCandidates(candidateResponse.candidates);
-      setTiming(status.dataMode === "SYNTHETIC" ? null : defaultProductionTiming(
+      let restoredTiming = status.dataMode === "SYNTHETIC" ? null : defaultProductionTiming(
         snapshotResponse.snapshots.filter((item) => item.dataMode === status.dataMode),
         expected,
-      ));
+      );
+      const recovered = planResponse.plans[0];
+      if (recovered?.decisionSnapshotId && recovered.executionSnapshotId &&
+          recovered.decisionCutoffAt && recovered.executionCutoffAt && recovered.tradingDay) {
+        restoredTiming = {
+          decisionSnapshotId: recovered.decisionSnapshotId,
+          decisionCutoffAt: recovered.decisionCutoffAt,
+          executionSnapshotId: recovered.executionSnapshotId,
+          executionCutoffAt: recovered.executionCutoffAt,
+          tradingDay: recovered.tradingDay,
+        };
+        setFrozenPlanId(recovered.planId);
+        setPersistedPlanStatus(recovered.status);
+      }
+      setTiming(restoredTiming);
       setApiUp(true);
       setState({ kind: "ready", data: buildApiWorkspace(
         status, candidateResponse.candidates, candidateResponse.note, eventResponse.events,
@@ -357,6 +373,7 @@ export default function App() {
       const issued = await api.requestConfirmation(pv.planId);
       const frozen = await api.freeze(pv.planId, issued.confirmationToken);
       setFrozenPlanId(pv.planId);
+      setPersistedPlanStatus("FROZEN");
       setConfirmResult({ ok: true, message: "已冻结（服务端复核通过）。计划 ID " + pv.planId +
         "，冻结时间 " + String(frozen.frozen_at ?? "") +
         "。冻结后不可修改；可在下方「账本」区执行本交易日。" });
@@ -366,7 +383,7 @@ export default function App() {
 
   const onPlanSelectionChange = useCallback((ids: string[] | null) => {
     setSelectedInstrumentIds(ids);
-    setLivePreview(null); setFrozenPlanId(null); setConfirmResult(null);
+    setLivePreview(null); setFrozenPlanId(null); setPersistedPlanStatus(null); setConfirmResult(null);
   }, []);
 
   const onTimingChange = useCallback((role: "decision" | "execution", snapshotId: string) => {
@@ -400,7 +417,7 @@ export default function App() {
           ).sort((a, b) => a.asOfTime.localeCompare(b.asOfTime)).at(-1);
       return timingFrom(compatibleDecision, selected);
     });
-    setLivePreview(null); setFrozenPlanId(null); setConfirmResult(null);
+    setLivePreview(null); setFrozenPlanId(null); setPersistedPlanStatus(null); setConfirmResult(null);
     setSelectedInstrumentIds(null);
   }, [snapshots]);
 
@@ -465,6 +482,7 @@ export default function App() {
             {tab === "portfolio" && <PortfolioView data={data} onConfirm={onConfirm}
               onRequestPreview={onRequestPreview} livePreview={livePreview} apiUp={apiUp}
               confirming={confirming} confirmResult={confirmResult} frozenPlanId={frozenPlanId}
+              persistedPlanStatus={persistedPlanStatus}
               snapshots={snapshots} timing={timing} onTimingChange={onTimingChange}
               planCandidates={planCandidates} selectedInstrumentIds={selectedInstrumentIds}
               onPlanSelectionChange={onPlanSelectionChange} />}

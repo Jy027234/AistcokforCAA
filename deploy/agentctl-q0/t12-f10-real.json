@@ -1,15 +1,19 @@
 {
-  "as_of": "2026-09-18T15:00:00+08:00",
+  "as_of": "2026-09-22T15:00:00+08:00",
   "statements": 5397,
-  "consistency_violations": 334,
-  "computed": 832,
-  "no_ttm": 68,
-  "no_price": 0,
+  "consistency_violations": 0,
+  "computed": 898,
+  "no_ttm": 2,
+  "no_market_cap": 0,
+  "market_cap_as_of": "2026-09-22",
+  "market_cap_receipt_id": "rcpt_0e38d2f8637af87c46e93d87",
+  "ttm_formula_samples": 10,
+  "ttm_formula_mismatches": 0,
   "value_range": [
-    -0.080566,
-    0.11868
+    -0.468395,
+    0.24737
   ],
-  "negatives": 234,
+  "negatives": 177,
   "checks": [
     {
       "name": "转换无跳过记录",
@@ -17,34 +21,39 @@
       "detail": "跳过 0 条"
     },
     {
-      "name": "一致性违规比例可控（<10%）",
+      "name": "记录级数值问题比例可控（<10%）",
       "ok": true,
-      "detail": "334/5397"
+      "detail": "0/5397"
+    },
+    {
+      "name": "TTM 公式抽样重算一致",
+      "ok": true,
+      "detail": "10 条非 Q4 样本，0 条不一致"
     },
     {
       "name": "有标的算出 F10",
       "ok": true,
-      "detail": "832 只"
+      "detail": "898 只"
     },
     {
       "name": "池内有财务记录的标的覆盖率 >= 80%",
       "ok": true,
-      "detail": "832/900（92.4%）"
+      "detail": "898/900（99.8%）"
     },
     {
       "name": "值域合理（收益率在 -2 ~ 2 之间）",
       "ok": true,
-      "detail": "[-0.0806, 0.1187]"
+      "detail": "[-0.4684, 0.2474]"
     },
     {
       "name": "中位数量级合理（0.0001 ~ 0.5）",
       "ok": true,
-      "detail": "0.0022"
+      "detail": "0.0108"
     },
     {
       "name": "存在负值（亏损股未被截断为 0）",
       "ok": true,
-      "detail": "234 只；若为 0 说明亏损被伪造成低估值"
+      "detail": "177 只；若为 0 说明亏损被伪造成低估值"
     }
   ],
   "conclusion": "PASS"

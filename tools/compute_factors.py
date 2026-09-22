@@ -102,6 +102,8 @@ def main() -> int:
 
     print(f"快照 {summary['snapshotId']} @ {summary['asOfTime']}")
     print(f"  研究运行 {summary['researchRunId']}")
+    print(f"  特征版本 {summary['featureVersion']}（{summary['validityStatus']}）")
+    print(f"  输出哈希 {summary['outputHash']}")
     print(f"  财务记录 {summary['financialStatements']} 条"
           f"（跳过 {summary['skippedStatements']} 条），交易日 {summary['calendarDays']} 天")
     for key, value in sorted(summary.get("exclusionBreakdown", {}).items()):
@@ -123,6 +125,10 @@ def main() -> int:
         "as_of_time": summary["asOfTime"],
         "research_run_id": summary["researchRunId"],
         "factor_id": summary["factorId"],
+        "feature_version": summary["feature_version"],
+        "validity_status": summary["validity_status"],
+        "withdrawal_reason": summary["withdrawal_reason"],
+        "output_hash": summary["output_hash"],
         "feature_value_rows": rows,
         "valued_rows": with_value,
         "exclusion_breakdown": summary.get("exclusionBreakdown", {}),

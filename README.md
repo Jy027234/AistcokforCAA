@@ -135,12 +135,12 @@ npm run dev                         # http://localhost:5173
 |---|---|---|
 | 资料包自检 | ✅ | contracts/schema/configs/examples，裸 Python 可跑 |
 | M1 数据与证据底座 | 🟡 | 合成快照 D01–D08 通过；真实 current 快照 900 只 / 65 日行情 / 535 日交易日历已发布 |
-| M2 基线与模拟账本 | ✅ | 多日 + 跨进程重启验收通过；T+1 真的跨日生效 |
-| 产品闭环 | ✅ | 预览→确认→冻结→执行→估值→对账，合成与真实数据各跑一遍 |
+| M2 基线与模拟账本 | ✅ | 双快照两日 + 跨进程重启的合成验收 16/16 通过；T+1 真的跨日生效 |
+| 产品闭环 | 🟡 | 预览→确认→冻结→执行→估值→对账的合成闭环通过；冻结/已执行计划可在刷新后恢复；真实双快照跨日证据仍待下一交易日形成 |
 | 工作台界面 | 🟡 | 六页可浏览（含**设置**）；写链路走通；**界面上的数字有出处检查**（见下文） |
 | 研究作业与证据 | ✅ | 作业提交/执行/幂等、模型独立抽取、引用可定位、交叉核对 |
 | 每日流水线 | ✅ | 采集→快照→**因子落库**→质量闸门；界面**设置页**可配时间与启停（ADR-014） |
-| 研究卡上的因子数值 | ✅ | 因子落库（`research_run`/`feature_value`）→ 接口传入卡片；真实快照上 832/900 有值 |
+| 研究卡上的因子数值 | 🟡 | 因子落库与卡片读取链已接通；旧 `f10-v1` 因 TTM 公式错误已撤回，须以 `f10-v2` 和决策日总市值重新验收 |
 | agentctl 接入 | 🟡 | Q0 成立；唯一只读能力 `aquant.research_card.read` 已接 M1 真实存储（含因子值）；其余七个能力未接 |
 
 **数据层的已知限制（这些不影响流程验证，但影响结论）：**
@@ -162,12 +162,15 @@ npm run dev                         # http://localhost:5173
 | 归档字节离线复核 | `python tools/verify_archive.py` | 留证字节与摘要一致 |
 | 真实数据闭环 | `python tools/check_real_flow.py` | 真实快照上走完人工点选、差异留痕与模拟账本闭环；条件不足时写 `ENV_NOT_READY` |
 | 双侧验收 | `python tools/check_both_sides.py` | **同一套断言**在合成与真实上各跑一遍 |
-| 因子落库 | `python tools/compute_factors.py` | 真实快照上 900 行落库、832 行有值，并**回读**确认 |
+| 因子落库 | `python tools/compute_factors.py` | 结果带特征版本并回读；`f10-v1` 结果只供审计，不能沿用旧 832/900 结论 |
 | 数字出处（单跑） | `node apps/web/tools/check_number_provenance.mjs --url …` | 见下文 |
 | HEAD 可复现性 | `python tools/check_reproducible.py` | 干净导出后全量测试仍通过 |
 
 联网的脚本需要放行本机透明代理网段（`AQUANT_TRUSTED_PROXY_NETWORKS`，见 ADR-002）。
 全部只做只读抓取，不下单、不连券商。
+
+各类数据对 S1、F10/S2、模拟账本和 AI 分析的必要性、缺失时的降级边界及当前
+主备来源，见 [`docs/data-requirement-matrix.md`](docs/data-requirement-matrix.md)。
 
 ## 数据流水线
 
@@ -184,19 +187,22 @@ python tools\show_alerts.py --days 7      # 有 ERROR 时退出码 1
 ```
 
 日常生产路径由 `daily_run.py` 串起，生产发布步骤实际调用
-`tools/publish_universe_snapshot.py`，每次生成新的唯一物理 ID；通过因子落库和 F10
-质量闸门后，再由 `tools/promote_snapshot.py --require-factors` 原子切换
-`deploy/universe-snapshot/current_snapshot.json`。旧物理目录与 `meta.sqlite` 不会被覆盖。
+`tools/publish_universe_snapshot.py`，每次生成新的唯一物理 ID。S1 行情门槛通过后
+即可原子切换 `deploy/universe-snapshot/current_snapshot.json`；F10 缺失或失败会
+标记降级并告警，不再拖停价格型 S1。旧物理目录与 `meta.sqlite` 不会被覆盖。
 
 需要手工发布或回放时，先延迟切换 current，记下命令输出的 `snapshot_id`，再完成后续闸门：
 
 ```powershell
+python tools\collect_market_caps.py --as-of 2026-09-18
 python tools\publish_universe_snapshot.py `
   --data-dir deploy\universe-snapshot `
   --cache deploy\agentctl-q0\universe-bars.json `
   --pool configs\real-pool-csrc.yaml `
   --financials deploy\agentctl-q0\financials-cache.json `
   --actions deploy\agentctl-q0\dividend-actions.json `
+  --market-caps deploy\agentctl-q0\decision-market-caps.json `
+  --check-market-caps `
   --window-start 2026-06-22 `
   --window-end 2026-09-18 `
   --defer-promotion
@@ -249,8 +255,8 @@ python tools\compute_factors.py `
   --snapshot-dir deploy\universe-snapshot `
   --snapshot-id $snapshotId `
   --json-out deploy\agentctl-q0\factors-persist.json
-# 真实快照上：财务记录 5397 条 -> 900 行落库，其中 832 行有值，
-# 68 只标注「TTM 不可得（缺上年同期或口径不成立）」
+# 旧 f10-v1 的 832/900 结果已撤回；修正公式与决策日总市值输入后重新验收，
+# 不再沿用旧版本的覆盖率或排除数量。
 ```
 
 `tests/integration/t12_f10_real` 仍然跑，但它的角色是**质量闸门**（值域、亏损股
@@ -373,8 +379,9 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/readiness | ConvertTo-Json -Depth
 | 预览 | `POST /api/v1/plans/preview` | 只算不冻；订单只用执行日**之前**的价格；可用 `selected_instrument_ids` 提交当次 S1 候选子集 |
 | 取令牌 | `POST /api/v1/plans/{id}/confirmation` | 服务端签发，绑定主体/计划/快照/账户版本/预览哈希 |
 | 冻结 | `POST /api/v1/plans/{id}/freeze` | 五项复核；令牌一次性消费；成功后写入与计划绑定的决策日志 |
+| 恢复 | `GET /api/v1/plans?portfolio_id=...` | 返回冻结/已执行计划及双快照绑定；页面刷新后可继续执行、估值和对账 |
 | 执行 | `POST /api/v1/plans/{id}/execute` | 按 §12 规则模拟成交 |
-| 估值 | `POST /api/v1/valuations` | 不变量失败则不发布净值 |
+| 估值 | `POST /api/v1/valuations` | 强制使用请求中的已发布 EOD `snapshot_id`，保存快照、执行计划和 `as_of`；不变量失败则不发布净值 |
 | 对账 | `GET /api/v1/portfolios/{id}/reconcile` | 逐项核验订单、费用、现金、批次 |
 
 真实生产计划必须显式绑定两份已发布且不同的物理快照：

@@ -43,7 +43,8 @@ def _decimal(value: str | None) -> Decimal | None:
     if value in (None, ""):
         return None
     try:
-        return Decimal(value)
+        parsed = Decimal(value)
+        return parsed if parsed.is_finite() else None
     except InvalidOperation:
         return None
 
@@ -84,69 +85,31 @@ def statement_from_record(instrument_id: str, record: dict,
 
 
 def consistency_violations(statements: list[FinancialStatement]) -> list[dict]:
-    """跨字段一致性检查：能抓住单位错误与口径错误。
+    """检查能由单条记录可靠判定的数值异常。
 
     为什么需要这个：单位错了 10 倍时，所有数字都"看起来正常"——
     单看一个字段永远发现不了。我自己就在核对时把科学计数法读错一次，
     误以为单位错了。机器化检查比人眼可靠。
 
-    检查项（都是财务恒等式，与具体公司无关）：
-      1. **累计量级单调**：同一年内，|年内累计值| 必须逐季不减。
-         累计只会越加越多，所以量级必须增长；**用绝对值而不是有符号值**，
-         因为亏损公司的累计值会越来越负——我第一版按有符号递增判断，
-         结果在亏损公司上误报了一大批（114 条里大部分是这种）。
-      2. **单季可推导**：单季 = 本期累计 − 上期累计，必须有限。
-         这一项实际是恒等式，永远成立；保留它是为了在将来引入
-         "直接从数据源取单季值"的路径时，能校验两条路径是否一致。
+    年内累计利润并不满足单调性：后续季度发生亏损时，半年或前三季度
+    累计利润可以低于前一期，甚至跨过 0。这里不能把经营结果当成会计
+    恒等式，也不能据此判断供应商给的是累计值还是单季值。
+
+    当前对象只有一条利润值和股本，没有同口径独立字段可组成真正的
+    跨字段恒等式。因此这里只拒绝非有限或非正股本；利润为 0 是合法事实。
+    口径、单位与报告版本由来源映射和原文抽查验证，而不是靠走势猜测。
     """
 
-    import math
-
     problems: list[dict] = []
-    by_instrument: dict[str, list[FinancialStatement]] = {}
     for s in statements:
-        by_instrument.setdefault(s.instrument_id, []).append(s)
-
-    for iid, rows in by_instrument.items():
-        rows.sort(key=lambda s: s.stat_date)
-        by_year: dict[int, list[FinancialStatement]] = {}
-        for s in rows:
-            by_year.setdefault(s.stat_date.year, []).append(s)
-
-        for year, items in by_year.items():
-            items.sort(key=lambda s: s.stat_date)
-            previous = None
-            for s in items:
-                value = s.net_profit_micros
-                if value is None:
-                    continue
-                if previous is not None and abs(value) < abs(previous):
-                    problems.append({
-                        "instrument_id": iid, "stat_date": s.stat_date.isoformat(),
-                        "rule": "累计量级单调",
-                        "detail": (f"{year} 年内累计量级下降：|{previous}| -> |{value}|"
-                                   "（若该字段实为单季，则不是累计口径）"),
-                    })
-                if previous is not None:
-                    single = value - previous
-                    if not math.isfinite(single):
-                        problems.append({
-                            "instrument_id": iid, "stat_date": s.stat_date.isoformat(),
-                            "rule": "单季可推导",
-                            "detail": f"单季值 {single} 非有限",
-                        })
-                previous = value
-
-        for s in rows:
-            if s.net_profit_micros is None or not s.total_share or s.total_share <= 0:
-                continue
-            per_share = abs(s.net_profit_micros) / float(s.total_share)
-            if not math.isfinite(per_share) or per_share <= 0:
-                problems.append({
-                    "instrument_id": iid, "stat_date": s.stat_date.isoformat(),
-                    "rule": "每股量级",
-                    "detail": f"每股净利润算出 {per_share}（不应为 0 或非有限）",
-                })
+        shares = s.total_share
+        if shares is not None and (not shares.is_finite() or shares <= 0):
+            problems.append({
+                "instrument_id": s.instrument_id,
+                "stat_date": s.stat_date.isoformat(),
+                "rule": "总股本有效",
+                "detail": f"总股本必须是有限正数，实际为 {shares}",
+            })
     return problems
 
 

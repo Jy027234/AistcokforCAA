@@ -29,6 +29,11 @@ from aquant.domain.data.snapshot import (
     SnapshotDraft,
     SnapshotStore,
 )
+from .decision_market_caps import (
+    DecisionMarketCapError,
+    inject_sidecar,
+    load_sidecar,
+)
 
 from .snapshot_lifecycle import (
     new_snapshot_id,
@@ -45,6 +50,13 @@ class UniverseSnapshotError(RuntimeError):
 # 研究配置的默认上市年龄门槛。生产快照必须至少带这么多天的权威日历，
 # 否则门槛对“早于行情窗口、但上市仍未满 120 日”的标的无法生效。
 MIN_LISTING_CALENDAR_DAYS = 120
+
+# 这三项只影响可选财务因子；其余质量失败意味着价格型 S1 也不完整。
+_OPTIONAL_FINANCIAL_CHECKS = frozenset({
+    "财务缓存存在",
+    "财务数据覆盖池内标的 >= 90%",
+    "决策日总市值覆盖率 >= 90%",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +80,7 @@ class UniverseSnapshotResult:
     quotes: int
     dataset_dir: Path
     promoted: bool = False
+    quality_status: str = "OK"
     checks: list[SnapshotCheck] = field(default_factory=list)
 
     @property
@@ -81,6 +94,7 @@ class UniverseSnapshotResult:
             "dataset_dir": str(self.dataset_dir),
             "current_pointer": str(self.pointer_path),
             "promoted": self.promoted,
+            "quality_status": self.quality_status,
             "window": {
                 "first_day": self.first_day,
                 "last_day": self.last_day,
@@ -163,7 +177,10 @@ def _build_document(
     window: int | None,
     financials_path: Path,
     actions_path: Path,
+    market_caps_path: Path,
+    check_market_caps: bool,
     checks: list[SnapshotCheck],
+    market_caps_archive_root: Path | None = None,
 ) -> tuple[dict, list[dict], list[dict], list[str]]:
     bars_all = cache.get("bars") or {}
     if not isinstance(bars_all, dict) or not bars_all:
@@ -172,6 +189,14 @@ def _build_document(
         bars_all, window_start=window_start, window_end=window_end, window=window)
     if not days:
         raise UniverseSnapshotError("快照窗口为空：检查 --window-start / --window 与缓存")
+    market_caps = None
+    if market_caps_path.is_file():
+        try:
+            market_caps = load_sidecar(
+                market_caps_path, expected_as_of=days[-1],
+                archive_root=market_caps_archive_root)
+        except DecisionMarketCapError as exc:
+            raise UniverseSnapshotError(str(exc)) from exc
     kept = set(days)
     calendar_days = _cache_calendar(
         cache, quote_days=days, window_end=window_end or days[-1])
@@ -263,6 +288,16 @@ def _build_document(
         boards[board] = boards.get(board, 0) + 1
     _mark(checks, "覆盖主板（可模拟）", boards.get("MAIN", 0) >= 100,
           str(boards))
+    matched_caps, missing_caps = inject_sidecar(instruments, market_caps)
+    if check_market_caps:
+        _mark(
+            checks,
+            "决策日总市值覆盖率 >= 90%",
+            market_caps is not None and matched_caps >= len(instruments) * 0.9,
+            (f"{matched_caps}/{len(instruments)}；"
+             + ("sidecar 缺失" if market_caps is None else
+                f"缺失 {missing_caps} 只")),
+        )
 
     actions: list[dict] = []
     if actions_path.is_file():
@@ -292,20 +327,33 @@ def _build_document(
         "events": [],
     }
     if financials_path.is_file():
-        fin_cache = _load_json(financials_path, label="财务缓存")
-        pool_ids = {i["instrument_id"] for i in instruments}
-        statements = {iid: periods for iid, periods in (fin_cache.get("statements") or {}).items()
-                      if iid in pool_ids}
-        doc["financials"] = {
-            "created_at": fin_cache.get("created_at"),
-            "updated_at": fin_cache.get("updated_at"),
-            "source_id": "baostock",
-            "unit_notes": "netProfit 单位为元；totalShare 为股；均由 records.py 归一",
-            "statements": statements,
-        }
-        _mark(checks, "财务数据覆盖池内标的 >= 90%",
-              len(statements) >= len(pool_ids) * 0.9,
-              f"{len(statements)}/{len(pool_ids)}")
+        try:
+            fin_cache = _load_json(financials_path, label="财务缓存")
+            # The collector writes an object here.  Treat a valid JSON value
+            # with a malformed statements member like any other unusable
+            # financial cache, rather than letting .items() abort snapshot
+            # publication before the optional quality gate can run.
+            raw_statements = fin_cache.get("statements", {})
+            if not isinstance(raw_statements, dict):
+                raise UniverseSnapshotError(
+                    f"财务缓存的 statements 必须是 JSON object：{financials_path}")
+        except UniverseSnapshotError as exc:
+            _mark(checks, "财务缓存存在", False,
+                  f"无法读取或解析财务缓存：{exc}")
+        else:
+            pool_ids = {i["instrument_id"] for i in instruments}
+            statements = {iid: periods for iid, periods in raw_statements.items()
+                          if iid in pool_ids}
+            doc["financials"] = {
+                "created_at": fin_cache.get("created_at"),
+                "updated_at": fin_cache.get("updated_at"),
+                "source_id": "baostock",
+                "unit_notes": "netProfit 单位为元；totalShare 为股；均由 records.py 归一",
+                "statements": statements,
+            }
+            _mark(checks, "财务数据覆盖池内标的 >= 90%",
+                  len(statements) >= len(pool_ids) * 0.9,
+                  f"{len(statements)}/{len(pool_ids)}")
     else:
         _mark(checks, "财务缓存存在", False, f"缺少 {financials_path}")
     return doc, instruments, quotes, days
@@ -332,6 +380,8 @@ def publish_universe_snapshot(
     window: int | None = None,
     financials_path: str | Path | None = None,
     actions_path: str | Path | None = None,
+    market_caps_path: str | Path | None = None,
+    check_market_caps: bool = False,
     strict_quality: bool = True,
     promote: bool = True,
 ) -> UniverseSnapshotResult:
@@ -342,6 +392,8 @@ def publish_universe_snapshot(
     pool_file = Path(pool_path)
     financials_file = Path(financials_path) if financials_path else root.parent / "agentctl-q0" / "financials-cache.json"
     actions_file = Path(actions_path) if actions_path else root.parent / "agentctl-q0" / "dividend-actions.json"
+    market_caps_file = (Path(market_caps_path) if market_caps_path else
+                        root.parent / "agentctl-q0" / "decision-market-caps.json")
     cache = _load_json(cache_file, label="采集缓存")
     pool = _load_json(pool_file, label="研究池")
     days_for_id = _cache_days(
@@ -359,7 +411,11 @@ def publish_universe_snapshot(
     doc, instruments, quotes, days = _build_document(
         cache=cache, pool=pool, window_start=window_start,
         window_end=window_end, window=window,
-        financials_path=financials_file, actions_path=actions_file, checks=checks,
+        financials_path=financials_file, actions_path=actions_file,
+        market_caps_path=market_caps_file, check_market_caps=check_market_caps,
+        checks=checks,
+        market_caps_archive_root=(market_caps_file.parent / "forward-archive"
+                                  if check_market_caps else None),
     )
     failed = [c for c in checks if not c.ok]
     # Financials and amount coverage are quality gates for the production command;
@@ -389,6 +445,24 @@ def publish_universe_snapshot(
             domains=["ANNOUNCEMENTS", "CORPORATE_ACTIONS"],
             integration_state="TEST_PASSED", pit_available="NO", pit_basis="RECONSTRUCTED", rights={},
         )
+        if any(i.get("market_cap_source_id") == "eastmoney-direct"
+               for i in instruments):
+            builder.ensure_source(
+                "eastmoney-direct", display_name="东方财富免费行情接口",
+                domains=["DAILY_QUOTES"], integration_state="TEST_PASSED",
+                pit_available="NO", pit_basis="OBSERVED", rights={},
+            )
+        if any(i.get("market_cap_source_id") == "tencent-qt"
+               for i in instruments):
+            builder.ensure_source(
+                "tencent-qt", display_name="腾讯证券收盘快照",
+                # 现有持久化枚举把快照型市值归入 DAILY_QUOTES；应用层
+                # SourceRegistry 已单列 MARKET_CAPS 能力。待统一迁移数据库
+                # 枚举前，不在发布路径写入数据库尚不认识的新值。
+                domains=["DAILY_QUOTES"],
+                integration_state="TEST_PASSED",
+                pit_available="NO", pit_basis="OBSERVED", rights={},
+            )
         actions = doc.get("corporate_actions") or []
         registered = {row[0] for row in con.execute("SELECT source_id FROM source_registry")}
         referenced = {a.get("source_id") for a in actions if a.get("source_id")}
@@ -396,6 +470,13 @@ def publish_universe_snapshot(
               f"已登记 {sorted(registered)}；被引用 {sorted(referenced)}")
         if strict_quality and referenced - registered:
             raise UniverseSnapshotError("公司行为引用了未登记的数据源")
+        final_failures = [c for c in checks if not c.ok]
+        quality_status = (
+            "OK" if not final_failures else
+            "DEGRADED" if all(c.name in _OPTIONAL_FINANCIAL_CHECKS
+                              for c in final_failures) else
+            "BLOCKING"
+        )
         builder.ingest(doc, source_id="baostock", data_version=f"universe:{sid}")
         refs = builder.write_datasets(doc, snapshot_id=sid)
         store = SnapshotStore(con, api_root)
@@ -409,6 +490,7 @@ def publish_universe_snapshot(
             code_version="0.1.0", data_version=f"universe:{sid}", watermark=doc["watermark"],
             pool_hash="sha256:" + hashlib.sha256(pool_file.read_bytes()).hexdigest(),
             datasets=_refs_to_dataset_refs(refs),
+            quality_status=quality_status,
         ))
         # Verify the new immutable object before making it current. This also
         # ensures a malformed path cannot become the API's current input.
@@ -416,6 +498,9 @@ def publish_universe_snapshot(
         ref = reader.ref(sid)
         reader.instruments(sid, as_of=ref.as_of_time)
         if promote:
+            if quality_status == "BLOCKING":
+                raise UniverseSnapshotError(
+                    f"快照 {sid} 存在 S1 阻断质量问题，拒绝切换 current")
             # DB 记录先写，文件指针最后原子替换。运行中的 API 以文件为优先，
             # 因此任何中途失败都不会把它暴露到半完成的新快照。
             db_pointer = record_current_snapshot(con, sid)
@@ -432,6 +517,7 @@ def publish_universe_snapshot(
         snapshot_id=sid, data_root=root, last_day=days[-1], first_day=days[0],
         trading_days=len(days), instruments=len(instruments), quotes=len(quotes),
         dataset_dir=dataset_dir, promoted=promote, checks=checks,
+        quality_status=quality_status,
     )
 
 
@@ -445,17 +531,25 @@ def promote_universe_snapshot(
     try:
         apply_migrations(con)
         store = SnapshotStore(con, root / "api")
-        store.require_published(snapshot_id)
+        snap = store.require_published(snapshot_id)
+        if snap["quality_status"] == "BLOCKING":
+            raise UniverseSnapshotError(
+                f"快照 {snapshot_id} 的质量状态为 BLOCKING，拒绝切换 current")
         if require_factors:
             row = con.execute(
                 "SELECT COUNT(*) FROM research_run r "
+                "JOIN research_run_feature_validity rv "
+                "  ON rv.research_run_id=r.research_run_id "
+                "JOIN feature_version fv ON fv.feature_version=rv.feature_version "
                 "JOIN feature_value f ON f.research_run_id=r.research_run_id "
-                "WHERE r.snapshot_id=? AND r.status='SUCCEEDED'",
+                "WHERE r.snapshot_id=? AND r.status='SUCCEEDED' "
+                "AND rv.validity_status='VALID' AND fv.status='ACTIVE' "
+                "AND f.raw_value IS NOT NULL",
                 (snapshot_id,),
             ).fetchone()
             if row is None or int(row[0]) <= 0:
                 raise UniverseSnapshotError(
-                    f"快照 {snapshot_id} 尚无成功落库的因子，拒绝切换 current")
+                    f"快照 {snapshot_id} 尚无 ACTIVE/VALID 且有值的因子，拒绝切换 current")
         db_pointer = record_current_snapshot(con, snapshot_id)
         write_current_pointer(
             root, snapshot_id,

@@ -207,6 +207,15 @@ def test_blocking_issues_mark_quality_and_are_recorded(store, tmp_path):
     assert issues[0]["retryable"] == 1
 
 
+def test_explicit_degraded_quality_is_persisted_without_blocking_issue(store, tmp_path):
+    d = draft(tmp_path)
+    d.quality_status = "DEGRADED"
+    sid = store.publish(d)
+
+    assert store.get(sid)["quality_status"] == "DEGRADED"
+    assert store.blocking_issues(sid) == []
+
+
 def test_empty_dataset_list_rejected(store, tmp_path):
     d = draft(tmp_path)
     d.datasets = []

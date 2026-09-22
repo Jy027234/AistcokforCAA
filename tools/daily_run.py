@@ -30,6 +30,7 @@ available_basis 记为 RECONSTRUCTED 是准确的。
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -43,6 +44,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from aquant.operations.alerting import (  # noqa: E402
     LEVEL_ERROR, AlertLog, raise_alert,
 )
+from aquant.domain.data.db import apply_migrations, connect  # noqa: E402
+from aquant.domain.data.reader import SnapshotReader  # noqa: E402
+from aquant.domain.data.snapshot import SnapshotStore  # noqa: E402
 from aquant.operations.pipeline import (  # noqa: E402
     PipelineBusy, PipelineLock, RunLog, RunRecord,
 )
@@ -62,6 +66,184 @@ POOL = ROOT / "configs" / "real-pool-csrc.yaml"
 SNAPSHOT_DIR = Path(os.environ.get(
     "AQUANT_DATA_DIR", str(ROOT / "deploy" / "universe-snapshot")))
 FACTORS_REPORT = ROOT / "deploy" / "agentctl-q0" / "factors-persist.json"
+SNAPSHOT_REPORT = ROOT / "deploy" / "agentctl-q0" / "snapshot-publish.json"
+MARKET_CAPS_CACHE = ROOT / "deploy" / "agentctl-q0" / "decision-market-caps.json"
+
+# 快照构建的质量检查目前以人类可读名称输出。只有这两项明确属于
+# 可选的财务输入；其它检查（包括行情条数、前复权价、行业和交易日历）
+# 都是价格型 S1 的输入或其交易约束，不能因为启用 degraded 发布而放行。
+_OPTIONAL_FINANCIAL_CHECKS = frozenset({
+    "财务缓存存在",
+    "财务数据覆盖池内标的 >= 90%",
+    "决策日总市值覆盖率 >= 90%",
+})
+
+# 结构化报告不完整时必须失败关闭。这样即使发布工具以后新增了一个
+# 检查，也不会因为 daily_run 没有认识它而把半成品切成 current。
+_S1_REQUIRED_CHECKS = frozenset({
+    "交易日历覆盖 >= 120 日",
+    "池内标的都有行情",
+    "行情条数充足",
+    "成交额覆盖率 >= 99%",
+    "前复权收盘价覆盖率 >= 99%",
+    "窗口首行前收已从行情补齐",
+    "前收缺失只可能出现在窗口首行",
+    "行业齐全",
+    "覆盖主板（可模拟）",
+    "公司行为带来源公告",
+    "公司行为的来源已登记",
+})
+
+
+class SnapshotQuality:
+    """发布报告的分层质量结果。
+
+    ``core_failures`` 是 S1 的阻断项；``financial_failures`` 只影响
+    F10 可用性。两者分开保存，调用方不会用一个布尔值吞掉失败原因。
+    """
+
+    __slots__ = ("core_failures", "financial_failures")
+
+    def __init__(self, core_failures: tuple[dict, ...],
+                 financial_failures: tuple[dict, ...]) -> None:
+        self.core_failures = core_failures
+        self.financial_failures = financial_failures
+
+    @property
+    def core_ok(self) -> bool:
+        return not self.core_failures
+
+    @property
+    def degraded(self) -> bool:
+        return bool(self.financial_failures)
+
+
+def _classify_snapshot_checks(checks: object) -> SnapshotQuality:
+    """按能力边界分类快照检查，未知/畸形检查按核心失败处理。
+
+    ``publish_universe_snapshot.py --allow-degraded`` 允许工具写出物理
+    快照，但并不替 daily_run 决定哪些检查可以降级；这个函数才是 S1
+    发布的显式策略边界。
+    """
+
+    if not isinstance(checks, list):
+        return SnapshotQuality(({
+            "name": "发布报告缺少 checks",
+            "detail": "quality report must contain a list of checks",
+        },), ())
+
+    core: list[dict] = []
+    financial: list[dict] = []
+    for item in checks:
+        if not isinstance(item, dict) or not item.get("name"):
+            core.append({
+                "name": "发布报告包含畸形检查",
+                "detail": repr(item),
+            })
+            continue
+        if item.get("ok"):
+            continue
+        failure = {
+            "name": str(item["name"]),
+            "detail": str(item.get("detail") or ""),
+        }
+        if failure["name"] in _OPTIONAL_FINANCIAL_CHECKS:
+            financial.append(failure)
+        else:
+            core.append(failure)
+    return SnapshotQuality(tuple(core), tuple(financial))
+
+
+def _read_snapshot_quality(path: Path, *, snapshot_id: str) -> SnapshotQuality:
+    """读取并验证本次快照报告；读不到或不完整时失败关闭。"""
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return SnapshotQuality(({
+            "name": "无法读取快照质量报告",
+            "detail": str(exc),
+        },), ())
+    if not isinstance(payload, dict):
+        return SnapshotQuality(({
+            "name": "快照质量报告格式错误",
+            "detail": "report must be a JSON object",
+        },), ())
+
+    quality = _classify_snapshot_checks(payload.get("checks"))
+    failures = list(quality.core_failures)
+    if payload.get("snapshot_id") != snapshot_id:
+        failures.append({
+            "name": "快照质量报告 ID 不匹配",
+            "detail": (f"expected {snapshot_id}, got "
+                       f"{payload.get('snapshot_id')!r}"),
+        })
+    checks = payload.get("checks")
+    names = {
+        item.get("name") for item in checks
+        if isinstance(item, dict) and item.get("name")
+    } if isinstance(checks, list) else set()
+    for required in sorted(_S1_REQUIRED_CHECKS - names):
+        failures.append({
+            "name": f"缺少 S1 核心检查：{required}",
+            "detail": "publish report did not record this required gate",
+        })
+    return SnapshotQuality(tuple(failures), quality.financial_failures)
+
+
+def _read_s1_capability(data_root: Path, *, snapshot_id: str) -> dict:
+    """复用产品读取器确认候选快照真的能作为 S1 输入。"""
+
+    con = None
+    try:
+        con = connect(data_root / "meta.sqlite")
+        apply_migrations(con)
+        reader = SnapshotReader(SnapshotStore(con, data_root / "api"))
+        capability = reader.published_snapshot(snapshot_id).s1_decision
+        return {
+            "ok": capability.available,
+            "name": capability.code,
+            "detail": capability.message,
+        }
+    except Exception as exc:  # fail closed; the candidate remains unpromoted
+        return {
+            "ok": False,
+            "name": "无法验证 S1 决策能力",
+            "detail": str(exc),
+        }
+    finally:
+        if con is not None:
+            con.close()
+
+
+def _factor_report_problem(path: Path, *, snapshot_id: str) -> str | None:
+    """确认可选 F10 作业真的产出当前有效版本，而非仅写入空行。"""
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return f"无法读取 F10 落库报告：{exc}"
+    if not isinstance(payload, dict):
+        return "F10 落库报告格式错误"
+    if payload.get("snapshot_id") != snapshot_id:
+        return ("F10 落库报告快照不匹配："
+                f"expected {snapshot_id}, got {payload.get('snapshot_id')!r}")
+    if payload.get("feature_version") != "f10-v2":
+        return f"F10 特征版本无效：{payload.get('feature_version')!r}"
+    if payload.get("validity_status") != "VALID":
+        return f"F10 科学有效性不是 VALID：{payload.get('validity_status')!r}"
+    if not str(payload.get("output_hash") or "").startswith("sha256:"):
+        return "F10 输出哈希缺失"
+    try:
+        feature_rows = int(payload.get("feature_value_rows") or 0)
+        valued_rows = int(payload.get("valued_rows") or 0)
+    except (TypeError, ValueError):
+        return "F10 落库报告的行数不是整数"
+    if feature_rows <= 0:
+        return "F10 未写入任何因子行"
+    if valued_rows <= 0:
+        return "F10 没有任何可用数值（检查决策日总市值与财务输入）"
+    return None
 
 #: 快照窗口的第一天。**固定不动**：窗口跟着当天滑动的话，
 #: 两次运行覆盖的日期范围不同，快照之间就没法比较。
@@ -186,9 +368,10 @@ def main() -> int:
     if args.dry_run:
         print("会做的事（dry-run）：")
         print("  1. 采集 " + args.window_start + " .. " + day + " 的研究池行情")
-        print("  2. 发布一个新的唯一物理快照，并更新 current_snapshot.json")
-        print("  3. 在该快照上计算 F10 因子")
-        print("  4. 追加运行日志 " + str(RUNS))
+        print("  2. 收盘后采集决策日总市值（失败时仅降级 F10）")
+        print("  3. 发布一个新的唯一物理快照，并更新 current_snapshot.json")
+        print("  4. 在该快照上计算 F10 因子")
+        print("  5. 追加运行日志 " + str(RUNS))
         return 0
 
     started = time.time()
@@ -229,16 +412,39 @@ def main() -> int:
             # 唯一物理 ID，保留所有旧目录与 meta.sqlite，最后原子替换当前指针。
             snapshot_id = args.snapshot_id or new_snapshot_id(actual_last)
             record.snapshot_id = snapshot_id
+
+            # F10 的分母必须是与行情末日一致的总市值。该能力对价格型 S1
+            # 是可选的：采集失败仍发布 S1，但显式传入一个不存在的 sidecar
+            # 路径，避免发布器误读上一交易日遗留的旧文件。
+            cap_step = run_step([
+                "tools/collect_market_caps.py", "--as-of", actual_last,
+                "--output", str(MARKET_CAPS_CACHE),
+            ], label="采集决策日总市值")
+            record.steps.append(cap_step)
+            market_caps_path = MARKET_CAPS_CACHE
+            if not cap_step["ok"]:
+                market_caps_path = MARKET_CAPS_CACHE.with_name(
+                    f"decision-market-caps-missing-{actual_last}.json")
+                alert("决策日总市值采集失败，按价格型 S1 降级继续",
+                      tradingDay=day, snapshotId=snapshot_id,
+                      exitCode=cap_step["exitCode"], tail=cap_step["tail"])
+
             step = run_step([
                 "tools/publish_universe_snapshot.py",
                 "--data-dir", str(SNAPSHOT_DIR),
                 "--cache", str(CACHE), "--pool", str(POOL),
                 "--financials", str(FINANCIALS_CACHE),
                 "--actions", str(ACTIONS_CACHE),
+                "--market-caps", str(market_caps_path),
+                "--check-market-caps",
                 "--snapshot-id", snapshot_id,
                 "--window-start", args.window_start,
                 "--window-end", actual_last,
+                # 财务覆盖是可选能力；质量报告回读后只把明确的财务
+                # 检查降级，行情/价格检查仍由 daily_run 逐项阻断。
+                "--allow-degraded",
                 "--defer-promotion",
+                "--json-out", str(SNAPSHOT_REPORT),
             ], label="发布快照")
             record.steps.append(step)
             if not step["ok"]:
@@ -250,7 +456,49 @@ def main() -> int:
                       exitCode=step["exitCode"], tail=step["tail"])
                 return _finish(run_log, record, started, 1, json_out=args.json_out)
 
-            # 3. 算因子并**落库**（在新快照上）。
+            quality = _read_snapshot_quality(
+                SNAPSHOT_REPORT, snapshot_id=snapshot_id)
+            s1_capability = _read_s1_capability(
+                SNAPSHOT_DIR, snapshot_id=snapshot_id)
+            core_failures = list(quality.core_failures)
+            if not s1_capability["ok"]:
+                core_failures.append({
+                    "name": "S1 决策能力",
+                    "detail": (f"{s1_capability['name']}: "
+                               f"{s1_capability['detail']}"),
+                })
+            price_step = {
+                "step": "S1 行情/价格质量闸门",
+                "ok": not core_failures,
+                "seconds": 0.0,
+                "tail": [
+                    ("通过" if not core_failures else
+                     "失败：" + "; ".join(
+                         f"{item['name']} {item['detail']}"
+                         for item in core_failures))
+                ],
+                "exitCode": 0 if not core_failures else 1,
+            }
+            record.steps.append(price_step)
+            if core_failures:
+                record.reason = "S1 行情/价格质量闸门未通过；current 保持不变"
+                alert("S1 行情/价格质量闸门未通过，未切换 current",
+                      tradingDay=day, snapshotId=snapshot_id,
+                      failures=core_failures)
+                return _finish(run_log, record, started, 1,
+                               json_out=args.json_out)
+
+            degraded_reasons = [
+                f"{item['name']}: {item['detail']}"
+                for item in quality.financial_failures
+            ]
+            if degraded_reasons:
+                alert("财务因子输入质量未通过，按价格型 S1 降级继续",
+                      tradingDay=day, snapshotId=snapshot_id,
+                      failures=list(quality.financial_failures))
+
+            # 3. F10 是可选的财务增强因子。它仍然执行并落库/验收，
+            #    但失败只形成降级状态，不能阻断已通过 S1 价格闸门的快照。
             #
             # 这一步以前跑的是 `tests.integration.t12_f10_real`：它读采集缓存、
             # 在内存里算一遍、写一份验收报告。于是"验收报告 PASS"与
@@ -263,13 +511,18 @@ def main() -> int:
             ], label="因子落库")
             record.steps.append(step)
             if not step["ok"]:
-                # 物理快照已经不可变发布，但尚未切 current。因子缺失时
-                # 保留上一份完整 current，不能让研究卡进入半完成状态。
-                record.reason = "新快照因子未落库；current 保持不变"
-                alert("新快照因子未落库，未切换 current",
+                degraded_reasons.append("F10 因子未落库")
+                alert("F10 因子未落库，按价格型 S1 降级继续",
                       tradingDay=day, snapshotId=snapshot_id,
                       exitCode=step["exitCode"], tail=step["tail"])
-                return _finish(run_log, record, started, 1, json_out=args.json_out)
+            else:
+                report_problem = _factor_report_problem(
+                    FACTORS_REPORT, snapshot_id=snapshot_id)
+                if report_problem:
+                    degraded_reasons.append(report_problem)
+                    alert("F10 落库结果不可用于当前研究，按价格型 S1 降级继续",
+                          tradingDay=day, snapshotId=snapshot_id,
+                          problem=report_problem)
 
             # 4. 因子质量闸门。失败不影响"快照已发布"与"因子已落库"这两个事实，
             #    但它说明数值本身有问题（单位、值域、亏损股被截断为 0……），
@@ -278,19 +531,17 @@ def main() -> int:
                             label="F10 质量闸门")
             record.steps.append(step)
             if not step["ok"]:
-                record.reason = "F10 质量闸门未通过；current 保持不变"
-                alert("F10 质量闸门未通过，未切换 current",
+                degraded_reasons.append("F10 质量闸门未通过")
+                alert("F10 质量闸门未通过，按价格型 S1 降级继续",
                       tradingDay=day, snapshotId=snapshot_id,
                       exitCode=step["exitCode"], tail=step["tail"])
-                return _finish(run_log, record, started, 1, json_out=args.json_out)
 
-            # 5. 只有行情、快照、因子持久化和质量闸门全部通过，才原子切换
-            # current。此前所有步骤失败都只留下可审计的候选物理快照。
+            # 5. 价格型 S1 闸门通过后即可原子切换 current。F10 不再使用
+            #    --require-factors：它属于可选增强能力，而非 S1 的完成条件。
             step = run_step([
                 "tools/promote_snapshot.py",
                 "--data-dir", str(SNAPSHOT_DIR),
                 "--snapshot-id", snapshot_id,
-                "--require-factors",
             ], label="切换当前快照")
             record.steps.append(step)
             if not step["ok"]:
@@ -301,6 +552,9 @@ def main() -> int:
                 return _finish(run_log, record, started, 1, json_out=args.json_out)
 
             record.outcome = "PUBLISHED"
+            if degraded_reasons:
+                record.reason = ("价格型 S1 已发布；F10 财务因子降级："
+                                 + "；".join(degraded_reasons))
             return _finish(run_log, record, started, 0, json_out=args.json_out)
 
     except PipelineBusy as exc:

@@ -101,6 +101,19 @@ class SinaS2Row:
     pit_eligible: bool = False
     pit_blocker: str = "source page has no verified announcement date or revision chain"
     amount_unit: str = "yuan"
+    # The three source pages are one logical observation.  Keep every page
+    # digest on the row so a downstream fact adapter can retain provenance
+    # without inventing a document hash for a missing page.
+    content_hashes: tuple[str, ...] = ()
+
+    @property
+    def content_hash(self) -> str:
+        """Stable digest for the complete three-page observation."""
+
+        if not self.content_hashes:
+            return ""
+        digest_input = "|".join(self.content_hashes).encode("utf-8")
+        return "sha256:" + hashlib.sha256(digest_input).hexdigest()
 
     @property
     def required_fields_present(self) -> bool:
@@ -199,6 +212,7 @@ def merge_s2_pages(*, profit: SinaStatementPage,
             net_income_attributable=lookups[2][period],
             parent_equity=lookups[3][period], operating_cashflow=lookups[4][period],
             source_id=SOURCE_ID, retrieved_at=observed,
+            content_hashes=tuple(page.content_hash for page in pages),
         )
         for period in sorted(common, reverse=True)
     )

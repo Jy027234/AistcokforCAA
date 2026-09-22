@@ -207,6 +207,9 @@ class SnapshotDraft:
     pool_hash: str | None = None
     datasets: list[DatasetRef] = field(default_factory=list)
     blocking_issues: list[dict] = field(default_factory=list)
+    # 采集能力可降级但仍可支持 S1 时，由编排层显式写 DEGRADED。
+    # 未指定时保持既有行为：有 blocking_issues 为 BLOCKING，否则 OK。
+    quality_status: str | None = None
 
 
 def _require_aware(dt: datetime, field_name: str) -> None:
@@ -265,7 +268,12 @@ class SnapshotStore:
                     "supersede only a published snapshot",
                 )
 
-        quality_status = "BLOCKING" if draft.blocking_issues else "OK"
+        quality_status = (draft.quality_status or
+                          ("BLOCKING" if draft.blocking_issues else "OK"))
+        if quality_status not in {"OK", "DEGRADED", "BLOCKING"}:
+            raise ValueError(f"invalid snapshot quality_status {quality_status!r}")
+        if draft.blocking_issues and quality_status != "BLOCKING":
+            raise ValueError("snapshot with blocking_issues must use BLOCKING quality_status")
         published_at = draft.published_at or datetime.now(timezone.utc)
 
         with write_tx(self.con):

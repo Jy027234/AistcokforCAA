@@ -254,7 +254,7 @@ def test_computed_factors_are_returned_with_their_rank(world):
     ref = reader.ref("snap-syn-001")
     run_id = create_research_run(
         con, snapshot_id="snap-syn-001", as_of_time=ref.as_of_time,
-        code_version="test", feature_version="f10-v1")
+        code_version="test", feature_version="f10-v2")
     store_factor_values(con, research_run_id=run_id, values=[
         FactorValue(instrument_id="SYN.A.600519", factor_id="f10",
                     raw_value=0.05, coverage_ratio=1.0),
@@ -297,6 +297,9 @@ def test_exclusion_label_map_covers_the_codes_the_pipeline_emits():
 
     # F10 在快照上真的会产出的原因，必须都在表里
     for code in ("TTM 不可得（缺上年同期或口径不成立）",
-                 "快照未包含财务数据", "快照内无行情", "缺总股本或价格无效"):
+                 "快照未包含财务数据", "快照内无行情", "缺总股本或价格无效",
+                 "缺决策日总市值", "缺决策日总市值日期", "决策日总市值无效",
+                 "决策日总市值日期无效",
+                 "决策日总市值日期与最后行情日不一致"):
         assert code in labels, f"{code} 没有说明，界面上会显示成一个破折号"
         assert labels[code].strip(), code

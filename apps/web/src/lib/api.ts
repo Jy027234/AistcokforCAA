@@ -215,6 +215,23 @@ export interface PlanTimingSelection {
   tradingDay: string;
 }
 
+export interface PersistedPlanSummary {
+  planId: string;
+  portfolioId: string;
+  status: "FROZEN" | "EXECUTED";
+  snapshotId: string;
+  decisionSnapshotId: string;
+  decisionCutoffAt: string;
+  executionSnapshotId: string;
+  executionCutoffAt: string;
+  tradingDay: string;
+  createdAt: string;
+  frozenAt: string | null;
+  expiresAt: string | null;
+  confirmedBy: string | null;
+  planVersion: string;
+}
+
 export interface DividendInput {
   action_id: string;
   instrument_id: string;
@@ -260,6 +277,9 @@ export interface ExecuteResponse {
 
 export interface ValuationResponse {
   portfolio_id?: string;
+  snapshot_id: string;
+  execution_plan_id: string | null;
+  as_of: string;
   trading_day: string;
   cash_available_cents: number;
   cash_frozen_cents: number;
@@ -531,6 +551,11 @@ export const api = {
       { method: "POST", body: JSON.stringify({ plan_id: planId, confirmation_token: token }) },
     ),
 
+  plans: (portfolioId: string) =>
+    request<{ portfolioId: string; count: number; plans: PersistedPlanSummary[] }>(
+      "/api/v1/plans?portfolio_id=" + encodeURIComponent(portfolioId),
+    ),
+
   /** 执行已冻结的计划。
    *
    * corporate_actions 只描述"当天有哪些公司行为"，**不描述谁享有多少**：
@@ -546,7 +571,8 @@ export const api = {
       },
     ),
 
-  value: (body: { portfolio_id: string; snapshot_id: string; trading_day: string }) =>
+  value: (body: { portfolio_id: string; snapshot_id: string; trading_day: string;
+                  execution_plan_id?: string }) =>
     request<ValuationResponse>("/api/v1/valuations", {
       method: "POST", body: JSON.stringify(body),
     }),

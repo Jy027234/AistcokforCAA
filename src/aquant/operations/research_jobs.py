@@ -27,7 +27,9 @@ from datetime import datetime, timezone
 from typing import Callable
 
 from aquant.domain.data.reader import SnapshotReader
+from aquant.domain.research.f10 import FEATURE_VERSION as F10_FEATURE_VERSION
 from aquant.domain.research.f10 import compute_f10_for_snapshot
+from aquant.domain.research.runs import feature_version_metadata
 from aquant.operations.jobs import Job, JobError, JobStatus, JobStore, job_payload
 
 #: 因子计算作业：在某一快照上算 F10 并落库（§10.2）。
@@ -36,6 +38,29 @@ JOB_FACTOR_COMPUTE = "FACTOR_COMPUTE"
 JOB_EVIDENCE_RESEARCH = "EVIDENCE_RESEARCH"
 
 KNOWN_JOB_TYPES = (JOB_FACTOR_COMPUTE, JOB_EVIDENCE_RESEARCH)
+
+
+def _factor_config_error(config_version: str | None) -> str:
+    if not config_version:
+        return "FACTOR_COMPUTE requires an explicit feature config version"
+    if config_version == "f10-v1":
+        return "f10-v1 is withdrawn and cannot be used for FACTOR_COMPUTE"
+    return f"unknown or unsupported FACTOR_COMPUTE config_version {config_version!r}"
+
+
+def _validate_factor_config(con: sqlite3.Connection,
+                            config_version: str | None) -> None:
+    """Ensure the job label names the implementation that will actually run."""
+
+    metadata = feature_version_metadata(con, config_version)
+    if (config_version != F10_FEATURE_VERSION or metadata is None
+            or metadata.get("status") != "ACTIVE"
+            or metadata.get("validity_status") != "VALID"):
+        raise JobError(
+            "CONFIG_VERSION_INVALID", _factor_config_error(config_version),
+            str(config_version or "-"),
+            "submit FACTOR_COMPUTE with the registered active version f10-v2",
+        )
 
 
 class ResearchJobError(RuntimeError):
@@ -225,6 +250,10 @@ def _compute_factors(con: sqlite3.Connection, reader: SnapshotReader, job: Job,
     if not snapshot_id:
         raise ResearchJobError("DATA_NOT_READY", "job has no input snapshot",
                                "submit the job with a snapshot id")
+    try:
+        _validate_factor_config(con, job.config_version)
+    except JobError as exc:
+        raise ResearchJobError(exc.code, exc.message, exc.repair_action) from exc
     payload = _payload(job)
     ref = reader.ref(snapshot_id)
     out = compute_f10_for_snapshot(
@@ -234,6 +263,14 @@ def _compute_factors(con: sqlite3.Connection, reader: SnapshotReader, job: Job,
     return {
         "researchRunId": out.get("researchRunId"),
         "factorId": out.get("factorId"),
+        "feature_version": out.get("feature_version"),
+        "featureVersion": out.get("featureVersion"),
+        "validity_status": out.get("validity_status"),
+        "validityStatus": out.get("validityStatus"),
+        "withdrawal_reason": out.get("withdrawal_reason"),
+        "withdrawalReason": out.get("withdrawalReason"),
+        "output_hash": out.get("output_hash"),
+        "outputHash": out.get("outputHash"),
         "financialStatements": out.get("financialStatements"),
         "skippedStatements": out.get("skippedStatements"),
         "exclusionBreakdown": out.get("exclusionBreakdown"),
@@ -253,6 +290,12 @@ def submit_research_job(con: sqlite3.Connection, *, job_type: str, trading_day: 
         raise JobError("DATA_NOT_READY",
                        f"unknown job type {job_type!r}", job_type,
                        f"use one of {list(KNOWN_JOB_TYPES)}")
+    # “default” 不能跨公式版本复用：否则修正算法后，相同快照会命中旧的
+    # SUCCEEDED 作业并直接返回 v1 结果。显式配置仍原样保留。
+    if job_type == JOB_FACTOR_COMPUTE and config_version == "default":
+        config_version = F10_FEATURE_VERSION
+    if job_type == JOB_FACTOR_COMPUTE:
+        _validate_factor_config(con, config_version)
     store = JobStore(con)
     job_id, created = store.submit(
         job_type=job_type, trading_day=trading_day,

@@ -40,6 +40,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from aquant.domain.data.db import apply_migrations, connect  # noqa: E402
 from aquant.domain.data.ingest import SnapshotBuilder  # noqa: E402
+from aquant.domain.data.reader import SnapshotReader  # noqa: E402
 from aquant.domain.data.snapshot import (  # noqa: E402
     DataMode,
     DatasetRef,
@@ -60,6 +61,7 @@ CUTOFF = datetime(2026, 9, 11, 12, 30, tzinfo=timezone.utc)
 AS_OF = datetime(2026, 9, 11, 20, 30, tzinfo=timezone.utc)
 
 TRADING_DAYS = ["2026-09-07", "2026-09-08", "2026-09-09", "2026-09-10", "2026-09-11"]
+MARKET_CAP_CENTS = 300_000_000_000_000
 
 
 def _statement(stat: str, pub: str, profit: str) -> dict:
@@ -90,13 +92,14 @@ def _bars(close_cents: int = 150000) -> list[dict]:
     } for day in TRADING_DAYS]
 
 
-def _manifest() -> dict:
+def _manifest(*, include_market_cap: bool = True,
+              market_cap_as_of: str = TRADING_DAYS[-1]) -> dict:
     """两份行情（一只带财务、一只不带）+ 五个交易日。"""
 
     instruments = []
     quotes = []
     for iid, name in ((INSTRUMENT, "合成贵州茅台"), ("SYN.A.600003", "合成无财报")):
-        instruments.append({
+        instrument = {
             "instrument_id": iid, "exchange": "SSE", "board": "MAIN",
             "security_class": "EQUITY", "short_name": name,
             "listed_on": "2001-08-27",
@@ -108,7 +111,13 @@ def _manifest() -> dict:
                 "industry_name": "酒、饮料和精制茶制造业",
                 "classification_version": "CSRC-2012",
             }],
-        })
+        }
+        if include_market_cap:
+            # 刻意不从财报 totalShare × close 推导，验证生产路径使用
+            # 快照 instrument 中冻结的决策日市值。
+            instrument["market_cap_cents"] = MARKET_CAP_CENTS
+            instrument["market_cap_as_of"] = market_cap_as_of
+        instruments.append(instrument)
         for bar in _bars():
             quotes.append({"instrument_id": iid, **bar})
     return {
@@ -132,7 +141,8 @@ def _manifest() -> dict:
     }
 
 
-def _publish(data_dir: Path) -> tuple:
+def _publish(data_dir: Path, *, include_market_cap: bool = True,
+             market_cap_as_of: str = TRADING_DAYS[-1]) -> tuple:
     """建一份已发布的快照。返回 (con, store)。"""
 
     con = connect(data_dir / "meta.sqlite", allow_thread_sharing=True)
@@ -148,7 +158,8 @@ def _publish(data_dir: Path) -> tuple:
         integration_state="TEST_PASSED", pit_available="NO",
         pit_basis="RECONSTRUCTED",
     )
-    doc = _manifest()
+    doc = _manifest(include_market_cap=include_market_cap,
+                    market_cap_as_of=market_cap_as_of)
     builder.ingest(doc, source_id="synthetic-fixture", data_version="syn-factors")
     refs = builder.write_datasets(doc, snapshot_id=SNAPSHOT)
     store.publish(SnapshotDraft(
@@ -191,6 +202,52 @@ def loaded(client_only):
         con=con, reader=state.reader, snapshot_id=SNAPSHOT, as_of=AS_OF)
     con.commit()
     return client, state, con, summary
+
+
+def _run_f10_fixture(tmp_path: Path, *, include_market_cap: bool = True,
+                     market_cap_as_of: str = TRADING_DAYS[-1]):
+    con, store = _publish(
+        tmp_path, include_market_cap=include_market_cap,
+        market_cap_as_of=market_cap_as_of,
+    )
+    reader = SnapshotReader(store)
+    summary = compute_f10_for_snapshot(
+        con=con, reader=reader, snapshot_id=SNAPSHOT, as_of=AS_OF)
+    row = con.execute(
+        "SELECT raw_value, exclusion_reason FROM feature_value "
+        "WHERE research_run_id=? AND instrument_id=? AND factor_id='F10'",
+        (summary["research_run_id"], INSTRUMENT),
+    ).fetchone()
+    return summary, row
+
+
+def test_f10_uses_matching_decision_date_market_cap(tmp_path):
+    """匹配最后行情日的显式市值可计算，并作为 F10 分母。"""
+
+    summary, row = _run_f10_fixture(tmp_path)
+
+    assert summary["valued"] == 1
+    assert row is not None
+    assert row[0] == pytest.approx(0.014)
+    assert row[1] is None
+
+
+def test_f10_excludes_instrument_without_decision_date_market_cap(tmp_path):
+    """没有快照市值时不得退回财报 totalShare × 收盘价。"""
+
+    summary, row = _run_f10_fixture(tmp_path, include_market_cap=False)
+
+    assert summary["valued"] == 0
+    assert tuple(row) == (None, "缺决策日总市值")
+
+
+def test_f10_excludes_market_cap_with_mismatched_date(tmp_path):
+    """市值日期不是最后行情交易日时必须拒算。"""
+
+    summary, row = _run_f10_fixture(tmp_path, market_cap_as_of="2026-09-10")
+
+    assert summary["valued"] == 0
+    assert tuple(row) == (None, "决策日总市值日期与最后行情日不一致")
 
 
 def test_fixture_is_sane(loaded):
@@ -261,6 +318,30 @@ def test_card_says_so_when_no_run_exists_at_all(client_only):
     # 文案不得再指向一个关不掉这条链的工具：流水线在因子落库之前跑的是
     # 验收脚本，照着它做，卡片依然是空的。
     assert "tools/compute_factors.py" in joined, joined
+
+
+def test_card_does_not_publish_a_withdrawn_f10_v1_result(client_only):
+    """已知公式错误的历史运行保留审计，但不能继续作为当前卡片数值。"""
+
+    client, state, con = client_only
+    from aquant.domain.research.runs import (
+        FactorValue, create_research_run, store_factor_values,
+    )
+
+    run_id = create_research_run(
+        con, snapshot_id=SNAPSHOT, as_of_time=AS_OF,
+        code_version="old", feature_version="f10-v1")
+    store_factor_values(con, research_run_id=run_id, values=[
+        FactorValue(instrument_id=INSTRUMENT, factor_id="F10",
+                    raw_value=0.001, coverage_ratio=1.0),
+    ])
+
+    r = client.get(f"/api/v1/instruments/{INSTRUMENT}/research",
+                   params={"trading_day": TRADING_DAY})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["rankBreakdown"] == []
+    assert "已撤回" in " ".join(body["uncertainties"])
 
 
 def test_the_endpoint_passes_factor_values_to_the_card():

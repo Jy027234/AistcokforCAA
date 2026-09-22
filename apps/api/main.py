@@ -63,12 +63,14 @@ from aquant.domain.research.experiments import (
     ExperimentError, ExperimentSpec, experiment, experiments,
     note_test_set_access, record_outcome, register_experiment,
 )
+from aquant.domain.research.f10 import FEATURE_VERSION as F10_FEATURE_VERSION
 from aquant.domain.research.f10 import compute_f10_for_snapshot
 from aquant.domain.research.strategies import (  # noqa: E402
     KNOWN_FEATURE_SPECS, StrategyVersionError, ensure_strategy_version,
     seed_known_versions, strategy_family_gates, strategy_versions,
 )
-from aquant.domain.research.runs import factor_values, factor_values_for_snapshot
+from aquant.domain.research.runs import (factor_values, factor_values_for_snapshot,
+                                          research_run_metadata)
 from aquant.operations.scheduler import (
     ScheduleError,
     request_run,
@@ -874,7 +876,11 @@ class ExecuteRequest(BaseModel):
 
 class ValueRequest(BaseModel):
     portfolio_id: str = Field(min_length=1, max_length=64)
-    snapshot_id: str = Field(default_factory=active_snapshot)
+    # A valuation is a historical fact and must name its immutable market
+    # snapshot explicitly.  Falling back to the moving current pointer would
+    # let a later pointer advance change the prices for the same request.
+    snapshot_id: str = Field(min_length=1, max_length=128)
+    execution_plan_id: str | None = Field(default=None, min_length=1, max_length=128)
     trading_day: date
 
 
@@ -962,7 +968,13 @@ def _manual_trial_readiness(state: "AppState", data_status: dict,
     issues.extend(identity_status["blockingIssues"])
     mode = data_status.get("dataMode")
     current_id = data_status.get("snapshotId")
-    if data_status.get("readiness") != "READY":
+    # ``DEGRADED`` 是质量状态，不等于 S1 不能运行。每日流水线会把
+    # F10/财务补充等可选能力的失败记为 DEGRADED，同时仍发布已通过行情
+    # 闸门的 S1 快照；此处若把它一概翻译成 DATA_NOT_READY，就会让产品
+    # 的试运行口径与发布口径相互矛盾。真正阻断的依据是快照的 blocking
+    # issue，或一个没有解释的 BLOCKING 状态。
+    snapshot_blockers = data_status.get("blockingIssues") or []
+    if snapshot_blockers or data_status.get("readiness") == "BLOCKING":
         issues.append({
             "code": "DATA_NOT_READY",
             "message": data_status.get("readinessLabel") or "当前数据未就绪",
@@ -1009,9 +1021,22 @@ def _manual_trial_readiness(state: "AppState", data_status: dict,
             "repairAction": "设置 AQUANT_COMMISSION_RATE 与 AQUANT_COMMISSION_MIN_CENTS 后重启 API",
         })
 
+    warnings: list[dict] = []
+    if (data_status.get("readiness") == "PARTIAL"
+            and not snapshot_blockers):
+        warnings.append({
+            "code": "OPTIONAL_DATA_DEGRADED",
+            "message": (
+                "当前快照的可选增强数据未完整通过质量检查；"
+                "行情型 S1 模拟仍可使用，相关 F10/财务结果会单独降级。"
+            ),
+            "repairAction": (
+                "检查对应数据源和采集留痕；恢复后发布新快照，"
+                "不要用缺失值替代增强数据。"
+            ),
+        })
     schedule = scheduler_status(state.con)
     worker = worker_liveness(state.data_dir)
-    warnings: list[dict] = []
     if not schedule["schedule"]["enabled"]:
         warnings.append({
             "code": "SCHEDULER_DISABLED",
@@ -1552,9 +1577,19 @@ def create_app(state: AppState | None = None) -> FastAPI:
         # 卡片按 (标的, 快照, 交易日) 冻结留档：它是"当时看到的证据"。
         # 同一快照同一天重复打开得到同一张，**不刷新生成时刻**；
         # 现算即弃的话，事后无法还原"我那天看到的是什么"。
-        stored = persist_card(s.con, snapshot_id=snapshot_id,
-                              trading_day=trading_day, card=body,
-                              data_mode=ref.data_mode)
+        factor_run_ids = {
+            str(value["research_run_id"])
+            for value in factor_values if value.get("research_run_id")
+        }
+        factor_run_id = (next(iter(factor_run_ids))
+                         if len(factor_run_ids) == 1 else None)
+        # 即使当前尚无 v2 运行，也使用新版本基准生成卡片身份，避免命中
+        # 同一快照/日期下曾经冻结的错误 v1 卡片。
+        research_basis = factor_run_id or f"{F10_FEATURE_VERSION}:no-active-run"
+        stored = persist_card(
+            s.con, snapshot_id=snapshot_id, trading_day=trading_day, card=body,
+            data_mode=ref.data_mode, research_run_id=factor_run_id,
+            research_basis=research_basis)
         # 返回体必须读留档值，而不是顺手把刚算出来的时刻放回去：
         # 那样接口看起来"每次都是新卡片"，与留档语义矛盾。
         persisted_payload = get_card_payload(s.con, stored["card_id"])
@@ -1816,9 +1851,17 @@ def create_app(state: AppState | None = None) -> FastAPI:
     @app.get("/api/v1/research/runs/{research_run_id}/factors")
     def get_factor_values(research_run_id: str, factor_id: str | None = None,
                           s: AppState = Depends(svc)) -> dict:
+        metadata = research_run_metadata(s.con, research_run_id)
+        if metadata is None:
+            raise HTTPException(status_code=404,
+                                detail=f"unknown research run {research_run_id!r}")
         rows = factor_values(s.con, research_run_id=research_run_id,
                              factor_id=factor_id)
         return {"researchRunId": research_run_id, "count": len(rows),
+                "featureVersion": metadata.get("feature_version"),
+                "validityStatus": metadata.get("validity_status"),
+                "withdrawalReason": metadata.get("withdrawal_reason"),
+                "outputHash": metadata.get("output_hash"),
                 "factors": rows}
 
     @app.get("/api/v1/decisions")
@@ -2061,6 +2104,12 @@ def create_app(state: AppState | None = None) -> FastAPI:
                 payload=body.payload or None)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except JobError as exc:
+            raise HTTPException(status_code=422, detail={
+                "error": {"code": exc.code, "message": exc.message,
+                          "object_id": exc.object_id,
+                          "repair_action": exc.repair_action},
+            }) from exc
 
     @app.post("/api/v1/research/jobs/{job_id}/run")
     def run_research_job_route(job_id: str, subject: str = Depends(current_subject),
@@ -2237,6 +2286,32 @@ def create_app(state: AppState | None = None) -> FastAPI:
         out["industryCapPct"] = str(cap)
         return out
 
+    @app.get("/api/v1/plans")
+    def list_plans(portfolio_id: str, s: AppState = Depends(svc)) -> dict:
+        """Return durable plans so a refreshed UI can resume the workflow."""
+
+        rows = s.service.persisted_plans(portfolio_id=portfolio_id)
+        plans = [
+            {
+                "planId": row["plan_id"],
+                "portfolioId": row["portfolio_id"],
+                "status": row["status"],
+                "snapshotId": row["snapshot_id"],
+                "decisionSnapshotId": row["decision_snapshot_id"],
+                "decisionCutoffAt": row["decision_cutoff_at"],
+                "executionSnapshotId": row["execution_snapshot_id"],
+                "executionCutoffAt": row["execution_cutoff_at"],
+                "tradingDay": row["trading_day"],
+                "createdAt": row["created_at"],
+                "frozenAt": row["frozen_at"],
+                "expiresAt": row["expires_at"],
+                "confirmedBy": row["confirmed_by"],
+                "planVersion": row["plan_version"],
+            }
+            for row in rows
+        ]
+        return {"portfolioId": portfolio_id, "count": len(plans), "plans": plans}
+
     @app.post("/api/v1/plans/{plan_id}/confirmation")
     def issue_confirmation(plan_id: str, subject: str = Depends(current_subject),
                            s: AppState = Depends(svc)) -> dict:
@@ -2344,13 +2419,28 @@ def create_app(state: AppState | None = None) -> FastAPI:
 
     @app.post("/api/v1/valuations")
     def value(body: ValueRequest, s: AppState = Depends(svc)) -> dict:
-        snapshot_id = s.current_snapshot()
+        # Use the snapshot named by the request.  This endpoint intentionally
+        # does not resolve the moving current pointer: valuation provenance is
+        # historical and must remain stable after a later snapshot is promoted.
+        snapshot_id = body.snapshot_id
         ref = s.reader.ref(snapshot_id)
-        lots = s.service._load_lots(body.portfolio_id)
-        return s.service.value(
+        value_service = s.service
+        if snapshot_id != s.snapshot_id:
+            # PlanService carries the fee/listing dependencies for the
+            # selected snapshot.  Rebuilding this small object keeps an old
+            # request from inheriting derived state from the current pointer.
+            fees = resolve_fee_table(snapshot_id)
+            listings = (dict(LISTINGS) if snapshot_id == SNAPSHOT_ID
+                        else _listings_for(s, snapshot_id))
+            value_service = PlanService(
+                s.con, s.reader, fees, BOARD_RULES, listings, s.params,
+            )
+        lots = value_service._load_lots(body.portfolio_id)
+        return value_service.value(
             portfolio_id=body.portfolio_id, snapshot_id=snapshot_id,
             trading_day=body.trading_day, as_of=ref.as_of_time,
-            lots=lots, cash_available_cents=s.service._ledger_cash(body.portfolio_id),
+            execution_plan_id=body.execution_plan_id,
+            lots=lots, cash_available_cents=value_service._ledger_cash(body.portfolio_id),
         )
 
     # 静态挂载必须放在**最后**：它挂在 "/" 上，是个 catch-all，
