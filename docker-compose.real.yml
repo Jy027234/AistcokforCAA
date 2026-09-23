@@ -10,6 +10,13 @@ services:
         target: /data
         bind:
           create_host_path: false
+      # API 状态页读取每日运行留痕；必须与 scheduler 共享这个目录，
+      # 否则快照虽然已发布，状态页仍会误报“没有运行留痕”。
+      - type: bind
+        source: ${AQUANT_HOST_PIPELINE_DIR:?请在 real-trial.env 中设置 AQUANT_HOST_PIPELINE_DIR}
+        target: /app/deploy/agentctl-q0
+        bind:
+          create_host_path: false
   scheduler:
     image: aquant-lab:local
     command:

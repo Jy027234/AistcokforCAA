@@ -1,9 +1,9 @@
 {
-  "decision_snapshot_id": "snap-eod-2026-09-18-longcal-20260919",
-  "execution_snapshot_id": "snap-eod-2026-09-21-45b87f24cfb64550",
-  "trading_day": "2026-09-21",
+  "decision_snapshot_id": "snap-eod-2026-09-22-ee07b71a6aa24604",
+  "execution_snapshot_id": "snap-eod-2026-09-23-6cf37479fa3b48ec",
+  "trading_day": "2026-09-23",
   "portfolio_id": "pf-real-m",
-  "selected_instrument_id": "SH.601169",
+  "selected_instrument_id": "SH.601328",
   "checks": [
     {
       "name": "状态可读",
@@ -13,7 +13,7 @@
     {
       "name": "快照 ID 正确",
       "ok": true,
-      "detail": "snap-eod-2026-09-21-45b87f24cfb64550"
+      "detail": "snap-eod-2026-09-23-6cf37479fa3b48ec"
     },
     {
       "name": "数据模式为真实数据",
@@ -28,7 +28,7 @@
     {
       "name": "候选绑定决策快照",
       "ok": true,
-      "detail": "snap-eod-2026-09-18-longcal-20260919"
+      "detail": "snap-eod-2026-09-22-ee07b71a6aa24604"
     },
     {
       "name": "候选非空",
@@ -53,22 +53,22 @@
     {
       "name": "模型基线预览成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_1b6c9aa79ccd415a84ff\", \"portfolio_id\": \"pf-real-m\", \"snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_c"
+      "detail": "{\"plan_id\": \"plan_76c61ba09dca4209817d\", \"portfolio_id\": \"pf-real-m\", \"snapshot_id\": \"snap-eod-2026-09-22-ee07b71a6aa24604\", \"decision_snapshot_id\": \"snap-eod-2026-09-22-ee07b71a6aa24604\", \"decision_c"
     },
     {
       "name": "人工点选预览成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_0f0f75595ec64a57bcef\", \"portfolio_id\": \"pf-real-m\", \"snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_c"
+      "detail": "{\"plan_id\": \"plan_fb06e89c4c7e4ac4b91c\", \"portfolio_id\": \"pf-real-m\", \"snapshot_id\": \"snap-eod-2026-09-22-ee07b71a6aa24604\", \"decision_snapshot_id\": \"snap-eod-2026-09-22-ee07b71a6aa24604\", \"decision_c"
     },
     {
       "name": "人工预览只包含点选标的",
       "ok": true,
-      "detail": "selected=SH.601169 planned=['SH.601169']"
+      "detail": "selected=SH.601328 planned=['SH.601328']"
     },
     {
       "name": "参考价日早于执行日",
       "ok": true,
-      "detail": "2026-09-18 < 2026-09-21"
+      "detail": "2026-09-22 < 2026-09-23"
     },
     {
       "name": "预览未冻结",
@@ -83,7 +83,7 @@
     {
       "name": "预估费用非负",
       "ok": true,
-      "detail": "2593"
+      "detail": "2592"
     },
     {
       "name": "签发令牌",
@@ -93,22 +93,22 @@
     {
       "name": "冻结成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_0f0f75595ec64a57bcef\", \"status\": \"FROZEN\", \"decision_snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_cutoff_at\": \"2026-09-18T07:00:00+00:00\", \"execution_snapshot_id\":"
+      "detail": "{\"plan_id\": \"plan_fb06e89c4c7e4ac4b91c\", \"status\": \"FROZEN\", \"decision_snapshot_id\": \"snap-eod-2026-09-22-ee07b71a6aa24604\", \"decision_cutoff_at\": \"2026-09-22T07:00:00+00:00\", \"execution_snapshot_id\":"
     },
     {
       "name": "冻结记录人工修改决策",
       "ok": true,
-      "detail": "{\"decision_id\": \"dec-plan_0f0f75595ec64a57bcef\", \"decision_type\": \"MODIFY_MODEL\", \"diff\": {\"comparable\": true, \"identical\": false, \"changed_keys\": [\"cash_after_cents\", \"estimated_fees_cents\", \"orders\""
+      "detail": "{\"decision_id\": \"dec-plan_fb06e89c4c7e4ac4b91c\", \"decision_type\": \"MODIFY_MODEL\", \"diff\": {\"comparable\": true, \"identical\": false, \"changed_keys\": [\"cash_after_cents\", \"estimated_fees_cents\", \"orders\""
     },
     {
       "name": "人工决策已持久化并绑定计划",
       "ok": true,
-      "detail": "[{\"decision_id\": \"dec-plan_0f0f75595ec64a57bcef\", \"portfolio_id\": \"pf-real-m\", \"plan_id\": \"plan_0f0f75595ec64a57bcef\", \"snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_type\": \"MODIFY_M"
+      "detail": "[{\"decision_id\": \"dec-plan_fb06e89c4c7e4ac4b91c\", \"portfolio_id\": \"pf-real-m\", \"plan_id\": \"plan_fb06e89c4c7e4ac4b91c\", \"snapshot_id\": \"snap-eod-2026-09-22-ee07b71a6aa24604\", \"decision_type\": \"MODIFY_M"
     },
     {
       "name": "执行成功",
       "ok": true,
-      "detail": "{\"plan_id\": \"plan_0f0f75595ec64a57bcef\", \"status\": \"EXECUTED\", \"trading_day\": \"2026-09-21\", \"decision_snapshot_id\": \"snap-eod-2026-09-18-longcal-20260919\", \"decision_cutoff_at\": \"2026-09-18T07:00:00+0"
+      "detail": "{\"plan_id\": \"plan_fb06e89c4c7e4ac4b91c\", \"status\": \"EXECUTED\", \"trading_day\": \"2026-09-23\", \"decision_snapshot_id\": \"snap-eod-2026-09-22-ee07b71a6aa24604\", \"decision_cutoff_at\": \"2026-09-22T07:00:00+0"
     },
     {
       "name": "执行结果自洽：成交+未成交=订单数",
@@ -128,12 +128,12 @@
     {
       "name": "估值成功",
       "ok": true,
-      "detail": "{\"trading_day\": \"2026-09-21\", \"snapshot_id\": \"snap-eod-2026-09-21-45b87f24cfb64550\", \"execution_plan_id\": \"plan_0f0f75595ec64a57bcef\", \"as_of\": \"2026-09-21T07:00:00+00:00\", \"cash_available_cents\": 900"
+      "detail": "{\"trading_day\": \"2026-09-23\", \"snapshot_id\": \"snap-eod-2026-09-23-6cf37479fa3b48ec\", \"execution_plan_id\": \"plan_fb06e89c4c7e4ac4b91c\", \"as_of\": \"2026-09-23T07:00:00+00:00\", \"cash_available_cents\": 900"
     },
     {
       "name": "净值恒等式成立",
       "ok": true,
-      "detail": "100051421 vs 100051421"
+      "detail": "99957808 vs 99957808"
     },
     {
       "name": "净值已发布",
@@ -143,12 +143,12 @@
     {
       "name": "对账成功",
       "ok": true,
-      "detail": "{\"portfolio_id\": \"pf-real-m\", \"cash_cents\": 90079421, \"positions\": {\"SH.601169\": 18000}, \"receivables_cents\": 0, \"fill_count\": 1, \"fees_total_cents\": 2579, \"invariants\": {\"fill_le_order\": true, \"fees_"
+      "detail": "{\"portfolio_id\": \"pf-real-m\", \"cash_cents\": 90031408, \"positions\": {\"SH.601328\": 13200}, \"receivables_cents\": 0, \"fill_count\": 1, \"fees_total_cents\": 2592, \"invariants\": {\"fill_le_order\": true, \"fees_"
     },
     {
       "name": "对账结论为一致",
       "ok": true,
-      "detail": "{\"portfolio_id\": \"pf-real-m\", \"cash_cents\": 90079421, \"positions\": {\"SH.601169\": 18000}, \"receivables_cents\": 0, \"fill_count\": 1, \"fees_total_cents\": 2579, \"invariants\": {\"fill_le_order\": true, \"fees_"
+      "detail": "{\"portfolio_id\": \"pf-real-m\", \"cash_cents\": 90031408, \"positions\": {\"SH.601328\": 13200}, \"receivables_cents\": 0, \"fill_count\": 1, \"fees_total_cents\": 2592, \"invariants\": {\"fill_le_order\": true, \"fees_"
     },
     {
       "name": "现金与账本一致",

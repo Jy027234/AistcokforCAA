@@ -1,13 +1,13 @@
 {
-  "ran_at": "2026-09-22T09:43:03.368323+00:00",
-  "snapshot_id": "snap-eod-2026-09-22-ee07b71a6aa24604",
-  "as_of_time": "2026-09-22T07:00:00+00:00",
-  "research_run_id": "rr-07b81ed0a5fbe51b701d312c",
+  "ran_at": "2026-09-23T15:41:06.627184+00:00",
+  "snapshot_id": "snap-eod-2026-09-23-6cf37479fa3b48ec",
+  "as_of_time": "2026-09-23T07:00:00+00:00",
+  "research_run_id": "rr-e1008d97e1141fb7295c1985",
   "factor_id": "F10",
   "feature_version": "f10-v2",
   "validity_status": "VALID",
   "withdrawal_reason": null,
-  "output_hash": "sha256:16774ccedc912b22936a1dfa1a2b7e1257716fdb37fef4b27179d5168fad490e",
+  "output_hash": "sha256:195df552d8b6ace8656305926bb5d2215cede11b9efceb04b699261a8efaede2",
   "feature_value_rows": 900,
   "valued_rows": 898,
   "exclusion_breakdown": {
