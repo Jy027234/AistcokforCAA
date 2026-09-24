@@ -1,0 +1,166 @@
+{
+  "generatedAt": "2026-09-24T16:18:20.707814+00:00",
+  "instrumentId": "601012",
+  "latestPeriodEnd": "2026-06-30",
+  "sourceId": "cninfo",
+  "scope": "closed official PDF pilot, ordinary-business consolidated statements",
+  "requiredFactPeriods": {
+    "net_profit_attributable": [
+      "2025-06-30",
+      "2025-12-31",
+      "2026-06-30"
+    ],
+    "net_profit_consolidated": [
+      "2025-06-30",
+      "2025-12-31",
+      "2026-06-30"
+    ],
+    "operating_cashflow": [
+      "2025-06-30",
+      "2025-12-31",
+      "2026-06-30"
+    ],
+    "revenue": [
+      "2024-06-30",
+      "2024-12-31",
+      "2025-06-30",
+      "2025-12-31",
+      "2026-06-30"
+    ],
+    "parent_equity": [
+      "2025-06-30",
+      "2026-06-30"
+    ]
+  },
+  "requiredMetricPeriodCount": 16,
+  "candidateMetricPeriodCount": 16,
+  "formalPitFactCount": 0,
+  "reports": [
+    {
+      "periodEnd": "2024-06-30",
+      "version": "2024H1",
+      "announcementId": "1221087751",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2024-08-31/1221087751.PDF",
+      "contentHash": "sha256:dba216e8f28538ce5fd3bf9b1cd4e428af8b52ff3dcf0795ac5237cd39543677",
+      "byteSize": 4185624,
+      "archiveReceiptId": "rcpt_ee02f8b0c90af29e09b6683d",
+      "firstSeenAt": "2026-09-24T16:10:16.615708+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 66,
+        "net_profit_consolidated": 66,
+        "revenue": 65,
+        "parent_equity": 62,
+        "operating_cashflow": 70
+      },
+      "candidateOnly": true
+    },
+    {
+      "periodEnd": "2024-12-31",
+      "version": "2024FY-original",
+      "announcementId": "1223421477",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-04-30/1223421477.PDF",
+      "contentHash": "sha256:3dbaf5314ab01f44b58f58e8ad75fea0dce3ced0001db516829f2624b615a3a0",
+      "byteSize": 1875585,
+      "archiveReceiptId": "rcpt_5f705fc23d67fd75c0718d6d",
+      "firstSeenAt": "2026-09-24T16:10:28.181569+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 125,
+        "net_profit_consolidated": 125,
+        "revenue": 124,
+        "parent_equity": 121,
+        "operating_cashflow": 128
+      },
+      "candidateOnly": true
+    },
+    {
+      "periodEnd": "2024-12-31",
+      "version": "2024FY-revised",
+      "announcementId": "1223477802",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-05-07/1223477802.PDF",
+      "contentHash": "sha256:c9e11fc7ec92a59d7d1ccfcf8a4f1fbb35ee8ec0435df16a3e968497b5f64bb8",
+      "byteSize": 1875694,
+      "archiveReceiptId": "rcpt_61c3c3f446c3467dc4d8bcd1",
+      "firstSeenAt": "2026-09-24T16:10:30.667772+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 125,
+        "net_profit_consolidated": 125,
+        "revenue": 124,
+        "parent_equity": 121,
+        "operating_cashflow": 128
+      },
+      "candidateOnly": true
+    },
+    {
+      "periodEnd": "2025-06-30",
+      "version": "2025H1",
+      "announcementId": "1224562068",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-08-23/1224562068.PDF",
+      "contentHash": "sha256:449aaf2308a9374317604a7a7dce7eb1ef661d3c01f3e2f8a0f1cd0cb83a28c6",
+      "byteSize": 1659624,
+      "archiveReceiptId": "rcpt_49a80f400408f8f07b33bc5b",
+      "firstSeenAt": "2026-09-24T16:10:33.192278+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 63,
+        "net_profit_consolidated": 63,
+        "revenue": 62,
+        "parent_equity": 59,
+        "operating_cashflow": 66
+      },
+      "candidateOnly": true
+    },
+    {
+      "periodEnd": "2025-12-31",
+      "version": "2025FY",
+      "announcementId": "1225251647",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-04-29/1225251647.PDF",
+      "contentHash": "sha256:10233740d54740b89dfd772eecac5f04d8fef639489acd3b18b1a35e81bce2c1",
+      "byteSize": 3311470,
+      "archiveReceiptId": "rcpt_db2df18e09e57b6e9e4553bf",
+      "firstSeenAt": "2026-09-24T16:10:35.693741+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 126,
+        "net_profit_consolidated": 126,
+        "revenue": 125,
+        "parent_equity": 122,
+        "operating_cashflow": 129
+      },
+      "candidateOnly": true
+    },
+    {
+      "periodEnd": "2026-06-30",
+      "version": "2026H1",
+      "announcementId": "1225535067",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-08-31/1225535067.PDF",
+      "contentHash": "sha256:c3bcfa8bcf5cd18df6c008a48382119039eac71fe4273973fa0c8bbe7128f103",
+      "byteSize": 1848855,
+      "archiveReceiptId": "rcpt_1704f4acf1257b5c5b53e51f",
+      "firstSeenAt": "2026-09-24T16:10:38.178287+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 70,
+        "net_profit_consolidated": 70,
+        "revenue": 69,
+        "parent_equity": 66,
+        "operating_cashflow": 73
+      },
+      "candidateOnly": true
+    }
+  ],
+  "revisionEvidence": {
+    "originalAnnouncementId": "1223421477",
+    "revisedAnnouncementId": "1223477802",
+    "correctionAnnouncementUrl": "https://static.cninfo.com.cn/finalpage/2025-05-07/1223477804.PDF",
+    "correctionContentHash": "sha256:366ca1b4e3426be8dea9e6705b1ad32953cfa8fcd55392af215e80d4b884fa50",
+    "correctionArchiveReceiptId": "rcpt_ad981a3edd70712c256fe669",
+    "relationVerifiedForThisPairOnly": true,
+    "fiveExtractedAmountsUnchanged": true
+  },
+  "comparability": {
+    "revenueComparativeMatchesPriorCurrentAcrossThreePairs": true,
+    "profitAndEquityComparativesRestatedIn2025Reports": true,
+    "comparativeColumnsUsedAsHistoricalFacts": false
+  },
+  "pilotNumericExclusion": "S2_NON_POSITIVE_DENOMINATOR",
+  "pitEligible": false,
+  "reason": "PDF candidates and real archive receipts do not establish complete formal PIT facts or eligible-universe coverage; 601012 current TTM consolidated profit is non-positive",
+  "rawPdfCommitted": false
+}

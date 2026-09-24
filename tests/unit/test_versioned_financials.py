@@ -69,6 +69,12 @@ def test_financial_fact_keeps_s2_provenance_and_reuses_shared_pit_enums():
     assert item.as_pit_record().availability_basis is AvailabilityBasis.OBSERVED
 
 
+def test_live_fact_cannot_be_available_before_it_was_first_seen():
+    item = fact("v1", available_day=10, value="100")
+    with pytest.raises(PitViolation, match="available_at precedes first_seen_at"):
+        replace(item, available_at=at(10, 8))
+
+
 def test_revision_is_appended_and_cutoff_selects_original_then_revision():
     original = fact("v1", available_day=10, value="100")
     revised = fact("v2", available_day=20, value="120", supersedes="v1")

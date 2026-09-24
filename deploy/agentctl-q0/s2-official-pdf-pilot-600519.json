@@ -1,0 +1,139 @@
+{
+  "generatedAt": "2026-09-24T16:28:01.607875+00:00",
+  "instrumentId": "600519",
+  "latestPeriodEnd": "2026-06-30",
+  "sourceId": "cninfo",
+  "scope": "closed official PDF pilot, ordinary-business consolidated statements",
+  "requiredFactPeriods": {
+    "net_profit_attributable": [
+      "2025-06-30",
+      "2025-12-31",
+      "2026-06-30"
+    ],
+    "net_profit_consolidated": [
+      "2025-06-30",
+      "2025-12-31",
+      "2026-06-30"
+    ],
+    "operating_cashflow": [
+      "2025-06-30",
+      "2025-12-31",
+      "2026-06-30"
+    ],
+    "revenue": [
+      "2024-06-30",
+      "2024-12-31",
+      "2025-06-30",
+      "2025-12-31",
+      "2026-06-30"
+    ],
+    "parent_equity": [
+      "2025-06-30",
+      "2026-06-30"
+    ]
+  },
+  "requiredMetricPeriodCount": 16,
+  "candidateMetricPeriodCount": 16,
+  "formalPitFactCount": 0,
+  "reports": [
+    {
+      "periodEnd": "2024-06-30",
+      "version": "2024H1",
+      "announcementId": "1220825189",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2024-08-09/1220825189.PDF",
+      "contentHash": "sha256:898b37d6529d0042aa66461bae11b84a47f9337c2ff1d572155bfa71fca77c58",
+      "byteSize": 3058620,
+      "archiveReceiptId": "rcpt_f9dcc078d57e9dcfe2f3cadc",
+      "firstSeenAt": "2026-09-24T16:20:24.724288+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 31,
+        "net_profit_consolidated": 31,
+        "revenue": 30,
+        "parent_equity": 28,
+        "operating_cashflow": 35
+      },
+      "candidateOnly": true
+    },
+    {
+      "periodEnd": "2024-12-31",
+      "version": "2024FY",
+      "announcementId": "1222993920",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-04-03/1222993920.PDF",
+      "contentHash": "sha256:5299f4940e2ce4e91084b73dc457d558b9d335fa76fbfee6227e4254eb7f4a30",
+      "byteSize": 3626217,
+      "archiveReceiptId": "rcpt_f411bb8e6f2d154512fe83ae",
+      "firstSeenAt": "2026-09-24T16:20:27.202705+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 64,
+        "net_profit_consolidated": 64,
+        "revenue": 63,
+        "parent_equity": 61,
+        "operating_cashflow": 67
+      },
+      "candidateOnly": true
+    },
+    {
+      "periodEnd": "2025-06-30",
+      "version": "2025H1",
+      "announcementId": "1224462930",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-08-13/1224462930.PDF",
+      "contentHash": "sha256:c80fb7180169469053c396e65315414368bcfa9f1f1d4e3bf793c8fb327e6b0c",
+      "byteSize": 805855,
+      "archiveReceiptId": "rcpt_114c17292746e44c8d2469f5",
+      "firstSeenAt": "2026-09-24T16:20:29.650117+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 29,
+        "net_profit_consolidated": 29,
+        "revenue": 28,
+        "parent_equity": 26,
+        "operating_cashflow": 32
+      },
+      "candidateOnly": true
+    },
+    {
+      "periodEnd": "2025-12-31",
+      "version": "2025FY",
+      "announcementId": "1225114741",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-04-17/1225114741.PDF",
+      "contentHash": "sha256:474905deeaf0f875fc0a1b097a626c0c7852c427faadc5d7fc7816cbf45ea288",
+      "byteSize": 1082847,
+      "archiveReceiptId": "rcpt_2ded38464eb90925ab4bcf0c",
+      "firstSeenAt": "2026-09-24T16:20:32.232499+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 62,
+        "net_profit_consolidated": 62,
+        "revenue": 61,
+        "parent_equity": 58,
+        "operating_cashflow": 65
+      },
+      "candidateOnly": true
+    },
+    {
+      "periodEnd": "2026-06-30",
+      "version": "2026H1",
+      "announcementId": "1225475868",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-08-15/1225475868.PDF",
+      "contentHash": "sha256:0e10aa26be46b1cf3cd03f06e834c7fb98d5dd0d661b96f8fddd4af7e846a4f6",
+      "byteSize": 832321,
+      "archiveReceiptId": "rcpt_31d8410d8bbb0bdf64b0ce53",
+      "firstSeenAt": "2026-09-24T16:20:34.652633+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 31,
+        "net_profit_consolidated": 31,
+        "revenue": 30,
+        "parent_equity": 28,
+        "operating_cashflow": 34
+      },
+      "candidateOnly": true
+    }
+  ],
+  "positiveConsolidatedProfitTtm": true,
+  "cashflowScopeNote": "consolidated operating cash flow includes financial subsidiary activities",
+  "revisionEvidence": {
+    "fullRevisionSearchVerified": false,
+    "relationAsserted": false
+  },
+  "pitEligible": false,
+  "reason": "Official PDF candidates are not reviewed, versioned formal PIT facts; eligible-universe coverage and decision-date market cap remain unproven",
+  "rawPdfCommitted": false
+}

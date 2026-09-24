@@ -205,6 +205,13 @@ def assert_live_observed_first_seen(record: PitRecord, *, ingested_at: datetime)
             record.record_id,
             "fix capture ordering; first_seen_at cannot postdate ingestion",
         )
+    if record.available_at < record.first_seen_at:
+        raise PitViolation(
+            "PIT_UNVERIFIED",
+            "live-observed available_at precedes first_seen_at",
+            record.record_id,
+            "defer availability until after the actual first observation",
+        )
 
 
 def is_usable_at(record: PitRecord, as_of: datetime) -> bool:

@@ -22,7 +22,6 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import Enum
-import math
 from typing import Iterable, Mapping
 
 from ..fundamentals.versioned import (
@@ -269,6 +268,39 @@ def _period(year: int, quarter: int) -> date:
                 {1: 31, 2: 30, 3: 30, 4: 31}[quarter])
 
 
+def _ttm_required_periods(latest_period_end: date, *, instrument_id: str) -> tuple[date, ...]:
+    year, quarter = _quarter_end(latest_period_end, instrument_id=instrument_id)
+    if quarter == 4:
+        return (latest_period_end,)
+    return (_period(year - 1, 4), latest_period_end, _period(year - 1, quarter))
+
+
+def required_s2_periods(
+    latest_period_end: date,
+    *,
+    metrics: S2MetricNames = DEFAULT_S2_METRICS,
+) -> dict[str, tuple[date, ...]]:
+    """列出完整 S2 对一个最新报告期实际依赖的事实期间。
+
+    用于按公告补采，而不是每天重拉所有历史报表。返回值包含 F07
+    同公告核验需要的上年归母净利润；因此它与计算器的真实依赖一致，
+    不只是公式文本中的最少数值集合。
+    """
+
+    year, quarter = _quarter_end(latest_period_end, instrument_id="S2")
+    flow_periods = set(_ttm_required_periods(latest_period_end, instrument_id="S2"))
+    prior_endpoint = _period(year - 1, quarter)
+    prior_revenue_periods = set(_ttm_required_periods(prior_endpoint, instrument_id="S2"))
+    equity_periods = {latest_period_end, prior_endpoint}
+    return {
+        metrics.attributable_net_profit: tuple(sorted(flow_periods | equity_periods)),
+        metrics.consolidated_net_profit: tuple(sorted(flow_periods)),
+        metrics.operating_cash_flow: tuple(sorted(flow_periods)),
+        metrics.revenue: tuple(sorted(flow_periods | prior_revenue_periods)),
+        metrics.parent_equity: tuple(sorted(equity_periods)),
+    }
+
+
 def _same_basis(rows: Iterable[FinancialFact], *, label: str,
                 instrument_id: str) -> None:
     rows = tuple(rows)
@@ -354,15 +386,7 @@ def _ttm(
     label: str,
 ) -> _TTMValue:
     year, quarter = _quarter_end(latest_period_end, instrument_id=instrument_id)
-    required: list[date]
-    if quarter == 4:
-        required = [latest_period_end]
-    else:
-        required = [
-            _period(year - 1, 4),
-            latest_period_end,
-            _period(year - 1, quarter),
-        ]
+    required = _ttm_required_periods(latest_period_end, instrument_id=instrument_id)
     missing = [period for period in required if period not in rows]
     if missing:
         raise S2ComputationError(
@@ -718,4 +742,5 @@ __all__ = [
     "build_s2_signals",
     "compute_s2_factors",
     "cross_sectional_ranks",
+    "required_s2_periods",
 ]

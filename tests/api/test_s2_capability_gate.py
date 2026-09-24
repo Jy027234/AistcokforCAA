@@ -50,7 +50,7 @@ def test_s2_registration_is_rejected_with_machine_readable_reason(api) -> None:
     })
 
     assert response.status_code == 409
-    assert response.json()["error"]["code"] == "SOURCE_PERMISSION_MISSING"
+    assert response.json()["error"]["code"] == "DATA_NOT_READY"
     assert con.execute(
         "SELECT 1 FROM strategy_version WHERE strategy_version='s2-unverified-v1'"
     ).fetchone() is None
@@ -58,7 +58,7 @@ def test_s2_registration_is_rejected_with_machine_readable_reason(api) -> None:
     listed = client.get("/api/v1/strategy-versions").json()
     gate = next(item for item in listed["familyGates"] if item["family"] == "S2")
     assert gate["registrationAvailable"] is False
-    assert gate["error"]["code"] == "SOURCE_PERMISSION_MISSING"
+    assert gate["error"]["code"] == "DATA_NOT_READY"
     assert gate["trialImpact"]["blocksInitialS1Trial"] is False
     assert "S1_VS_S2_COMPARISON" in gate["trialImpact"]["blockedCapabilities"]
     assert "MANUAL_SIMULATION" in gate["trialImpact"]["availableCapabilities"]
@@ -82,7 +82,7 @@ def test_legacy_s2_version_cannot_be_used_to_register_an_experiment(api) -> None
     )
 
     assert response.status_code == 409
-    assert response.json()["error"]["code"] == "SOURCE_PERMISSION_MISSING"
+    assert response.json()["error"]["code"] == "DATA_NOT_READY"
     assert con.execute(
         "SELECT 1 FROM experiment WHERE strategy_version=?", (strategy_version,)
     ).fetchone() is None

@@ -24,22 +24,22 @@ from ..data.db import write_tx
 #: （当前数据源下做不成，见 ADR-005）。
 FAMILIES = ("S1", "S2", "E1", "CUSTOM")
 
-# S2 不是一个只差实现开关的策略。ADR-005/015 要求 F07--F09 的真实字段、
-# PIT、修订链和权利闸门全部验收后才能启用。Tushare 因付费权限不采用；
-# 免费的新浪三表/mootdx/官方披露替代路线仍在 Spike，因此允许登记 S2 版本会把
-# “名字合法”误写成“策略可运行”。
+# S2 不是一个只差实现开关的策略。官方原文的 F07--F09 数值、
+# 报告版本与覆盖尚未形成可运行的产品事实链。官方披露来源在本机研究
+# 与存储的权利状态已单独登记，故这里不能把数据未就绪误报成来源无权限。
+# 允许登记 S2 版本会把“名字合法”误写成“策略可运行”。
 # 这里把关闭状态放在领域层，避免 API、脚本或未来 worker 绕过同一规则。
 _CLOSED_FAMILIES: dict[str, dict[str, str]] = {
     "S2": {
-        "code": "SOURCE_PERMISSION_MISSING",
+        "code": "DATA_NOT_READY",
         "message": (
-            "S2 is disabled: F07-F09 financial inputs have not passed "
-            "provider permission, PIT, revision-chain and coverage validation"
+            "S2 is disabled: complete official F07-F09 financial facts, "
+            "announcement versions and eligible-universe coverage are not yet validated"
         ),
         "repair_action": (
-            "pass the ADR-015 free-source spike (Sina statements, mootdx "
-            "cross-checks and official disclosures), then register a new "
-            "immutable S2 version"
+            "ingest and verify official reports for the required periods, "
+            "freeze their availability and revision evidence, then register "
+            "a new immutable S2 version"
         ),
     },
 }
