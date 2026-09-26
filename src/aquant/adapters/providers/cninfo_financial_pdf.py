@@ -47,6 +47,9 @@ class PdfCandidateFact:
     source_current_cell_index: int
     source_prior_cell_index: int
     pdf_sha256: str
+    # The visible PDF row label. Some text-layout tables split it across rows,
+    # so source_cells[0] alone can be empty or just the last character.
+    display_row_label: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -640,6 +643,7 @@ def _extract_midea_candidate_facts(pdf_bytes: bytes, *, profile: _MideaReport,
                     source_current_cell_index=current_index,
                     source_prior_cell_index=current_index + 1,
                     pdf_sha256="sha256:" + digest,
+                    display_row_label=label,
                 ))
     except CninfoFinancialPdfError:
         raise
@@ -756,6 +760,7 @@ def extract_s2_candidate_facts(
                     source_current_cell_index=layout.current_index,
                     source_prior_cell_index=layout.prior_index,
                     pdf_sha256="sha256:" + digest,
+                    display_row_label=label,
                 ))
     except CninfoFinancialPdfError:
         raise

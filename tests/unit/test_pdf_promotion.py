@@ -202,7 +202,7 @@ def _reviews(candidate: CninfoS2CandidateFacts, at: datetime):
     ) for item in candidate.candidates)
 
 
-def _setup(tmp_path, monkeypatch):
+def _setup(tmp_path, monkeypatch, *, original_published=None):
     root = tmp_path / "archive"
     con = connect(root / "meta.sqlite")
     archive = ForwardArchive(con, root)
@@ -211,8 +211,9 @@ def _setup(tmp_path, monkeypatch):
     candidate = _candidate("1001", payload)
     pdf_receipt = _record(archive, payload, url=candidate.document_url,
                           seen=_at(24, 16, 10))
+    original_published = original_published or _at(24, 12)
     index_payload = _index_payload(
-        ("1001", "2026年半年度报告", _at(24, 12)),
+        ("1001", "2026年半年度报告", original_published),
     )
     index_receipt = _index_record(
         archive, index_payload, seen=_at(24, 16, 12),
@@ -237,7 +238,7 @@ def _setup(tmp_path, monkeypatch):
         reviewed_at=_at(25, 16), complete_search_attested=True,
     )
     cross_result, cross_dispositions = _cross_fixture(
-        archive, (("1001", "2026年半年度报告", _at(24, 12)),),
+        archive, (("1001", "2026年半年度报告", original_published),),
         document_receipts={"1001": pdf_receipt}, org_receipt=lookup_receipt,
         seen=_at(25, 16, 5), reviewed_at=_at(25, 16, 30),
     )
@@ -269,6 +270,67 @@ def _promote(archive, repository, candidate, pdf_receipt, review, *,
     )
 
 
+def _late_revised_setup(tmp_path, monkeypatch, *, partial_predecessor=False):
+    original_published = datetime(2026, 7, 15, 12, tzinfo=UTC)
+    con, archive, repository, original, original_receipt, review = _setup(
+        tmp_path, monkeypatch, original_published=original_published,
+    )
+    if partial_predecessor:
+        seed_repository = FinancialFactRepository(tmp_path / "seed.sqlite")
+        original_facts = _promote(
+            archive, seed_repository, original, original_receipt, review,
+        )
+        repository.append(original_facts[0])
+
+    revised_raw = b"%PDF-late-captured-revised"
+    revised = _candidate("1002", revised_raw, revised=True)
+    revised_receipt = _record(
+        archive, revised_raw, url=revised.document_url, seen=_at(24, 16, 20),
+    )
+    excerpt = "2026年半年度报告更正为修订版"
+    correction_receipt = _record(
+        archive, b"%PDF-late-captured-correction",
+        url="https://static.cninfo.com.cn/finalpage/2026-09-24/1003.PDF",
+        seen=_at(24, 16, 21),
+    )
+    revised_published = datetime(2026, 8, 1, 12, tzinfo=UTC)
+    announcements = (
+        ("1001", "2026年半年度报告", original_published),
+        ("1002", "2026年半年度报告（修订版）", revised_published),
+        ("1003", "2026年半年度报告更正公告", revised_published),
+    )
+    index_receipt = _index_record(
+        archive, _index_payload(*announcements[:2]), seen=_at(24, 16, 22),
+    )
+    revised_review = replace(
+        review, announcement_id="1002", index_receipt_id=index_receipt,
+        search_receipt_ids=(index_receipt,),
+        predecessor_announcement_id="1001",
+        correction_receipt_id=correction_receipt, correction_excerpt=excerpt,
+    )
+    cross_result, cross_dispositions = _cross_fixture(
+        archive, announcements,
+        document_receipts={
+            "1001": original_receipt, "1002": revised_receipt,
+            "1003": correction_receipt,
+        },
+        org_receipt=review.org_lookup_receipt_id,
+        seen=_at(25, 16, 6), reviewed_at=_at(25, 16, 30),
+        related_report_ids={"1002": ("1001", "1002"),
+                            "1003": ("1001", "1002")},
+        relation_receipt_ids={"1002": correction_receipt,
+                              "1003": correction_receipt},
+        relation_excerpt=excerpt,
+    )
+    archive._test_cross = (cross_result, cross_dispositions, _at(25, 16, 30))
+    monkeypatch.setattr(promotion, "_pdf_text", lambda _: excerpt)
+    monkeypatch.setattr(
+        promotion, "extract_s2_candidate_facts",
+        lambda raw, **_: revised if raw == revised_raw else original,
+    )
+    return con, archive, repository, revised, revised_receipt, revised_review
+
+
 def test_reviewed_pdfs_wait_until_next_real_trading_preopen_and_persist_evidence(
     tmp_path, monkeypatch,
 ):
@@ -294,6 +356,70 @@ def test_reviewed_pdfs_wait_until_next_real_trading_preopen_and_persist_evidence
             assert db.execute("SELECT count(*) FROM financial_fact_review_member").fetchone()[0] == 5
             with pytest.raises(sqlite3.IntegrityError, match="append-only"):
                 db.execute("UPDATE financial_fact_review SET evidence_json='{}'")
+    finally:
+        con.close()
+
+
+def test_late_captured_revised_report_starts_reviewed_root_at_future_pit_cutoff(
+    tmp_path, monkeypatch,
+):
+    con, archive, repository, revised, receipt, review = _late_revised_setup(
+        tmp_path, monkeypatch,
+    )
+    try:
+        with pytest.raises(promotion.PdfPromotionError, match="five distinct S2 fields"):
+            _promote(
+                archive, repository, revised, receipt, review,
+                field_reviews=_reviews(revised, _at(25, 16))[:-1],
+            )
+        with pytest.raises(promotion.PdfPromotionError,
+                           match="revised report requires reviewed correction"):
+            _promote(
+                archive, repository, revised, receipt,
+                replace(review, correction_receipt_id=None),
+            )
+        with pytest.raises(promotion.PdfPromotionError,
+                           match="every all-category candidate"):
+            _promote(
+                archive, repository, revised, receipt, review,
+                cross_dispositions=archive._test_cross[1][:-1],
+            )
+        assert repository.load().facts == ()
+
+        facts = _promote(archive, repository, revised, receipt, review)
+        assert len(facts) == 5
+        assert {fact.source_published_date for fact in facts} == {date(2026, 8, 1)}
+        assert {fact.first_seen_at for fact in facts} == {_at(24, 16, 20)}
+        assert {fact.available_at for fact in facts} == {_at(28, 0, 45)}
+        assert {fact.supersedes_id for fact in facts} == {None}
+        restarted = FinancialFactRepository(tmp_path / "facts.sqlite")
+        assert restarted.load().select_pit(_at(28, 0, 44)) == []
+        assert {fact.version_id for fact in restarted.load().select_pit(_at(28, 0, 45))} == {
+            fact.version_id for fact in facts
+        }
+        with sqlite3.connect(tmp_path / "facts.sqlite") as db:
+            evidence = json.loads(db.execute(
+                "SELECT evidence_json FROM financial_fact_review"
+            ).fetchone()[0])
+        assert evidence["late_captured_revised_root"] is True
+        assert evidence["original_announcement_id"] == "1001"
+        assert evidence["predecessor_announcement_id"] == "1001"
+        assert evidence["announcement_id"] == "1002"
+    finally:
+        con.close()
+
+
+def test_late_revised_root_rejects_partial_formal_predecessor(tmp_path, monkeypatch):
+    con, archive, repository, revised, receipt, review = _late_revised_setup(
+        tmp_path, monkeypatch, partial_predecessor=True,
+    )
+    try:
+        prior = repository.load().facts
+        assert len(prior) == 1
+        with pytest.raises(promotion.PdfPromotionError,
+                           match="verified five-field predecessor bundle"):
+            _promote(archive, repository, revised, receipt, review)
+        assert repository.load().facts == prior
     finally:
         con.close()
 

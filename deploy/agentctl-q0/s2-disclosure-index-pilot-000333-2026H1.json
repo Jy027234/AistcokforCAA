@@ -1,0 +1,82 @@
+{
+  "schema": "cninfo-s2-disclosure-index-v1",
+  "generatedAt": "2026-09-26T03:30:09.687773+00:00",
+  "sourceId": "cninfo",
+  "instrumentId": "000333",
+  "reportPeriod": "2026-06-30",
+  "observedThroughDate": "2026-09-26",
+  "status": "TITLE_CANDIDATES_ONLY_NOT_PIT_ELIGIBLE",
+  "regularIndex": {
+    "complete": true,
+    "termination": "has_more_false",
+    "error": null,
+    "organizationId": "9900005965",
+    "orgLookupReceiptId": "rcpt_937f0ed1048af7dee4b1266b",
+    "pages": [
+      {
+        "page": 1,
+        "requestBodyHash": "sha256:12591223b09741afdcfc7b999a3baae5a0b29d8f0ca7735c3882bd3618e011ba",
+        "responseReceiptId": "rcpt_ee7e46130958e3ed62daa766",
+        "responseContentHash": "sha256:6eae1ec066a554072185eef2a370845c4afd8d7e25862c651a8c5083229e21c1",
+        "rawAnnouncementCount": 2,
+        "totalAnnouncement": 2,
+        "hasMore": false
+      }
+    ],
+    "matchedReportAnnouncements": [
+      {
+        "announcementId": "1225531404",
+        "title": "2026年半年度报告",
+        "page": 1,
+        "pageReceiptId": "rcpt_ee7e46130958e3ed62daa766"
+      },
+      {
+        "announcementId": "1225531403",
+        "title": "2026年半年度报告摘要",
+        "page": 1,
+        "pageReceiptId": "rcpt_ee7e46130958e3ed62daa766"
+      }
+    ]
+  },
+  "allCategoryIndex": {
+    "complete": true,
+    "termination": "has_more_false",
+    "error": null,
+    "organizationId": "9900005965",
+    "orgLookupReceiptId": "rcpt_0fa91e26a5add1a370ff247d",
+    "totalAnnouncement": 17,
+    "pages": [
+      {
+        "page": 1,
+        "requestBodyHash": "sha256:4bc3273594b58caf048e118320cbe273abcb183d3736fa8a6ac08837fe298ad4",
+        "responseReceiptId": "rcpt_41f3100cff663e8edc7a9259",
+        "responseContentHash": "sha256:798ebbea9df42d87bcf7da70fe44e0137eb733a7007fd75e44a74abc769f0da7",
+        "rawAnnouncementCount": 17,
+        "totalAnnouncement": 17,
+        "hasMore": false
+      }
+    ],
+    "candidateAnnouncements": [
+      {
+        "announcementId": "1225531404",
+        "title": "2026年半年度报告",
+        "candidateReasons": [
+          "period_title"
+        ],
+        "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-08-29/1225531404.PDF",
+        "page": 1,
+        "pageReceiptId": "rcpt_41f3100cff663e8edc7a9259"
+      },
+      {
+        "announcementId": "1225531403",
+        "title": "2026年半年度报告摘要",
+        "candidateReasons": [
+          "period_title"
+        ],
+        "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-08-29/1225531403.PDF",
+        "page": 1,
+        "pageReceiptId": "rcpt_41f3100cff663e8edc7a9259"
+      }
+    ]
+  }
+}

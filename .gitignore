@@ -34,6 +34,8 @@ deploy/agentctl-q0/*.sqlite-wal
 # 并让 tools/verify_archive.py 成为"字节是否还在"的唯一判据。
 deploy/agentctl-q0/forward-archive/raw/
 deploy/agentctl-q0/forward-archive/meta.sqlite
+deploy/agentctl-q0/forward-archive/meta.sqlite-shm
+deploy/agentctl-q0/forward-archive/meta.sqlite-wal
 
 # --- BaoStock 全市场采集与留证 ---
 # 采集缓存（几十 MB）与 BaoStock 的内容寻址归档都不进版本库：

@@ -265,7 +265,7 @@ def _check_reviews(candidate: CninfoS2CandidateFacts,
                 reviewed_raw * scale != review.reviewed_value_yuan or
                 review.pdf_page != item.pdf_page or
                 review.current_cell != item.source_cells[item.source_current_cell_index] or
-                review.row_label != item.source_cells[0] or
+                review.row_label != (item.display_row_label or item.source_cells[0]) or
                 item.pdf_sha256 != candidate.pdf_sha256 or
                 item.period_end != candidate.period_end or
                 item.currency != "CNY"):
@@ -785,10 +785,14 @@ def promote_reviewed_pdf_bundle(
     for fact in selected:
         if fact.metric in _FIELDS:
             previous_by_field[fact.metric] = fact
+    late_captured_revised_root = (
+        role is DisclosureRole.REVISED_REPORT and not previous_by_field
+    )
     if role is DisclosureRole.ORIGINAL_REPORT:
         if previous_by_field:
             raise PdfPromotionError("an original report would create a second fact root")
-    elif (set(previous_by_field) != _FIELDS or
+    elif not late_captured_revised_root and (
+          set(previous_by_field) != _FIELDS or
           {fact.source_document_id for fact in previous_by_field.values()} !=
           {version_review.predecessor_announcement_id} or
           {fact.source_id for fact in previous_by_field.values()} != {"cninfo"}):
@@ -816,7 +820,8 @@ def promote_reviewed_pdf_bundle(
             pit_mode=PitMode.LIVE_OBSERVED, content_hash=candidate.pdf_sha256,
             version_id="pdf_" + hashlib.sha256(identity.encode()).hexdigest()[:32],
             supersedes_id=(previous_by_field[field].version_id
-                           if role is DisclosureRole.REVISED_REPORT else None),
+                           if role is DisclosureRole.REVISED_REPORT and
+                           not late_captured_revised_root else None),
         ))
 
     evidence = {
@@ -861,6 +866,11 @@ def promote_reviewed_pdf_bundle(
         "version_reviewer_id": version_review.reviewer_id,
         "version_reviewed_at": version_review.reviewed_at.isoformat(),
         "predecessor_announcement_id": version_review.predecessor_announcement_id,
+        "late_captured_revised_root": late_captured_revised_root,
+        "original_announcement_id": (
+            version_review.predecessor_announcement_id
+            if late_captured_revised_root else None
+        ),
         "correction_receipt_id": version_review.correction_receipt_id,
         "correction_excerpt": version_review.correction_excerpt,
         "field_reviews": [

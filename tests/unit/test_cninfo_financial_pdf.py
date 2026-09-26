@@ -455,6 +455,7 @@ def test_midea_official_full_report_four_column_thousand_yuan_when_supplied(
         assert fact.currency == "CNY" and fact.amount_unit == "千元"
         assert fact.pdf_sha256 == result.pdf_sha256
         assert fact.column_header == fact.report_period_text
+        assert fact.display_row_label
         assert fact.source_row and len(fact.source_cells) == (
             7 if report_key.endswith("FY") and fact.statement == "profit" else 6
         )
@@ -486,8 +487,10 @@ def test_midea_annual_split_labels_keep_consolidated_column_when_supplied(
     revenue = facts["revenue"]
     assert "归属于母公司股东的" in attributable.source_row
     assert attributable.source_cells[:3] == ("", "净利润", "")
+    assert attributable.display_row_label == "归属于母公司股东的净利润"
     assert attributable.source_current_cell_index == 3
     assert "营业收入" in revenue.source_row and revenue.source_cells[:2] == ("：", "营业收入")
+    assert revenue.display_row_label == "其中：营业收入"
     assert revenue.source_current_cell_index == 3
     assert revenue.source_cells[3] != revenue.source_cells[5]
 
