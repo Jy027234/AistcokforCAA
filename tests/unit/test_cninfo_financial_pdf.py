@@ -1,4 +1,4 @@
-"""601012／600519 官方 PDF 封闭样本；真实原文通过环境变量提供。"""
+"""601012／600519／000333 官方 PDF 封闭样本；真实原文通过环境变量提供。"""
 
 from __future__ import annotations
 
@@ -13,9 +13,12 @@ from aquant.adapters.providers.cninfo_financial_pdf import (
     CninfoFinancialPdfError,
     _ADDITIONAL_PERIODS,
     _FieldCellLayout,
+    _MIDEA_VERSIONS,
     _STATEMENTS,
     _header_from_page,
     _header_from_split_pages,
+    _midea_header_table,
+    _midea_thousand_amount,
     _parse_amount,
     _unique_row,
     extract_s2_candidate_facts,
@@ -119,6 +122,54 @@ MOUTAI = {
          "revenue": ("90703260964.48", 30, "2026年半年度"),
          "parent_equity": ("251253594419.50", 28, "2026年6月30日"),
          "operating_cashflow": ("70690750119.06", 34, "2026年半年度")},
+    ),
+}
+
+MIDEA = {
+    "2024H1": (
+        date(2024, 6, 30),
+        "29987795727aa66db08035eb9eff80eaf5622940fadcf05d44bca31cd2f47521",
+        {"net_profit_attributable": ("20804176000", 108),
+         "net_profit_consolidated": ("21141255000", 108),
+         "revenue": ("217274086000", 108),
+         "parent_equity": ("164797591000", 107),
+         "operating_cashflow": ("33488170000", 109)},
+    ),
+    "2024FY": (
+        date(2024, 12, 31),
+        "b17a9b9b84bca1d2a4e4a3cadc5dd5ba5c85e3f1fd2d758acd3315b5b040ecd9",
+        {"net_profit_attributable": ("38537237000", 158),
+         "net_profit_consolidated": ("38757214000", 158),
+         "revenue": ("407149600000", 158),
+         "parent_equity": ("216750057000", 157),
+         "operating_cashflow": ("60511572000", 160)},
+    ),
+    "2025H1": (
+        date(2025, 6, 30),
+        "cec88d9c6ded328ac9b467ba55254ab831b906dfc613982f6ac0504fc2055a12",
+        {"net_profit_attributable": ("26013690000", 96),
+         "net_profit_consolidated": ("26647354000", 96),
+         "revenue": ("251123714000", 96),
+         "parent_equity": ("216110027000", 95),
+         "operating_cashflow": ("37281015000", 97)},
+    ),
+    "2025FY": (
+        date(2025, 12, 31),
+        "16f95f70527db59dcf2736f276a9479cf7ee917e5f71e4f6cbbe83acbad9f4b6",
+        {"net_profit_attributable": ("43945411000", 135),
+         "net_profit_consolidated": ("44520196000", 135),
+         "revenue": ("456451731000", 135),
+         "parent_equity": ("223221305000", 133),
+         "operating_cashflow": ("53345930000", 137)},
+    ),
+    "2026H1": (
+        date(2026, 6, 30),
+        "576dd80e353e53296a800b03e9889a9cbb2e8b91fa2ab3c1dace7c10159179b8",
+        {"net_profit_attributable": ("26446037000", 98),
+         "net_profit_consolidated": ("26582874000", 98),
+         "revenue": ("260042490000", 98),
+         "parent_equity": ("212861055000", 97),
+         "operating_cashflow": ("37552090000", 99)},
     ),
 }
 
@@ -370,3 +421,115 @@ def test_moutai_2026_h1_has_all_required_s2_periods_and_positive_net_ttm_when_su
         - reports[date(2025, 6, 30)].by_field["net_profit_consolidated"].value_yuan
     )
     assert net_ttm == Decimal("84356973951.21") > 0
+
+
+def test_midea_thousand_yuan_amount_rejects_ambiguous_cells() -> None:
+    assert _midea_thousand_amount("53,345,930", field="x") == Decimal("53345930")
+    assert _midea_thousand_amount("(11,628,058)", field="x") == Decimal("-11628058")
+    for cell in (None, "", "-", "53,345,930.00", "5,33,459", "53,345,930元"):
+        with pytest.raises(CninfoFinancialPdfError, match="thousand-yuan amount"):
+            _midea_thousand_amount(cell, field="x")
+
+
+@pytest.mark.parametrize("report_key", tuple(MIDEA))
+def test_midea_official_full_report_four_column_thousand_yuan_when_supplied(
+    report_key: str,
+) -> None:
+    path = os.getenv(f"AQUANT_CNINFO_000333_{report_key}_PDF")
+    if not path:
+        pytest.skip(f"set AQUANT_CNINFO_000333_{report_key}_PDF to official report")
+    period, digest, expected = MIDEA[report_key]
+    payload = Path(path).read_bytes()
+    result = extract_s2_candidate_facts(
+        payload, instrument_id="000333", period_end=period,
+    )
+    assert result.instrument_id == "000333" and result.period_end == period
+    assert result.pdf_sha256 == "sha256:" + digest
+    assert result.version_label == "indexed_full_report"
+    assert result.pit_eligible is False
+    assert result.review_status == "requires_manual_verification"
+    assert set(result.by_field) == set(expected)
+    for field, (amount, page) in expected.items():
+        fact = result.by_field[field]
+        assert fact.value_yuan == Decimal(amount) and fact.pdf_page == page
+        assert fact.currency == "CNY" and fact.amount_unit == "千元"
+        assert fact.pdf_sha256 == result.pdf_sha256
+        assert fact.column_header == fact.report_period_text
+        assert fact.source_row and len(fact.source_cells) == (
+            7 if report_key.endswith("FY") and fact.statement == "profit" else 6
+        )
+        assert fact.source_prior_cell_index == fact.source_current_cell_index + 1
+        assert _midea_thousand_amount(
+            fact.source_cells[fact.source_current_cell_index], field=field,
+        ) * 1000 == fact.value_yuan
+        assert fact.source_cells[fact.source_current_cell_index + 2] is not None
+        assert fact.source_cells[fact.source_current_cell_index + 3] is not None
+    with pytest.raises(CninfoFinancialPdfError, match="instrument mismatches"):
+        extract_s2_candidate_facts(payload, instrument_id="600519", period_end=period)
+    wrong_period = date(2024, 6, 30) if period != date(2024, 6, 30) else date(2024, 12, 31)
+    with pytest.raises(CninfoFinancialPdfError, match="period mismatches"):
+        extract_s2_candidate_facts(payload, instrument_id="000333", period_end=wrong_period)
+
+
+@pytest.mark.parametrize("report_key", ("2024FY", "2025FY"))
+def test_midea_annual_split_labels_keep_consolidated_column_when_supplied(
+    report_key: str,
+) -> None:
+    path = os.getenv(f"AQUANT_CNINFO_000333_{report_key}_PDF")
+    if not path:
+        pytest.skip(f"set AQUANT_CNINFO_000333_{report_key}_PDF to official report")
+    period = MIDEA[report_key][0]
+    facts = extract_s2_candidate_facts(
+        Path(path).read_bytes(), instrument_id="000333", period_end=period,
+    ).by_field
+    attributable = facts["net_profit_attributable"]
+    revenue = facts["revenue"]
+    assert "归属于母公司股东的" in attributable.source_row
+    assert attributable.source_cells[:3] == ("", "净利润", "")
+    assert attributable.source_current_cell_index == 3
+    assert "营业收入" in revenue.source_row and revenue.source_cells[:2] == ("：", "营业收入")
+    assert revenue.source_current_cell_index == 3
+    assert revenue.source_cells[3] != revenue.source_cells[5]
+
+
+def test_midea_hk_wrapper_pdf_is_not_approved_when_supplied() -> None:
+    path = os.getenv("AQUANT_CNINFO_000333_2025FY_HK_WRAPPER_PDF")
+    if not path:
+        pytest.skip("set AQUANT_CNINFO_000333_2025FY_HK_WRAPPER_PDF")
+    with pytest.raises(CninfoFinancialPdfError, match="approved report version"):
+        extract_s2_candidate_facts(
+            Path(path).read_bytes(), instrument_id="000333", period_end=date(2025, 12, 31),
+        )
+
+
+def test_midea_annual_unit_and_consolidated_column_order_rejected_when_supplied() -> None:
+    path = os.getenv("AQUANT_CNINFO_000333_2025FY_PDF")
+    if not path:
+        pytest.skip("set AQUANT_CNINFO_000333_2025FY_PDF to official report")
+    import pdfplumber
+
+    class AlteredPage:
+        def __init__(self, actual, *, unit_changed: bool = False,  # noqa: ANN001
+                     role_changed: bool = False) -> None:
+            self.actual = actual
+            self.unit_changed = unit_changed
+            self.role_changed = role_changed
+
+        def extract_text(self) -> str:
+            text = self.actual.extract_text()
+            return text.replace("人民币千元", "人民币元") if self.unit_changed else text
+
+        def extract_tables(self, settings) -> list:
+            tables = self.actual.extract_tables(settings)
+            if self.role_changed:
+                tables[0][1][3:7] = ["公司", "公司", "合并", "合并"]
+            return tables
+
+    with pdfplumber.open(path) as pdf:
+        profile = _MIDEA_VERSIONS[MIDEA["2025FY"][1]]
+        actual = pdf.pages[profile.profit_page - 1]
+        _midea_header_table(actual, profile, "profit")
+        with pytest.raises(CninfoFinancialPdfError, match="heading/period/unit"):
+            _midea_header_table(AlteredPage(actual, unit_changed=True), profile, "profit")
+        with pytest.raises(CninfoFinancialPdfError, match="current/prior columns"):
+            _midea_header_table(AlteredPage(actual, role_changed=True), profile, "profit")

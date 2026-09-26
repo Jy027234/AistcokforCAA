@@ -23,20 +23,29 @@
 
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
-from datetime import date
-from decimal import Decimal
-
 import json
+import re
 import socket
 import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
+from typing import Mapping
 from urllib.parse import urlsplit
 
+from aquant.adapters.providers.cninfo_probe import (
+    AnnouncementMetadata,
+    CninfoProbeError,
+    market_for_code,
+    normalize_stock_code,
+    normalize_title,
+    parse_listing_payload,
+    parse_report_period,
+    title_matches_period,
+    title_revision_flags,
+)
 from aquant.adapters.providers.eastmoney import FetchOutcome, _ValidatingRedirectHandler
 from aquant.adapters.providers.fetch_guard import (
     FetchDenied,
@@ -62,6 +71,8 @@ from aquant.domain.data.pit import (
 SOURCE_ID = "cninfo"
 QUERY_HOST = "www.cninfo.com.cn"
 STATIC_HOST = "static.cninfo.com.cn"
+ORG_LOOKUP_URL = f"https://{QUERY_HOST}/new/information/topSearch/query"
+REPORT_QUERY_URL = f"http://{QUERY_HOST}/new/hisAnnouncement/query"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120 Safari/537.36")
 PROXY_ENV = "AQUANT_TRUSTED_PROXY_NETWORKS"
@@ -105,6 +116,93 @@ class Announcement:
             return None
         path = self.adjunct_url if self.adjunct_url.startswith("/") else "/" + self.adjunct_url
         return f"http://{STATIC_HOST}{path}"
+
+
+@dataclass(frozen=True, slots=True)
+class ReportIndexPage:
+    """一页索引的请求体及原始响应均可由哈希重新核验。"""
+
+    page_num: int
+    request_body_hash: str
+    receipt_id: str
+    content_hash: str | None
+    http_status: int | None
+    raw_announcement_count: int | None
+    total_announcement: int | None
+    has_more: bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class ReportIndexMatch:
+    """公告身份直接绑定到发现它的归档页；标题标记不证明版本替代。"""
+
+    announcement: AnnouncementMetadata
+    page_num: int
+    page_receipt_id: str
+    page_content_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class ReportIndexResult:
+    stock_code: str
+    organization_id: str | None
+    report_period: str
+    market: str
+    category: str
+    publication_window: tuple[date, date]
+    org_lookup_receipt_id: str | None
+    org_lookup_content_hash: str | None
+    pages: tuple[ReportIndexPage, ...]
+    matches: tuple[ReportIndexMatch, ...]
+    skipped: Mapping[str, int]
+    total_announcement: int | None
+    complete: bool
+    termination: str
+    error: str | None
+
+    @property
+    def announcements(self) -> tuple[AnnouncementMetadata, ...]:
+        """只有完整耗尽的索引才暴露可用公告候选。"""
+
+        return tuple(match.announcement for match in self.matches) if self.complete else ()
+
+
+@dataclass(frozen=True, slots=True)
+class CrossCategoryIndexEntry:
+    """全分类索引的一条标题记录；候选理由不构成版本替代证明。"""
+
+    announcement_id: str
+    sec_code: str
+    title: str
+    announcement_time_ms: int
+    document_url: str
+    candidate_reasons: tuple[str, ...]
+    page_num: int
+    page_receipt_id: str
+    page_content_hash: str
+
+
+@dataclass(frozen=True, slots=True)
+class CrossCategoryIndexResult:
+    stock_code: str
+    organization_id: str | None
+    report_period: str
+    publication_window: tuple[date, date]
+    org_lookup_receipt_id: str | None
+    org_lookup_content_hash: str | None
+    pages: tuple[ReportIndexPage, ...]
+    announcements: tuple[CrossCategoryIndexEntry, ...]
+    skipped_different_security: int
+    total_announcement: int | None
+    complete: bool
+    termination: str
+    error: str | None
+
+    @property
+    def candidates(self) -> tuple[CrossCategoryIndexEntry, ...]:
+        """标题筛查名单；必须进一步阅读正文确认与目标报告的关系。"""
+
+        return tuple(entry for entry in self.announcements if entry.candidate_reasons)
 
 
 def parse_announcements(payload: bytes | str | dict) -> list[Announcement]:
@@ -606,6 +704,343 @@ class CninfoClient:
         except json.JSONDecodeError as exc:
             return FetchOutcome(False, None, out.receipt_id, out.content_hash,
                                 f"malformed JSON: {exc}"), []
+
+    def report_index(self, *, stock_code: str, report_period: str,
+                     page_size: int = 30, max_pages: int = 5) -> ReportIndexResult:
+        """归档证券/报告期的官方索引，直到有证据表明分页已耗尽。
+
+        官方 ``topSearch`` 先确定 orgId；其请求 URL 和响应也归档。每页
+        ``hisAnnouncement`` 的 POST body 作为独立 raw artifact 留存，响应收据
+        ``detail`` 与页结果绑定该请求哈希。只把严格匹配证券和报告期的公告
+        绑定到其发现页。标题中的“修订”仍仅是标题证据，不构成版本替代关系。
+
+        ``complete=False`` 时保留页收据供诊断，但 ``announcements`` 和
+        ``matches`` 均为空，避免截断索引被当成完整版本链。
+        """
+
+        if not 1 <= page_size <= 100 or not 1 <= max_pages <= 100:
+            raise ValueError("page_size and max_pages must be between 1 and 100")
+        code = normalize_stock_code(stock_code)
+        market = market_for_code(code)
+        period = parse_report_period(report_period)
+        window = period.publication_window
+        pages: list[ReportIndexPage] = []
+        matches: dict[str, ReportIndexMatch] = {}
+        skipped: dict[str, int] = {}
+        organization: str | None = None
+        lookup_receipt: str | None = None
+        lookup_hash: str | None = None
+        total: int | None = None
+        raw_seen = 0
+
+        def finish(termination: str, error: str | None = None) -> ReportIndexResult:
+            complete = termination in {"has_more_false", "total_reached"}
+            return ReportIndexResult(
+                stock_code=code, organization_id=organization,
+                report_period=period.end_date.isoformat(), market=market,
+                category=period.category, publication_window=window,
+                org_lookup_receipt_id=lookup_receipt,
+                org_lookup_content_hash=lookup_hash,
+                pages=tuple(pages),
+                matches=(tuple(sorted(matches.values(),
+                                      key=lambda hit: (hit.announcement.announcement_time_ms,
+                                                       hit.announcement.announcement_id),
+                                      reverse=True)) if complete else ()),
+                skipped=dict(sorted(skipped.items())),
+                total_announcement=total, complete=complete,
+                termination=termination, error=error,
+            )
+
+        lookup_url = ORG_LOOKUP_URL + "?" + urllib.parse.urlencode(
+            {"keyWord": code, "maxNum": 10})
+        lookup = self._fetch(lookup_url, label=f"report-index:org:{code}", data=b"")
+        lookup_receipt, lookup_hash = lookup.receipt_id, lookup.content_hash
+        if not lookup.ok or lookup.payload is None:
+            return finish("org_lookup_failed", lookup.detail or "organization lookup failed")
+        try:
+            organizations = json.loads(lookup.payload)
+            if not isinstance(organizations, list):
+                raise ValueError("organization lookup is not a list")
+            candidates = {str(row.get("orgId") or "").strip()
+                          for row in organizations if isinstance(row, dict)
+                          and str(row.get("code") or "").strip() == code
+                          and str(row.get("orgId") or "").strip()}
+            if len(candidates) != 1:
+                raise ValueError("organization ID missing or ambiguous")
+            organization = candidates.pop()
+            # CNINFO also issues numeric orgIds (for example 000333); the
+            # lookup is authoritative and the security code above is exact.
+            if not re.fullmatch(r"(?:gss[hz]\d{7}|\d{10})", organization):
+                raise ValueError("organization ID has an unsupported format")
+        except (ValueError, TypeError) as exc:
+            return finish("org_lookup_invalid", str(exc))
+
+        for page_num in range(1, max_pages + 1):
+            body = urllib.parse.urlencode({
+                "pageNum": page_num, "pageSize": page_size, "column": market,
+                "tabName": "fulltext", "plate": "",
+                "stock": f"{code},{organization}", "searchkey": "",
+                "secid": "", "category": period.category, "trade": "",
+                "seDate": f"{window[0].isoformat()}~{window[1].isoformat()}",
+                "sortName": "", "sortType": "", "isHLtitle": "true",
+            }).encode("utf-8")
+            body_hash, _ = self.archive.store_bytes(
+                body, media_type="application/x-www-form-urlencoded")
+            fetched = self._fetch(
+                REPORT_QUERY_URL,
+                label=(f"report-index:{code}:{period.end_date}:page={page_num}:"
+                       f"request={body_hash}"),
+                data=body,
+                content_type="application/x-www-form-urlencoded; charset=UTF-8",
+            )
+            if not fetched.ok or fetched.payload is None or fetched.content_hash is None:
+                pages.append(ReportIndexPage(page_num, body_hash, fetched.receipt_id,
+                                             fetched.content_hash, fetched.http_status,
+                                             None, None, None))
+                return finish("page_fetch_failed", fetched.detail or "page fetch failed")
+            try:
+                found, page_skipped, page_total, has_more = parse_listing_payload(
+                    fetched.payload, stock_code=code, period=period)
+                document = json.loads(fetched.payload)
+                raw_count = len(document.get("announcements") or [])
+            except (CninfoProbeError, ValueError, TypeError, OverflowError) as exc:
+                pages.append(ReportIndexPage(page_num, body_hash, fetched.receipt_id,
+                                             fetched.content_hash, fetched.http_status,
+                                             None, None, None))
+                return finish("page_parse_failed", str(exc))
+            pages.append(ReportIndexPage(page_num, body_hash, fetched.receipt_id,
+                                         fetched.content_hash, fetched.http_status,
+                                         raw_count, page_total, has_more))
+            raw_seen += raw_count
+            for reason, count in page_skipped.items():
+                skipped[reason] = skipped.get(reason, 0) + count
+            if len(found) + sum(page_skipped.values()) != raw_count:
+                return finish("identity_incomplete", "announcement identity repeated within page")
+            if any(skipped.get(reason, 0) for reason in (
+                    "non_object_announcement", "invalid_security_code",
+                    "missing_announcement_id", "missing_announcement_time")):
+                return finish("identity_incomplete", "matching announcement identity is incomplete")
+            if any(not ann.url for ann in found):
+                return finish("identity_incomplete", "matching announcement has no official document URL")
+            if page_total is not None:
+                if total is not None and page_total != total:
+                    return finish("pagination_inconsistent", "totalAnnouncement changed between pages")
+                total = page_total
+            for ann in found:
+                if ann.announcement_id in matches:
+                    return finish("pagination_inconsistent", "announcement repeated across pages")
+                matches[ann.announcement_id] = ReportIndexMatch(
+                    announcement=ann, page_num=page_num,
+                    page_receipt_id=fetched.receipt_id,
+                    page_content_hash=fetched.content_hash,
+                )
+            if total is not None and raw_seen > total:
+                return finish("pagination_inconsistent", "raw page rows exceed totalAnnouncement")
+            if has_more is False:
+                if total is not None and raw_seen < total:
+                    return finish("pagination_inconsistent", "hasMore=false before totalAnnouncement")
+                return finish("has_more_false")
+            if has_more is True and total is not None and raw_seen >= total:
+                return finish("pagination_inconsistent", "hasMore=true after totalAnnouncement")
+            if has_more is None and total is not None and raw_seen == total:
+                return finish("total_reached")
+            if has_more is None and total is None:
+                return finish("pagination_unknown", "neither hasMore nor totalAnnouncement is available")
+        return finish("max_pages_truncated", "pagination did not exhaust within max_pages")
+
+    def cross_category_index(self, *, stock_code: str, report_period: str,
+                             through: date, page_size: int = 30,
+                             max_pages: int = 100) -> CrossCategoryIndexResult:
+        """完整翻页查询同证券在显式截止日前的**全分类标题索引**。
+
+        不使用 ``searchkey``，因为“更正公告”标题可能没有报告期文字，
+        且定期报告分类不包含该公告。返回所有标题及受限筛查候选；索引完整
+        仅表示该请求窗口内页数耗尽，不证明任何公告替代了哪份报告，也不
+        证明窗口之外不存在更正。PDF 正文及版本关系仍需独立核验。
+        """
+
+        if not isinstance(through, date) or isinstance(through, datetime):
+            raise ValueError("through must be an explicit calendar date")
+        if not 1 <= page_size <= 100 or not 1 <= max_pages <= 100:
+            raise ValueError("page_size and max_pages must be between 1 and 100")
+        code = normalize_stock_code(stock_code)
+        market = market_for_code(code)
+        period = parse_report_period(report_period)
+        if through < period.end_date:
+            raise ValueError("through precedes the report period end")
+        window = (period.end_date, through)
+        pages: list[ReportIndexPage] = []
+        entries: dict[str, CrossCategoryIndexEntry] = {}
+        organization: str | None = None
+        lookup_receipt: str | None = None
+        lookup_hash: str | None = None
+        total: int | None = None
+        raw_seen = 0
+        skipped_other = 0
+
+        def finish(termination: str, error: str | None = None) -> CrossCategoryIndexResult:
+            complete = termination in {"has_more_false", "total_reached"}
+            return CrossCategoryIndexResult(
+                stock_code=code, organization_id=organization,
+                report_period=period.end_date.isoformat(), publication_window=window,
+                org_lookup_receipt_id=lookup_receipt,
+                org_lookup_content_hash=lookup_hash,
+                pages=tuple(pages),
+                announcements=(tuple(sorted(
+                    entries.values(),
+                    key=lambda entry: (entry.announcement_time_ms, entry.announcement_id),
+                    reverse=True)) if complete else ()),
+                skipped_different_security=skipped_other,
+                total_announcement=total, complete=complete,
+                termination=termination, error=error,
+            )
+
+        lookup_url = ORG_LOOKUP_URL + "?" + urllib.parse.urlencode(
+            {"keyWord": code, "maxNum": 10})
+        lookup = self._fetch(lookup_url, label=f"cross-category:org:{code}", data=b"")
+        lookup_receipt, lookup_hash = lookup.receipt_id, lookup.content_hash
+        if not lookup.ok or lookup.payload is None:
+            return finish("org_lookup_failed", lookup.detail or "organization lookup failed")
+        try:
+            organizations = json.loads(lookup.payload)
+            if not isinstance(organizations, list):
+                raise ValueError("organization lookup is not a list")
+            candidates = {str(row.get("orgId") or "").strip()
+                          for row in organizations if isinstance(row, dict)
+                          and str(row.get("code") or "").strip() == code
+                          and str(row.get("orgId") or "").strip()}
+            if len(candidates) != 1:
+                raise ValueError("organization ID missing or ambiguous")
+            organization = candidates.pop()
+            if not re.fullmatch(r"(?:gss[hz]\d{7}|\d{10})", organization):
+                raise ValueError("organization ID has an unsupported format")
+        except (ValueError, TypeError) as exc:
+            return finish("org_lookup_invalid", str(exc))
+
+        for page_num in range(1, max_pages + 1):
+            body = urllib.parse.urlencode({
+                "pageNum": page_num, "pageSize": page_size, "column": market,
+                "tabName": "fulltext", "plate": "",
+                "stock": f"{code},{organization}", "searchkey": "",
+                "secid": "", "category": "", "trade": "",
+                "seDate": f"{window[0].isoformat()}~{window[1].isoformat()}",
+                "sortName": "", "sortType": "", "isHLtitle": "true",
+            }).encode("utf-8")
+            body_hash, _ = self.archive.store_bytes(
+                body, media_type="application/x-www-form-urlencoded")
+            fetched = self._fetch(
+                REPORT_QUERY_URL,
+                label=(f"cross-category:{code}:{period.end_date}~{through}:"
+                       f"page={page_num}:request={body_hash}"),
+                data=body,
+                content_type="application/x-www-form-urlencoded; charset=UTF-8",
+            )
+            if not fetched.ok or fetched.payload is None or fetched.content_hash is None:
+                pages.append(ReportIndexPage(page_num, body_hash, fetched.receipt_id,
+                                             fetched.content_hash, fetched.http_status,
+                                             None, None, None))
+                return finish("page_fetch_failed", fetched.detail or "page fetch failed")
+            try:
+                document = json.loads(fetched.payload)
+                if not isinstance(document, dict):
+                    raise ValueError("index response is not an object")
+                rows = document.get("announcements")
+                if rows is None:
+                    rows = []
+                if not isinstance(rows, list):
+                    raise ValueError("announcements is not a list")
+                raw_total = document.get("totalAnnouncement")
+                if raw_total is None:
+                    page_total = None
+                else:
+                    page_total = int(raw_total)
+                    if isinstance(raw_total, bool) or page_total < 0:
+                        raise ValueError("invalid totalAnnouncement")
+                raw_more = document.get("hasMore")
+                if isinstance(raw_more, bool):
+                    has_more = raw_more
+                elif isinstance(raw_more, str) and raw_more.strip().lower() in {
+                        "true", "false"}:
+                    has_more = raw_more.strip().lower() == "true"
+                elif isinstance(raw_more, int) and raw_more in (0, 1):
+                    has_more = bool(raw_more)
+                elif raw_more is None:
+                    has_more = None
+                else:
+                    raise ValueError("invalid hasMore")
+            except (ValueError, TypeError, OverflowError) as exc:
+                pages.append(ReportIndexPage(page_num, body_hash, fetched.receipt_id,
+                                             fetched.content_hash, fetched.http_status,
+                                             None, None, None))
+                return finish("page_parse_failed", str(exc))
+            pages.append(ReportIndexPage(page_num, body_hash, fetched.receipt_id,
+                                         fetched.content_hash, fetched.http_status,
+                                         len(rows), page_total, has_more))
+            raw_seen += len(rows)
+            if page_total is not None:
+                if total is not None and total != page_total:
+                    return finish("pagination_inconsistent", "totalAnnouncement changed between pages")
+                total = page_total
+
+            for row in rows:
+                if not isinstance(row, dict):
+                    return finish("identity_incomplete", "announcement is not an object")
+                row_code = str(row.get("secCode") or "").strip()
+                if not re.fullmatch(r"\d{6}", row_code):
+                    return finish("identity_incomplete", "announcement security code is missing")
+                if row_code != code:
+                    skipped_other += 1
+                    continue
+                announcement_id = str(row.get("announcementId") or "").strip()
+                title = normalize_title(row.get("announcementTitle"))
+                if not announcement_id or not title:
+                    return finish("identity_incomplete", "announcement ID or title is missing")
+                try:
+                    millis = int(row.get("announcementTime"))
+                    if isinstance(row.get("announcementTime"), bool) or millis <= 0:
+                        raise ValueError("invalid announcement time")
+                    announced_on = datetime.fromtimestamp(
+                        millis / 1000, tz=timezone.utc).astimezone(CST).date()
+                except (ValueError, TypeError, OverflowError) as exc:
+                    return finish("identity_incomplete", f"invalid announcement time: {exc}")
+                if not window[0] <= announced_on <= window[1]:
+                    return finish("window_inconsistent", "announcement date outside query window")
+                path = str(row.get("adjunctUrl") or "").strip()
+                parsed = urlsplit(path)
+                if not path or parsed.scheme or parsed.netloc:
+                    return finish("identity_incomplete", "missing or non-relative document path")
+                document_url = f"https://{STATIC_HOST}/{path.lstrip('/')}"
+                is_correction, is_revision, is_supplement, _ = title_revision_flags(title)
+                reasons = tuple(reason for reason, active in (
+                    ("period_title", title_matches_period(title, period)),
+                    ("correction_title", is_correction),
+                    ("revision_title", is_revision),
+                    ("supplement_title", is_supplement),
+                    ("accounting_restatement_title", any(term in title for term in (
+                        "会计差错", "追溯调整", "重述"))),
+                ) if active)
+                if announcement_id in entries:
+                    return finish("pagination_inconsistent", "announcement repeated across pages")
+                entries[announcement_id] = CrossCategoryIndexEntry(
+                    announcement_id=announcement_id, sec_code=code, title=title,
+                    announcement_time_ms=millis, document_url=document_url,
+                    candidate_reasons=reasons, page_num=page_num,
+                    page_receipt_id=fetched.receipt_id,
+                    page_content_hash=fetched.content_hash,
+                )
+            if total is not None and raw_seen > total:
+                return finish("pagination_inconsistent", "raw page rows exceed totalAnnouncement")
+            if has_more is False:
+                if total is not None and raw_seen < total:
+                    return finish("pagination_inconsistent", "hasMore=false before totalAnnouncement")
+                return finish("has_more_false")
+            if has_more is True and total is not None and raw_seen >= total:
+                return finish("pagination_inconsistent", "hasMore=true after totalAnnouncement")
+            if has_more is None and total is not None and raw_seen == total:
+                return finish("total_reached")
+            if has_more is None and total is None:
+                return finish("pagination_unknown", "neither hasMore nor totalAnnouncement is available")
+        return finish("max_pages_truncated", "all-category pagination did not exhaust")
 
     def document(self, url: str, *, label: str = "",
                  max_bytes: int | None = None) -> FetchOutcome:

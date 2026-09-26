@@ -8,8 +8,11 @@ PIT selector after a restart.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import sqlite3
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -58,6 +61,32 @@ END;
 CREATE TRIGGER IF NOT EXISTS financial_fact_no_delete
 BEFORE DELETE ON financial_fact BEGIN
     SELECT RAISE(ABORT, 'financial facts are append-only');
+END;
+CREATE TABLE IF NOT EXISTS financial_fact_review (
+    bundle_id TEXT PRIMARY KEY,
+    evidence_hash TEXT NOT NULL UNIQUE,
+    evidence_json TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS financial_fact_review_member (
+    bundle_id TEXT NOT NULL REFERENCES financial_fact_review(bundle_id),
+    version_id TEXT NOT NULL UNIQUE REFERENCES financial_fact(version_id),
+    PRIMARY KEY (bundle_id, version_id)
+);
+CREATE TRIGGER IF NOT EXISTS financial_fact_review_no_update
+BEFORE UPDATE ON financial_fact_review BEGIN
+    SELECT RAISE(ABORT, 'financial fact reviews are append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS financial_fact_review_no_delete
+BEFORE DELETE ON financial_fact_review BEGIN
+    SELECT RAISE(ABORT, 'financial fact reviews are append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS financial_fact_review_member_no_update
+BEFORE UPDATE ON financial_fact_review_member BEGIN
+    SELECT RAISE(ABORT, 'financial fact reviews are append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS financial_fact_review_member_no_delete
+BEFORE DELETE ON financial_fact_review_member BEGIN
+    SELECT RAISE(ABORT, 'financial fact reviews are append-only');
 END;
 """
 
@@ -148,6 +177,18 @@ def _decode(row: sqlite3.Row) -> FinancialFact:
     )
 
 
+@dataclass(frozen=True, slots=True)
+class FactReviewBundle:
+    """Canonical, immutable evidence for one atomic reviewed report bundle."""
+
+    bundle_id: str
+    evidence_json: str
+
+    @property
+    def evidence_hash(self) -> str:
+        return "sha256:" + hashlib.sha256(self.evidence_json.encode("utf-8")).hexdigest()
+
+
 class FinancialFactRepository:
     """Own an independent SQLite fact file and replay it into the PIT store.
 
@@ -172,7 +213,8 @@ class FinancialFactRepository:
 
         return bool(self.append_many((fact,)))
 
-    def append_many(self, facts: Iterable[FinancialFact]) -> int:
+    def append_many(self, facts: Iterable[FinancialFact], *,
+                    review_bundle: FactReviewBundle | None = None) -> int:
         incoming: dict[str, FinancialFact] = {}
         encoded: dict[str, tuple[object, ...]] = {}
         for fact in facts:
@@ -185,7 +227,22 @@ class FinancialFactRepository:
             incoming[fact.version_id] = fact
             encoded[fact.version_id] = payload
         if not incoming:
+            if review_bundle is not None:
+                raise ValueError("review bundle requires financial facts")
             return 0
+        if review_bundle is not None:
+            if not review_bundle.bundle_id or not review_bundle.evidence_json:
+                raise ValueError("review bundle id and evidence are required")
+            # Reject non-canonical payloads so an identical logical review has
+            # one stable hash and one idempotent retry representation.
+            try:
+                decoded_review = json.loads(review_bundle.evidence_json)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("review evidence must be JSON") from exc
+            canonical = json.dumps(decoded_review, ensure_ascii=False,
+                                   sort_keys=True, separators=(",", ":"))
+            if canonical != review_bundle.evidence_json:
+                raise ValueError("review evidence must use canonical JSON")
 
         with closing(connect(self.db_path)) as con, write_tx(con):
             existing: dict[str, FinancialFact] = {}
@@ -267,6 +324,35 @@ class FinancialFactRepository:
                 visit(version_id)
             for fact in ordered:
                 con.execute(_INSERT, encoded[fact.version_id])
+            if review_bundle is not None:
+                row = con.execute(
+                    "SELECT evidence_hash, evidence_json FROM financial_fact_review "
+                    "WHERE bundle_id = ?", (review_bundle.bundle_id,),
+                ).fetchone()
+                if row is None:
+                    con.execute(
+                        "INSERT INTO financial_fact_review "
+                        "(bundle_id, evidence_hash, evidence_json) VALUES (?, ?, ?)",
+                        (review_bundle.bundle_id, review_bundle.evidence_hash,
+                         review_bundle.evidence_json),
+                    )
+                elif (row["evidence_hash"] != review_bundle.evidence_hash or
+                      row["evidence_json"] != review_bundle.evidence_json):
+                    raise ValueError("conflicting financial fact review bundle")
+                existing_members = {
+                    row["version_id"] for row in con.execute(
+                        "SELECT version_id FROM financial_fact_review_member WHERE bundle_id = ?",
+                        (review_bundle.bundle_id,),
+                    )
+                }
+                if existing_members and existing_members != set(incoming):
+                    raise ValueError("conflicting financial fact review members")
+                if not existing_members:
+                    con.executemany(
+                        "INSERT INTO financial_fact_review_member (bundle_id, version_id) "
+                        "VALUES (?, ?)",
+                        ((review_bundle.bundle_id, version_id) for version_id in incoming),
+                    )
             return len(ordered)
 
     def load(self) -> VersionedFinancialFactStore:
@@ -277,4 +363,4 @@ class FinancialFactRepository:
         return VersionedFinancialFactStore(_decode(row) for row in rows)
 
 
-__all__ = ["FinancialFactRepository"]
+__all__ = ["FactReviewBundle", "FinancialFactRepository"]

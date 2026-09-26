@@ -1,0 +1,233 @@
+{
+  "generatedAt": "2026-09-26T02:23:17.765459+00:00",
+  "instrumentId": "000333",
+  "latestPeriodEnd": "2026-06-30",
+  "sourceId": "cninfo",
+  "scope": "closed official PDF pilot, ordinary-business consolidated statements",
+  "requiredFactPeriods": {
+    "net_profit_attributable": [
+      "2025-06-30",
+      "2025-12-31",
+      "2026-06-30"
+    ],
+    "net_profit_consolidated": [
+      "2025-06-30",
+      "2025-12-31",
+      "2026-06-30"
+    ],
+    "operating_cashflow": [
+      "2025-06-30",
+      "2025-12-31",
+      "2026-06-30"
+    ],
+    "revenue": [
+      "2024-06-30",
+      "2024-12-31",
+      "2025-06-30",
+      "2025-12-31",
+      "2026-06-30"
+    ],
+    "parent_equity": [
+      "2025-06-30",
+      "2026-06-30"
+    ]
+  },
+  "requiredMetricPeriodCount": 16,
+  "candidateMetricPeriodCount": 16,
+  "formalPitFactCount": 0,
+  "reports": [
+    {
+      "periodEnd": "2024-06-30",
+      "version": "2024H1",
+      "announcementId": "1220909926",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2024-08-20/1220909926.PDF",
+      "contentHash": "sha256:29987795727aa66db08035eb9eff80eaf5622940fadcf05d44bca31cd2f47521",
+      "byteSize": 4215064,
+      "archiveReceiptId": "rcpt_9502ac7bd85bc8ecbc81247a",
+      "firstSeenAt": "2026-09-26T02:22:56.603492+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 108,
+        "net_profit_consolidated": 108,
+        "revenue": 108,
+        "parent_equity": 107,
+        "operating_cashflow": 109
+      },
+      "sourceAmountUnit": "千元",
+      "normalizedUnit": "yuan",
+      "candidateOnly": true,
+      "index": {
+        "complete": true,
+        "termination": "has_more_false",
+        "error": null,
+        "organizationId": "9900005965",
+        "pageReceiptIds": [
+          "rcpt_eac5b0457b5a5a6a32b51798"
+        ],
+        "requestBodyHashes": [
+          "sha256:28c8624bfbe5fba00ff97eed4eeee7333fe0b8a1de8587c094f7ef52f8f95ff8"
+        ],
+        "matchedExpectedAnnouncement": true,
+        "matchedAnnouncementIds": [
+          "1220909926",
+          "1220909925",
+          "1220909924"
+        ]
+      }
+    },
+    {
+      "periodEnd": "2024-12-31",
+      "version": "2024FY",
+      "announcementId": "1222951181",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-03-29/1222951181.PDF",
+      "contentHash": "sha256:b17a9b9b84bca1d2a4e4a3cadc5dd5ba5c85e3f1fd2d758acd3315b5b040ecd9",
+      "byteSize": 6737887,
+      "archiveReceiptId": "rcpt_274950c3d9cfe17151297cf7",
+      "firstSeenAt": "2026-09-26T02:23:01.655708+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 158,
+        "net_profit_consolidated": 158,
+        "revenue": 158,
+        "parent_equity": 157,
+        "operating_cashflow": 160
+      },
+      "sourceAmountUnit": "千元",
+      "normalizedUnit": "yuan",
+      "candidateOnly": true,
+      "index": {
+        "complete": true,
+        "termination": "has_more_false",
+        "error": null,
+        "organizationId": "9900005965",
+        "pageReceiptIds": [
+          "rcpt_739be34cb790edb3448c53cb"
+        ],
+        "requestBodyHashes": [
+          "sha256:a2f981be2dcdacf2f9c7441d8e409b3ea88165b308db742bbd4c06633af099a3"
+        ],
+        "matchedExpectedAnnouncement": true,
+        "matchedAnnouncementIds": [
+          "1222951198",
+          "1222951181"
+        ]
+      }
+    },
+    {
+      "periodEnd": "2025-06-30",
+      "version": "2025H1",
+      "announcementId": "1224626720",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2025-08-30/1224626720.PDF",
+      "contentHash": "sha256:cec88d9c6ded328ac9b467ba55254ab831b906dfc613982f6ac0504fc2055a12",
+      "byteSize": 3764425,
+      "archiveReceiptId": "rcpt_f3c4a17e9e7729867789d538",
+      "firstSeenAt": "2026-09-26T02:23:06.657556+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 96,
+        "net_profit_consolidated": 96,
+        "revenue": 96,
+        "parent_equity": 95,
+        "operating_cashflow": 97
+      },
+      "sourceAmountUnit": "千元",
+      "normalizedUnit": "yuan",
+      "candidateOnly": true,
+      "index": {
+        "complete": true,
+        "termination": "has_more_false",
+        "error": null,
+        "organizationId": "9900005965",
+        "pageReceiptIds": [
+          "rcpt_6a318751877afa2945e81f44"
+        ],
+        "requestBodyHashes": [
+          "sha256:105babd4c837246e306f7e2007e891f09f770a18bbf263f5a589c0fa2e166811"
+        ],
+        "matchedExpectedAnnouncement": true,
+        "matchedAnnouncementIds": [
+          "1224626731",
+          "1224626720"
+        ]
+      }
+    },
+    {
+      "periodEnd": "2025-12-31",
+      "version": "2025FY",
+      "announcementId": "1225065145",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-03-31/1225065145.PDF",
+      "contentHash": "sha256:16f95f70527db59dcf2736f276a9479cf7ee917e5f71e4f6cbbe83acbad9f4b6",
+      "byteSize": 5942399,
+      "archiveReceiptId": "rcpt_5c370278dd160534ff379071",
+      "firstSeenAt": "2026-09-26T02:23:11.647775+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 135,
+        "net_profit_consolidated": 135,
+        "revenue": 135,
+        "parent_equity": 133,
+        "operating_cashflow": 137
+      },
+      "sourceAmountUnit": "千元",
+      "normalizedUnit": "yuan",
+      "candidateOnly": true,
+      "index": {
+        "complete": true,
+        "termination": "has_more_false",
+        "error": null,
+        "organizationId": "9900005965",
+        "pageReceiptIds": [
+          "rcpt_45bfa52abe75da137758cb15"
+        ],
+        "requestBodyHashes": [
+          "sha256:94bf6f5647075b1196638884455bf680aa0b6cba24b76b441b7bfa2ff5257773"
+        ],
+        "matchedExpectedAnnouncement": true,
+        "matchedAnnouncementIds": [
+          "1225065145",
+          "1225058109"
+        ]
+      }
+    },
+    {
+      "periodEnd": "2026-06-30",
+      "version": "2026H1",
+      "announcementId": "1225531404",
+      "documentUrl": "https://static.cninfo.com.cn/finalpage/2026-08-29/1225531404.PDF",
+      "contentHash": "sha256:576dd80e353e53296a800b03e9889a9cbb2e8b91fa2ab3c1dace7c10159179b8",
+      "byteSize": 3825459,
+      "archiveReceiptId": "rcpt_486e4f4a9f0333ba18f05dd5",
+      "firstSeenAt": "2026-09-26T02:23:16.925645+00:00",
+      "candidateFields": {
+        "net_profit_attributable": 98,
+        "net_profit_consolidated": 98,
+        "revenue": 98,
+        "parent_equity": 97,
+        "operating_cashflow": 99
+      },
+      "sourceAmountUnit": "千元",
+      "normalizedUnit": "yuan",
+      "candidateOnly": true,
+      "index": {
+        "complete": true,
+        "termination": "has_more_false",
+        "error": null,
+        "organizationId": "9900005965",
+        "pageReceiptIds": [
+          "rcpt_f462edf4dda5b50b90e91bc1"
+        ],
+        "requestBodyHashes": [
+          "sha256:030dd68980343fc29caea88537597a8b156f60af60c8208eb69b896f7a93bff7"
+        ],
+        "matchedExpectedAnnouncement": true,
+        "matchedAnnouncementIds": [
+          "1225531404",
+          "1225531403"
+        ]
+      }
+    }
+  ],
+  "revisionEvidence": {
+    "fullRevisionSearchVerified": false,
+    "relationAsserted": false
+  },
+  "pitEligible": false,
+  "reason": "Candidate numbers and regular-report index are not a reviewed full correction/revision chain or formal PIT facts",
+  "rawPdfCommitted": false
+}

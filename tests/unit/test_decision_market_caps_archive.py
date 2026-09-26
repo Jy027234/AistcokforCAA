@@ -31,7 +31,7 @@ def _archived_sidecar(tmp_path, monkeypatch):
         byte_size=len(raw))
     original_record = archive.record
     monkeypatch.setattr(archive, "record", lambda **kwargs: original_record(
-        responded_at=now, **kwargs))
+        **{**kwargs, "requested_at": now, "responded_at": now}))
     class Client:
         def market_caps(self, symbols):
             assert symbols == ["sh600519"]

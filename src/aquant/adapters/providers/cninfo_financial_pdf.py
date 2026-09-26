@@ -1,6 +1,6 @@
 """受限的巨潮定期报告 PDF 五字段候选提取器。
 
-这是 601012 与 600519 各五个报告期的已审阅原文，不是通用 PDF 解析器，
+这是 601012、600519、000333 各五个报告期的已审阅原文，不是通用 PDF 解析器，
 也不提供公告时间、替代关系或可用于 PIT 的 ``FinancialFact``。输入只接受
 下列已核验的官方原文 SHA-256。调用方仍须独立核对公告身份、
 人工复核金额与数据权利；任何版式、期间、列或单位偏差均明确失败。
@@ -26,7 +26,9 @@ class CninfoFinancialPdfError(ValueError):
 _INSTRUMENT_ID = "601012"
 _COMPANY = "隆基绿能科技股份有限公司"
 _MOUTAI_COMPANY = "贵州茅台酒股份有限公司"
+_MIDEA_COMPANY = "美的集团股份有限公司"
 _AMOUNT = re.compile(r"-?(?:0|[1-9]\d{0,2}(?:,\d{3})*)(?:\.\d{2})\Z")
+_THOUSAND_AMOUNT = re.compile(r"(?:0|[1-9]\d{0,2}(?:,\d{3})*)\Z")
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,7 +38,7 @@ class PdfCandidateFact:
     period_end: date
     report_period_text: str
     statement: str
-    pdf_page: int  # PDF page number, one-based; printed page matches in these reports.
+    pdf_page: int  # One-based PDF page; printed page may differ.
     column_header: str
     amount_unit: str
     currency: str
@@ -95,6 +97,18 @@ class _ReviewedReport:
     version_label: str
     document_url: str
     cell_layouts: Mapping[str, _FieldCellLayout]
+
+
+@dataclass(frozen=True, slots=True)
+class _MideaReport:
+    period_end: date
+    page_count: int
+    cover_marker: str
+    balance_page: int
+    profit_page: int
+    cashflow_page: int
+    document_url: str
+    annual_text_layout: bool
 
 
 _STATEMENTS = {
@@ -311,6 +325,28 @@ _VERSIONS = {
 }
 
 
+# These five documents use RMB thousands and four amount columns in a combined
+# consolidated/company statement. Annual pages are borderless and require a
+# separate text-table contract; they cannot reuse the yuan/two-column rules.
+_MIDEA_VERSIONS: Mapping[str, _MideaReport] = {
+    "29987795727aa66db08035eb9eff80eaf5622940fadcf05d44bca31cd2f47521":
+        _MideaReport(date(2024, 6, 30), 212, "2024年半年度报告", 107, 108, 109,
+                     "https://static.cninfo.com.cn/finalpage/2024-08-20/1220909926.PDF", False),
+    "b17a9b9b84bca1d2a4e4a3cadc5dd5ba5c85e3f1fd2d758acd3315b5b040ecd9":
+        _MideaReport(date(2024, 12, 31), 295, "2024年度报告", 157, 158, 160,
+                     "https://static.cninfo.com.cn/finalpage/2025-03-29/1222951181.PDF", True),
+    "cec88d9c6ded328ac9b467ba55254ab831b906dfc613982f6ac0504fc2055a12":
+        _MideaReport(date(2025, 6, 30), 205, "2025年半年度报告", 95, 96, 97,
+                     "https://static.cninfo.com.cn/finalpage/2025-08-30/1224626720.PDF", False),
+    "16f95f70527db59dcf2736f276a9479cf7ee917e5f71e4f6cbbe83acbad9f4b6":
+        _MideaReport(date(2025, 12, 31), 276, "2025年年度报告", 133, 135, 137,
+                     "https://static.cninfo.com.cn/finalpage/2026-03-31/1225065145.PDF", True),
+    "576dd80e353e53296a800b03e9889a9cbb2e8b91fa2ab3c1dace7c10159179b8":
+        _MideaReport(date(2026, 6, 30), 205, "2026年半年度报告", 97, 98, 99,
+                     "https://static.cninfo.com.cn/finalpage/2026-08-29/1225531404.PDF", False),
+}
+
+
 def _compact(value: str) -> str:
     return re.sub(r"\s+", "", value)
 
@@ -393,10 +429,235 @@ def _unique_row(page, *, field: str, label: str,  # noqa: ANN001
     return matches[0]
 
 
+_MIDEA_ANNUAL_TABLE_SETTINGS = {
+    "vertical_strategy": "text",
+    "horizontal_strategy": "text",
+    "snap_tolerance": 3,
+    "join_tolerance": 3,
+    "text_tolerance": 3,
+}
+_MIDEA_UNIT_LINE = "(除特别注明外，金额单位为人民币千元)"
+_MIDEA_ROLES = ("合并", "合并", "公司", "公司")
+
+
+def _midea_thousand_amount(cell: str | None, *, field: str) -> Decimal:
+    if not isinstance(cell, str):
+        raise CninfoFinancialPdfError(f"{field}: missing thousand-yuan amount")
+    raw = cell.strip()
+    negative = raw.startswith("(") and raw.endswith(")")
+    digits = raw[1:-1] if negative else raw
+    if not _THOUSAND_AMOUNT.fullmatch(digits):
+        raise CninfoFinancialPdfError(f"{field}: ambiguous thousand-yuan amount")
+    value = Decimal(digits.replace(",", ""))
+    return -value if negative else value
+
+
+def _midea_period_labels(profile: _MideaReport, statement: str) -> tuple[str, str]:
+    current = profile.period_end
+    if statement == "balance":
+        return (f"{current.year}年{current.month}月{current.day}日",
+                f"{current.year - 1}年12月31日")
+    suffix = "年度" if profile.annual_text_layout else "年半年度"
+    return f"{current.year}{suffix}", f"{current.year - 1}{suffix}"
+
+
+def _midea_header_table(page, profile: _MideaReport,  # noqa: ANN001
+                        statement: str) -> tuple[list[str], list[list[str | None]]]:
+    lines = (page.extract_text() or "").splitlines()
+    if len(lines) < 7 or _compact(lines[0]) != _MIDEA_COMPANY:
+        raise CninfoFinancialPdfError(f"{statement}: Midea company heading mismatch")
+    if statement == "balance":
+        heading = "合并及公司资产负债表(续)"
+        date_heading = _midea_period_labels(profile, statement)[0]
+        if (_compact(lines[1]) != heading or
+                _compact(lines[2]) != date_heading or
+                _compact(lines[3]) != _MIDEA_UNIT_LINE):
+            raise CninfoFinancialPdfError(f"{statement}: Midea heading/period/unit mismatch")
+    else:
+        suffix = "年度" if profile.annual_text_layout else "年半年度"
+        kind = "利润表" if statement == "profit" else "现金流量表"
+        heading = f"{profile.period_end.year}{suffix}合并及公司{kind}"
+        if (_compact(lines[1]) != heading or
+                _compact(lines[2]) != _MIDEA_UNIT_LINE):
+            raise CninfoFinancialPdfError(f"{statement}: Midea heading/period/unit mismatch")
+    if not any(line.strip().endswith("合并 合并 公司 公司") for line in lines[:9]):
+        raise CninfoFinancialPdfError(f"{statement}: Midea consolidated/company order mismatch")
+
+    tables = page.extract_tables(
+        _MIDEA_ANNUAL_TABLE_SETTINGS if profile.annual_text_layout else None,
+    )
+    if len(tables) != 1 or len(tables[0]) < 3:
+        raise CninfoFinancialPdfError(f"{statement}: Midea table layout mismatch")
+    table = tables[0]
+    current, prior = _midea_period_labels(profile, statement)
+    header, role = table[0], table[1]
+    if statement == "balance" and profile.annual_text_layout:
+        valid = (len(header) == len(role) == 6 and
+                 tuple(_compact(x or "") for x in header[:2]) ==
+                 ("负债和股东权益", "附注") and
+                 tuple(_compact(x or "") for x in header[2:]) ==
+                 (f"{profile.period_end.year}年", f"{profile.period_end.year-1}年",
+                  f"{profile.period_end.year}年", f"{profile.period_end.year-1}年") and
+                 tuple(_compact(x or "") for x in role[2:]) ==
+                 ("12月31日",) * 4 and
+                 tuple(table[2][2:]) == _MIDEA_ROLES)
+    elif statement == "cashflow" and profile.annual_text_layout:
+        valid = (len(header) == len(role) == 6 and
+                 tuple(header[2:]) == (current, prior, current, prior) and
+                 tuple(role) == ("项目", "附注", *_MIDEA_ROLES))
+    elif statement == "profit" and profile.annual_text_layout:
+        valid = (len(header) == len(role) == 7 and
+                 tuple(header[:3]) == ("", "项目", "附注") and
+                 tuple(header[3:]) == (current, prior, current, prior) and
+                 tuple(role[3:]) == _MIDEA_ROLES)
+    else:
+        valid = (len(header) == len(role) == 6 and
+                 tuple(_compact(x or "") for x in header[2:]) ==
+                 (current, prior, current, prior) and
+                 tuple(role[2:]) == _MIDEA_ROLES)
+    if not valid:
+        raise CninfoFinancialPdfError(f"{statement}: Midea current/prior columns mismatch")
+    return lines, table
+
+
+def _midea_corrob_line(lines: list[str], label: str,
+                       amounts: tuple[str | None, ...], *, field: str) -> None:
+    expected = tuple(amount or "" for amount in amounts)
+    candidates = list(lines)
+    if label == "归属于母公司股东的净利润":
+        candidates.extend(
+            lines[i] + lines[i + 1] for i in range(len(lines) - 1)
+            if lines[i] == "归属于母公司股东的" and lines[i + 1].startswith("净利润 ")
+        )
+    matches = [line for line in candidates if _compact(line).startswith(_compact(label)) and
+               tuple(re.findall(r"\(?\d[\d,]*\)?", line))[-4:] == expected]
+    if len(matches) != 1:
+        raise CninfoFinancialPdfError(f"{field}: Midea source text disagrees with table")
+
+
+def _midea_row(table: list[list[str | None]], lines: list[str], *,
+               field: str, label: str,
+               annual_profit: bool) -> tuple[tuple[str | None, ...], int, str]:
+    prefix = ""
+    if annual_profit and field == "revenue":
+        candidates = [(i, row) for i, row in enumerate(table)
+                      if len(row) == 7 and row[:2] == ["：", "营业收入"]]
+        if len(candidates) != 1:
+            raise CninfoFinancialPdfError(f"{field}: Midea annual row ambiguous")
+        i, row = candidates[0]
+        prior_note = table[i - 1] if i > 0 else []
+        if (len(prior_note) != 7 or prior_note[:2] != ["", ""] or
+                not isinstance(prior_note[2], str) or
+                not re.fullmatch(r"四\(\d+\),", prior_note[2]) or
+                not isinstance(row[2], str) or
+                not re.fullmatch(r"十八\(3\)", row[2]) or
+                any(prior_note[3:])):
+            raise CninfoFinancialPdfError(f"{field}: Midea annual note/row mismatch")
+        prefix = "\t".join(part or "" for part in prior_note) + "\n"
+    elif annual_profit and field == "net_profit_consolidated":
+        candidates = [(i, row) for i, row in enumerate(table)
+                      if len(row) == 7 and row[:3] == ["润", "", ""]]
+        if len(candidates) != 1:
+            raise CninfoFinancialPdfError(f"{field}: Midea annual row ambiguous")
+        _, row = candidates[0]
+    elif annual_profit and field == "net_profit_attributable":
+        candidates = [(i, row) for i, row in enumerate(table)
+                      if len(row) == 7 and row[:3] == ["", "归属于母公司股东的", ""]]
+        if len(candidates) != 1:
+            raise CninfoFinancialPdfError(f"{field}: Midea annual row ambiguous")
+        i, prior_row = candidates[0]
+        row = table[i + 1] if i + 1 < len(table) else []
+        if (len(row) != 7 or row[:3] != ["", "净利润", ""] or
+                any(prior_row[3:])):
+            raise CninfoFinancialPdfError(f"{field}: Midea annual split row mismatch")
+        prefix = "\t".join(part or "" for part in prior_row) + "\n"
+        if lines.count("归属于母公司股东的") != 1:
+            raise CninfoFinancialPdfError(f"{field}: Midea annual split text mismatch")
+    else:
+        candidates = [(i, row) for i, row in enumerate(table)
+                      if len(row) == 6 and _compact(row[0] or "") == _compact(label)]
+        if len(candidates) != 1:
+            raise CninfoFinancialPdfError(f"{field}: Midea row ambiguous")
+        _, row = candidates[0]
+    current_index = 3 if annual_profit else 2
+    if len(row) != current_index + 4:
+        raise CninfoFinancialPdfError(f"{field}: Midea row column count mismatch")
+    for cell in row[current_index:]:
+        _midea_thousand_amount(cell, field=field)
+    _midea_corrob_line(lines, label, tuple(row[current_index:]), field=field)
+    return tuple(row), current_index, prefix + "\t".join(part or "" for part in row)
+
+
+def _extract_midea_candidate_facts(pdf_bytes: bytes, *, profile: _MideaReport,
+                                   digest: str) -> CninfoS2CandidateFacts:
+    try:
+        import pdfplumber
+    except ImportError as exc:
+        raise CninfoFinancialPdfError("pdfplumber is required for this PDF probe") from exc
+    try:
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            if len(pdf.pages) != profile.page_count:
+                raise CninfoFinancialPdfError("Midea report page count mismatch")
+            cover = _compact(pdf.pages[0].extract_text() or "")
+            if _MIDEA_COMPANY not in cover or profile.cover_marker not in cover:
+                raise CninfoFinancialPdfError("Midea company or report period mismatch")
+            statement_pages = {
+                "balance": profile.balance_page,
+                "profit": profile.profit_page,
+                "cashflow": profile.cashflow_page,
+            }
+            evidence = {
+                key: _midea_header_table(pdf.pages[page - 1], profile, key)
+                for key, page in statement_pages.items()
+            }
+            fields = (
+                ("net_profit_attributable", "profit", "归属于母公司股东的净利润"),
+                ("net_profit_consolidated", "profit", "四、净利润" if profile.annual_text_layout
+                 else "五、净利润"),
+                ("revenue", "profit", "其中：营业收入"),
+                ("parent_equity", "balance", "归属于母公司股东权益合计"),
+                ("operating_cashflow", "cashflow",
+                 "经营活动产生/(使用)的现金流量净额" if profile.period_end == date(2025, 12, 31)
+                 else "经营活动产生的现金流量净额"),
+            )
+            candidates = []
+            for field, statement, label in fields:
+                lines, table = evidence[statement]
+                row, current_index, source_row = _midea_row(
+                    table, lines, field=field, label=label,
+                    annual_profit=profile.annual_text_layout and statement == "profit",
+                )
+                current = _midea_thousand_amount(row[current_index], field=field)
+                _midea_thousand_amount(row[current_index + 1], field=f"{field} prior")
+                current_header, _ = _midea_period_labels(profile, statement)
+                candidates.append(PdfCandidateFact(
+                    field=field, value_yuan=current * Decimal(1000),
+                    period_end=profile.period_end,
+                    report_period_text=current_header, statement=statement,
+                    pdf_page=statement_pages[statement],
+                    column_header=current_header, amount_unit="千元", currency="CNY",
+                    source_row=source_row, source_cells=row,
+                    source_current_cell_index=current_index,
+                    source_prior_cell_index=current_index + 1,
+                    pdf_sha256="sha256:" + digest,
+                ))
+    except CninfoFinancialPdfError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - PDF parser failures are unsafe
+        raise CninfoFinancialPdfError(
+            f"Midea PDF parsing failed: {type(exc).__name__}"
+        ) from exc
+    return CninfoS2CandidateFacts(
+        instrument_id="000333", period_end=profile.period_end,
+        version_label="indexed_full_report", document_url=profile.document_url,
+        pdf_sha256="sha256:" + digest, candidates=tuple(candidates),
+    )
+
+
 def extract_s2_candidate_facts(
     pdf_bytes: bytes, *, instrument_id: str, period_end: date,
 ) -> CninfoS2CandidateFacts:
-    """提取已审阅 601012／600519 定期报告的五个当期列候选。
+    """提取已审阅 601012／600519／000333 定期报告的五个当期列候选。
 
     复核者按 ``pdf_page`` 在各自原文的合并三表，核对
     ``source_cells``、列标题、币种和单位。只返回当期列；比较列可能因会计政策
@@ -406,7 +667,7 @@ def extract_s2_candidate_facts(
     若需扩展其他证券／期间／版本，须先单独审阅并建立新的版式契约。
     """
 
-    if instrument_id not in (_INSTRUMENT_ID, "600519") or period_end not in (
+    if instrument_id not in (_INSTRUMENT_ID, "600519", "000333") or period_end not in (
         date(2024, 6, 30), date(2024, 12, 31), date(2025, 6, 30),
         date(2025, 12, 31), date(2026, 6, 30),
     ):
@@ -414,6 +675,15 @@ def extract_s2_candidate_facts(
     if not isinstance(pdf_bytes, bytes) or not pdf_bytes.startswith(b"%PDF-"):
         raise CninfoFinancialPdfError("input must be PDF bytes")
     digest = hashlib.sha256(pdf_bytes).hexdigest()
+    midea_profile = _MIDEA_VERSIONS.get(digest)
+    if midea_profile is not None:
+        if instrument_id != "000333":
+            raise CninfoFinancialPdfError("requested instrument mismatches approved PDF version")
+        if period_end != midea_profile.period_end:
+            raise CninfoFinancialPdfError("requested period mismatches approved PDF version")
+        return _extract_midea_candidate_facts(
+            pdf_bytes, profile=midea_profile, digest=digest,
+        )
     profile = _VERSIONS.get(digest)
     if profile is None:
         raise CninfoFinancialPdfError("PDF SHA-256 is not an approved report version")

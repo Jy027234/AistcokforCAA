@@ -1,0 +1,174 @@
+{
+  "generatedAt": "2026-09-26T02:37:27.924887+00:00",
+  "sourceId": "cninfo",
+  "instrumentId": "601012",
+  "reportPeriod": "2024-12-31",
+  "observedThroughDate": "2026-09-26",
+  "organizationId": "9900022338",
+  "organizationLookupReceiptId": "rcpt_1b53af1e5c3c4b144251e156",
+  "queryScope": "same stock, all announcement categories, empty search key",
+  "completeWithinQueryScope": true,
+  "totalAnnouncement": 267,
+  "pages": [
+    {
+      "page": 1,
+      "receiptId": "rcpt_e16fb8231336f1ac47a38796",
+      "responseHash": "sha256:394c2b182548226447eaf0c48ce817ef9bc6eb2fae650fee3f1039dfee1edb7e",
+      "requestBodyHash": "sha256:d3b7b16b131cdd961cabc2769fc0bf9956ee3454b9321166384223b6cc07a746",
+      "rawAnnouncementCount": 30,
+      "firstSeenAt": "2026-09-26T02:36:19.122575+00:00"
+    },
+    {
+      "page": 2,
+      "receiptId": "rcpt_68a470bfc9402772d974714b",
+      "responseHash": "sha256:6fbb31c0382748bbb4d07c56f1bab1ae396f44884f2f14e483e653df5e819ca0",
+      "requestBodyHash": "sha256:b29ea8439549129a5ab734b7ffd45118d214422c147c7c2c23aa0457aa536e88",
+      "rawAnnouncementCount": 30,
+      "firstSeenAt": "2026-09-26T02:36:21.620422+00:00"
+    },
+    {
+      "page": 3,
+      "receiptId": "rcpt_4f459b3a2ed69a8d6872a771",
+      "responseHash": "sha256:9ed60b0d4d9e829a81d22f72df2e06dc28a5dee165cd150166b37afd3b5cbefc",
+      "requestBodyHash": "sha256:ab6411beb93824c378eb0a6f03af76dbdbe76a653264e0addeeb602bc2b52423",
+      "rawAnnouncementCount": 30,
+      "firstSeenAt": "2026-09-26T02:36:24.168899+00:00"
+    },
+    {
+      "page": 4,
+      "receiptId": "rcpt_ee790bae59f851cfdaedf86f",
+      "responseHash": "sha256:137bc557fec63badef8d273fbfe7a15fe36d8d6d6ea57446ba625d9d998290ab",
+      "requestBodyHash": "sha256:c73cfcfc6fb8b4c834908c07e4ebf9676886900792a146910759d0b0428b1ab3",
+      "rawAnnouncementCount": 30,
+      "firstSeenAt": "2026-09-26T02:36:26.611547+00:00"
+    },
+    {
+      "page": 5,
+      "receiptId": "rcpt_1957e03ae971cbe15e4ac0aa",
+      "responseHash": "sha256:e16536ed526dd75b7fa72437669063278ebab5a0d91e1595fd6fc1c985f0f8e4",
+      "requestBodyHash": "sha256:b43945d4db7887b8175386ac8b026e3d125743c94cc12ed0b3ddd696dbc3a097",
+      "rawAnnouncementCount": 30,
+      "firstSeenAt": "2026-09-26T02:36:29.116623+00:00"
+    },
+    {
+      "page": 6,
+      "receiptId": "rcpt_c967bd91ce07e3b6889a0e54",
+      "responseHash": "sha256:7410aa84f8a2332d1635711df9ad54edd387c32bc90005cefb7982e154022b18",
+      "requestBodyHash": "sha256:8635d3e20cd5ad466f9fc5cd43faa9eb621ec4a6bfdb7eb450774376eb88d53c",
+      "rawAnnouncementCount": 30,
+      "firstSeenAt": "2026-09-26T02:36:31.606851+00:00"
+    },
+    {
+      "page": 7,
+      "receiptId": "rcpt_d10f5ba630dd1b6fd30dc549",
+      "responseHash": "sha256:7dbf649f111d705de927ac0ccfb50f389585aadd5f7b0529859ca87ad2228040",
+      "requestBodyHash": "sha256:9e25040b02b411013437d79c059b1e9ac575db483180e9d6c4ceaff787a0c539",
+      "rawAnnouncementCount": 30,
+      "firstSeenAt": "2026-09-26T02:36:34.110541+00:00"
+    },
+    {
+      "page": 8,
+      "receiptId": "rcpt_c24d2b608720907f3ab43b6f",
+      "responseHash": "sha256:6914ca8d02d514b26d50e4a5f8ec7efc3ae9109db89142657cae41de0565b379",
+      "requestBodyHash": "sha256:0c56de919464285ad596f5ff5c29b3e67fd36a510bbfafad818498482d09c34c",
+      "rawAnnouncementCount": 30,
+      "firstSeenAt": "2026-09-26T02:36:36.589140+00:00"
+    },
+    {
+      "page": 9,
+      "receiptId": "rcpt_65ae20702d455565123cb19f",
+      "responseHash": "sha256:e726e4dcad1a241479c99598b8db43a4aba6dd4c8db520408f64a4a95f96a50c",
+      "requestBodyHash": "sha256:1d1aa82dd0444e97232967e7c29324f544f62c30370003edba14882ac228c134",
+      "rawAnnouncementCount": 27,
+      "firstSeenAt": "2026-09-26T02:36:39.113064+00:00"
+    }
+  ],
+  "candidateAnnouncements": [
+    {
+      "announcementId": "1225535220",
+      "title": "《董事会秘书工作细则》修订对照表",
+      "candidateReasons": [
+        "revision_title"
+      ],
+      "page": 1,
+      "pageReceiptId": "rcpt_e16fb8231336f1ac47a38796"
+    },
+    {
+      "announcementId": "1225251680",
+      "title": "关于变更注册资本并修订《公司章程》的公告",
+      "candidateReasons": [
+        "revision_title"
+      ],
+      "page": 2,
+      "pageReceiptId": "rcpt_68a470bfc9402772d974714b"
+    },
+    {
+      "announcementId": "1225251629",
+      "title": "《董事和高级管理人员薪酬管理办法》修订对照表",
+      "candidateReasons": [
+        "revision_title"
+      ],
+      "page": 3,
+      "pageReceiptId": "rcpt_4f459b3a2ed69a8d6872a771"
+    },
+    {
+      "announcementId": "1223684000",
+      "title": "《公司章程》修订对照表",
+      "candidateReasons": [
+        "revision_title"
+      ],
+      "page": 6,
+      "pageReceiptId": "rcpt_c967bd91ce07e3b6889a0e54"
+    },
+    {
+      "announcementId": "1223683995",
+      "title": "关于取消监事会、变更注册资本并修订《公司章程》的公告",
+      "candidateReasons": [
+        "revision_title"
+      ],
+      "page": 6,
+      "pageReceiptId": "rcpt_c967bd91ce07e3b6889a0e54"
+    },
+    {
+      "announcementId": "1223477804",
+      "title": "更正公告",
+      "candidateReasons": [
+        "correction_title"
+      ],
+      "page": 7,
+      "pageReceiptId": "rcpt_d10f5ba630dd1b6fd30dc549"
+    },
+    {
+      "announcementId": "1223477802",
+      "title": "2024年年度报告（修订版）",
+      "candidateReasons": [
+        "period_title",
+        "revision_title"
+      ],
+      "page": 7,
+      "pageReceiptId": "rcpt_d10f5ba630dd1b6fd30dc549"
+    },
+    {
+      "announcementId": "1223421484",
+      "title": "2024年年度报告摘要",
+      "candidateReasons": [
+        "period_title"
+      ],
+      "page": 8,
+      "pageReceiptId": "rcpt_c24d2b608720907f3ab43b6f"
+    },
+    {
+      "announcementId": "1223421477",
+      "title": "2024年年度报告",
+      "candidateReasons": [
+        "period_title"
+      ],
+      "page": 8,
+      "pageReceiptId": "rcpt_c24d2b608720907f3ab43b6f"
+    }
+  ],
+  "knownCorrectionAnnouncementId": "1223477804",
+  "relationVerifiedByThisIndex": false,
+  "pitEligible": false,
+  "reason": "An exhausted title index identifies candidates; PDF content and revision relation need separate review"
+}

@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 
@@ -61,6 +61,49 @@ def test_identical_content_records_a_new_observation_each_time(archive):
     # 字节只存一份
     assert archive.distinct_content_count("em") == 1
     assert len(archive.receipts_for("em")) == 2
+
+
+def test_receipt_collision_cannot_rewrite_first_seen_or_content(archive):
+    first_hash, _ = archive.store_bytes(b'{"version":1}')
+    later_hash, _ = archive.store_bytes(b'{"version":2}')
+    requested = utc(hh=1)
+    first = archive.record(
+        source_id="em", url="https://x/a", outcome="OK",
+        requested_at=requested, responded_at=utc(hh=2),
+        http_status=200, content_hash=first_hash, byte_size=13,
+    )
+    with pytest.raises(ValueError, match="duplicate fetch receipt_id"):
+        archive.record(
+            source_id="em", url="https://x/a", outcome="OK",
+            requested_at=requested, responded_at=utc(hh=3),
+            http_status=200, content_hash=later_hash, byte_size=13,
+        )
+    stored = archive.receipts_for("em")
+    assert len(stored) == 1
+    assert stored[0]["receipt_id"] == first.receipt_id
+    assert stored[0]["first_seen_at"] == utc(hh=2).isoformat()
+    assert stored[0]["content_hash"] == first_hash
+
+
+def test_receipts_and_artifact_index_are_append_only(archive):
+    digest, _ = archive.store_bytes(b'{"version":1}')
+    receipt = archive.record(
+        source_id="em", url="https://x/a", outcome="OK",
+        requested_at=utc(hh=1), responded_at=utc(hh=2),
+        http_status=200, content_hash=digest, byte_size=13,
+    )
+    for statement, value in (
+        ("UPDATE fetch_receipt SET first_seen_at=? WHERE receipt_id=?",
+         (utc(hh=3).isoformat(), receipt.receipt_id)),
+        ("DELETE FROM fetch_receipt WHERE receipt_id=?", (receipt.receipt_id,)),
+        ("UPDATE raw_artifact SET stored_path=? WHERE content_hash=?",
+         ("other", digest)),
+        ("DELETE FROM raw_artifact WHERE content_hash=?", (digest,)),
+    ):
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            archive.con.execute(statement, value)
+    assert archive.verify(digest)
+    assert archive.receipts_for("em")[0]["first_seen_at"] == utc(hh=2).isoformat()
 
 
 def test_content_changed_is_a_new_artifact(archive):
@@ -126,6 +169,13 @@ def test_first_seen_is_never_backdated(archive):
     assert r.first_seen_at > r.requested_at
 
 
+def test_response_time_cannot_precede_request(archive):
+    with pytest.raises(ValueError, match="response time cannot precede request"):
+        archive.record(source_id="em", url="https://x/a", outcome="OK",
+                       requested_at=utc(hh=3), responded_at=utc(hh=2))
+    assert archive.receipts_for("em") == []
+
+
 # ------------------------------------------------------------------ 熔断
 def test_circuit_opens_after_threshold():
     cb = CircuitBreaker(failure_threshold=3, cooldown_seconds=60)
@@ -162,7 +212,8 @@ def test_success_resets_circuit():
 
 def test_circuit_state_is_serializable():
     cb = CircuitBreaker(failure_threshold=2)
-    cb.record_failure(); cb.record_failure()
+    cb.record_failure()
+    cb.record_failure()
     st = cb.state()
     assert set(st) == {"open", "consecutive_failures", "retry_after_seconds"}
     assert st["open"] is True

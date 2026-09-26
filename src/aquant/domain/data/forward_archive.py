@@ -18,9 +18,7 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
-import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -55,6 +53,22 @@ CREATE TABLE IF NOT EXISTS fetch_receipt (
 CREATE INDEX IF NOT EXISTS idx_receipt_source_time
     ON fetch_receipt (source_id, first_seen_at);
 CREATE INDEX IF NOT EXISTS idx_receipt_hash ON fetch_receipt (content_hash);
+CREATE TRIGGER IF NOT EXISTS raw_artifact_no_update
+BEFORE UPDATE ON raw_artifact BEGIN
+    SELECT RAISE(ABORT, 'raw artifacts are append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS raw_artifact_no_delete
+BEFORE DELETE ON raw_artifact BEGIN
+    SELECT RAISE(ABORT, 'raw artifacts are append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS fetch_receipt_no_update
+BEFORE UPDATE ON fetch_receipt BEGIN
+    SELECT RAISE(ABORT, 'fetch receipts are append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS fetch_receipt_no_delete
+BEFORE DELETE ON fetch_receipt BEGIN
+    SELECT RAISE(ABORT, 'fetch receipts are append-only');
+END;
 """
 
 
@@ -140,19 +154,28 @@ class ForwardArchive:
         """
 
         responded = responded_at or _now()
+        _iso(requested_at)
+        _iso(responded)
+        if responded < requested_at:
+            raise ValueError("response time cannot precede request time")
         receipt_id = "rcpt_" + hashlib.sha256(
             f"{source_id}|{url}|{_iso(requested_at)}|{outcome}".encode()
         ).hexdigest()[:24]
         first_seen = responded  # 归档时刻即首次观察时刻，绝不回填
 
-        with write_tx(self.con):
-            self.con.execute(
-                "INSERT OR REPLACE INTO fetch_receipt (receipt_id,source_id,url,requested_at,"
-                "responded_at,http_status,outcome,content_hash,byte_size,detail,first_seen_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (receipt_id, source_id, url, _iso(requested_at), _iso(responded),
-                 http_status, outcome, content_hash, byte_size, detail, _iso(first_seen)),
-            )
+        try:
+            with write_tx(self.con):
+                self.con.execute(
+                    "INSERT INTO fetch_receipt (receipt_id,source_id,url,requested_at,"
+                    "responded_at,http_status,outcome,content_hash,byte_size,detail,first_seen_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    (receipt_id, source_id, url, _iso(requested_at), _iso(responded),
+                     http_status, outcome, content_hash, byte_size, detail, _iso(first_seen)),
+                )
+        except sqlite3.IntegrityError as exc:
+            # A receipt ID identifies one request/outcome. Replacing it would
+            # rewrite first_seen_at and make later PIT evidence unverifiable.
+            raise ValueError(f"duplicate fetch receipt_id {receipt_id}") from exc
         return FetchReceipt(
             receipt_id=receipt_id, source_id=source_id, url=url,
             requested_at=requested_at, responded_at=responded, outcome=outcome,
