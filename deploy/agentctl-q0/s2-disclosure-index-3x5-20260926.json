@@ -1,0 +1,308 @@
+{
+  "schema": "cninfo-s2-disclosure-index-coverage-v1",
+  "generatedAt": "2026-09-26T04:00:44.9713219Z",
+  "sourceId": "cninfo",
+  "observedThroughDate": "2026-09-26",
+  "status": "INDEXES_ONLY_TITLES_AND_PDF_VALUES_UNREVIEWED_NOT_PIT_ELIGIBLE",
+  "scope": "three closed-pilot instruments times five S2 periods",
+  "completeStockPeriods": 15,
+  "stockPeriods": [
+    {
+      "instrumentId": "000333",
+      "reportPeriod": "2024-06-30",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-000333-2024-06-30-20260926T035256Z.json",
+      "indexSummarySha256": "ab4e675f6514b794f42ab7175162f0a974a8c4accf690c0449fd2dc52dd5c66c",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 12,
+      "candidateAnnouncementIds": [
+        "1225058126",
+        "1223412465",
+        "1223412461",
+        "1223412459",
+        "1223412458",
+        "1223412455",
+        "1223412439",
+        "1223412425",
+        "1220909926",
+        "1220909925",
+        "1220909924"
+      ]
+    },
+    {
+      "instrumentId": "000333",
+      "reportPeriod": "2024-12-31",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-000333-2024-12-31-20260926T035337Z.json",
+      "indexSummarySha256": "414363975f46a59052f42ffa540d2f26c6b9cbee4107fb18177b5c7973da8008",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 10,
+      "candidateAnnouncementIds": [
+        "1225058126",
+        "1223412465",
+        "1223412461",
+        "1223412459",
+        "1223412458",
+        "1223412455",
+        "1223412439",
+        "1223412425",
+        "1222951198",
+        "1222951181"
+      ]
+    },
+    {
+      "instrumentId": "000333",
+      "reportPeriod": "2025-06-30",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-000333-2025-06-30-20260926T035403Z.json",
+      "indexSummarySha256": "2d43e15ece0acd861990de7e85744733df00ac1d3c0b9b8fec6414162f594fb3",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 6,
+      "candidateAnnouncementIds": [
+        "1225058126",
+        "1224626731",
+        "1224626720"
+      ]
+    },
+    {
+      "instrumentId": "000333",
+      "reportPeriod": "2025-12-31",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-000333-2025-12-31-20260926T035426Z.json",
+      "indexSummarySha256": "4324e91c1cdd9557e2e69c0f063c56e22d300ede19f08c054fbc9bcecc484183",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 4,
+      "candidateAnnouncementIds": [
+        "1225065145",
+        "1225058126",
+        "1225058109"
+      ]
+    },
+    {
+      "instrumentId": "000333",
+      "reportPeriod": "2026-06-30",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-000333-2026-06-30-20260926T035934Z.json",
+      "indexSummarySha256": "0196ce39c4c203ce8b001d33815789c8715b1300c18e5577fdb9ea1db1c6631b",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 1,
+      "candidateAnnouncementIds": [
+        "1225531404",
+        "1225531403"
+      ]
+    },
+    {
+      "instrumentId": "600519",
+      "reportPeriod": "2024-06-30",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-600519-2024-06-30-20260926T035455Z.json",
+      "indexSummarySha256": "707e817901337290d14f2634c446048fdbd8cd67fcb887890abd48ce7cd8e08e",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 7,
+      "candidateAnnouncementIds": [
+        "1224836351",
+        "1224836347",
+        "1224836320",
+        "1224836297",
+        "1224789665",
+        "1224789664",
+        "1224789663",
+        "1224789662",
+        "1224789657",
+        "1220825193",
+        "1220825189"
+      ]
+    },
+    {
+      "instrumentId": "600519",
+      "reportPeriod": "2024-12-31",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-600519-2024-12-31-20260926T035521Z.json",
+      "indexSummarySha256": "557e6c27dae1f824457ee10680cae1bca7efb99be58ebf49fb5769dde511688e",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 6,
+      "candidateAnnouncementIds": [
+        "1224836351",
+        "1224836347",
+        "1224836320",
+        "1224836297",
+        "1224789665",
+        "1224789664",
+        "1224789663",
+        "1224789662",
+        "1224789657",
+        "1222993920",
+        "1222993912",
+        "1222993909"
+      ]
+    },
+    {
+      "instrumentId": "600519",
+      "reportPeriod": "2025-06-30",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-600519-2025-06-30-20260926T035543Z.json",
+      "indexSummarySha256": "5a67dd57a60308587f8c35695c89cdadde1daf0b227f1f626ea4fc9dc20cab1e",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 4,
+      "candidateAnnouncementIds": [
+        "1224836351",
+        "1224836347",
+        "1224836320",
+        "1224836297",
+        "1224789665",
+        "1224789664",
+        "1224789663",
+        "1224789662",
+        "1224789657",
+        "1224462930",
+        "1224462927"
+      ]
+    },
+    {
+      "instrumentId": "600519",
+      "reportPeriod": "2025-12-31",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-600519-2025-12-31-20260926T035603Z.json",
+      "indexSummarySha256": "b2239d90bb9e1e23d1d294492b3545d6b8d34b38701a6ec26496986681d6b5c7",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 3,
+      "candidateAnnouncementIds": [
+        "1225114741",
+        "1225114733",
+        "1225114731"
+      ]
+    },
+    {
+      "instrumentId": "600519",
+      "reportPeriod": "2026-06-30",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-600519-2026-06-30-20260926T035143Z.json",
+      "indexSummarySha256": "05306e9d13756f221a4f9588b730eb415b2f7e2c1678df6e1766d90d568a0be9",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 1,
+      "candidateAnnouncementIds": [
+        "1225475868",
+        "1225475860"
+      ]
+    },
+    {
+      "instrumentId": "601012",
+      "reportPeriod": "2024-06-30",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-601012-2024-06-30-20260926T035645Z.json",
+      "indexSummarySha256": "9f5bbc9ca875a38040613b813d98794c65ffc0da51d0ab91dc0f96188a6dc710",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 12,
+      "candidateAnnouncementIds": [
+        "1225535220",
+        "1225251680",
+        "1225251629",
+        "1223684000",
+        "1223683995",
+        "1223477804",
+        "1223477802",
+        "1221313621",
+        "1221313619",
+        "1221087751",
+        "1221087746",
+        "1221045891"
+      ]
+    },
+    {
+      "instrumentId": "601012",
+      "reportPeriod": "2024-12-31",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-601012-2024-12-31-20260926T035814Z.json",
+      "indexSummarySha256": "fb5840ac858de6f5d3c59a43032b6f5fab1158d4a537a9c03bc21c8e6aa2108e",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 9,
+      "candidateAnnouncementIds": [
+        "1225535220",
+        "1225251680",
+        "1225251629",
+        "1223684000",
+        "1223683995",
+        "1223477804",
+        "1223477802",
+        "1223421484",
+        "1223421477"
+      ]
+    },
+    {
+      "instrumentId": "601012",
+      "reportPeriod": "2025-06-30",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-601012-2025-06-30-20260926T035712Z.json",
+      "indexSummarySha256": "c92b840cf5521650a9af504f35903f6170acd88b24c775439009856b3ad817eb",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 5,
+      "candidateAnnouncementIds": [
+        "1225535220",
+        "1225251680",
+        "1225251629",
+        "1224562068",
+        "1224562067"
+      ]
+    },
+    {
+      "instrumentId": "601012",
+      "reportPeriod": "2025-12-31",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-601012-2025-12-31-20260926T035731Z.json",
+      "indexSummarySha256": "56b371b1137a576daf85b3e09ef86c4e30811ad404f5eb6583652da7c1e286f4",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 3,
+      "candidateAnnouncementIds": [
+        "1225535220",
+        "1225251680",
+        "1225251679",
+        "1225251647",
+        "1225251629"
+      ]
+    },
+    {
+      "instrumentId": "601012",
+      "reportPeriod": "2026-06-30",
+      "observedThroughDate": "2026-09-26",
+      "indexSummaryFile": "index-601012-2026-06-30-20260926T035156Z.json",
+      "indexSummarySha256": "9b26f7ccd5c9285320a205d6272f2f02a8880d5fb28272c099abf1f034699808",
+      "regularComplete": true,
+      "allCategoryComplete": true,
+      "regularPageCount": 1,
+      "allCategoryPageCount": 1,
+      "candidateAnnouncementIds": [
+        "1225535220",
+        "1225535067",
+        "1225534251"
+      ]
+    }
+  ]
+}

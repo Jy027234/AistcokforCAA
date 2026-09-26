@@ -55,18 +55,30 @@ def _archived_pdf(con, archive_root: Path, report: dict) -> tuple[bytes, str]:
 
 def build_worklist(pilot: dict, con, archive_root: Path,
                    *, report_period: date | None = None,
-                   cross_pilot: dict | None = None) -> dict:
+                   cross_pilots: list[dict] | None = None) -> dict:
     instrument_id = pilot["instrumentId"]
     if pilot["sourceId"] != "cninfo" or not instrument_id.isdigit():
         raise ValueError("pilot must identify one CNINFO security")
-    if cross_pilot is not None:
+    indexes_by_period = {}
+    for cross_pilot in cross_pilots or []:
         index = (cross_pilot["allCategoryIndex"] if
                  cross_pilot.get("schema") == "cninfo-s2-disclosure-index-v1" else
                  cross_pilot)
         complete = index.get("complete", index.get("completeWithinQueryScope"))
+        period = cross_pilot["reportPeriod"]
         if (cross_pilot["instrumentId"] != instrument_id or not complete or
                 cross_pilot.get("sourceId") != "cninfo"):
             raise ValueError("cross-category index identity or completeness mismatch")
+        if cross_pilot.get("schema") == "cninfo-s2-disclosure-index-v1":
+            regular = cross_pilot["regularIndex"]
+            if (not regular["complete"] or
+                    regular["organizationId"] != index["organizationId"]):
+                raise ValueError("regular report index is incomplete or belongs to another organization")
+        if period in indexes_by_period:
+            raise ValueError(f"duplicate cross-category index for {period}")
+        if date.fromisoformat(cross_pilot["observedThroughDate"]) < date.fromisoformat(period):
+            raise ValueError(f"cross-category index ends before {period}")
+        indexes_by_period[period] = cross_pilot
     reports = []
     for report in pilot["reports"]:
         period = date.fromisoformat(report["periodEnd"])
@@ -100,7 +112,10 @@ def build_worklist(pilot: dict, con, archive_root: Path,
                 "reviewStatus": "PENDING_HUMAN_VISUAL",
             })
         cross_summary = None
-        if cross_pilot is not None and cross_pilot["reportPeriod"] == period.isoformat():
+        cross_pilot = indexes_by_period.get(period.isoformat())
+        if cross_pilots is not None and cross_pilot is None:
+            raise ValueError(f"missing cross-category index for {period}")
+        if cross_pilot is not None:
             index = (cross_pilot["allCategoryIndex"] if
                      cross_pilot.get("schema") == "cninfo-s2-disclosure-index-v1" else
                      cross_pilot)
@@ -145,17 +160,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pilot", type=Path, required=True)
     parser.add_argument("--period", type=date.fromisoformat)
-    parser.add_argument("--cross-pilot", type=Path)
+    parser.add_argument("--cross-pilot", type=Path, action="append",
+                        help="one complete index per selected report period; repeat for a full worksheet")
     parser.add_argument("--archive-root", type=Path, default=ARCHIVE_ROOT)
     args = parser.parse_args()
     pilot = json.loads(args.pilot.read_text(encoding="utf-8"))
-    cross_pilot = (json.loads(args.cross_pilot.read_text(encoding="utf-8"))
-                   if args.cross_pilot else None)
+    cross_pilots = ([json.loads(path.read_text(encoding="utf-8"))
+                     for path in args.cross_pilot] if args.cross_pilot else None)
     archive_root = args.archive_root.resolve()
     with closing(connect(archive_root / "meta.sqlite", read_only=True)) as con:
         worklist = build_worklist(
             pilot, con, archive_root, report_period=args.period,
-            cross_pilot=cross_pilot,
+            cross_pilots=cross_pilots,
         )
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
