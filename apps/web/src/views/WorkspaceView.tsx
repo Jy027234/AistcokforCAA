@@ -4,8 +4,28 @@ import {
   type FactorRowValue, type ResearchRunResponse, type StrategyVersionsResponse,
   type WatchItem,
 } from "../lib/api";
-import type { ResearchCard } from "../lib/types";
+import type { ResearchCard, S2DiagnosticPreviewResponse } from "../lib/types";
 import { Badge, Callout, Card, Empty, Section } from "../components/ui";
+
+function formatS2Percent(value: string | null): string {
+  if (value === null) return "—";
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? `${(parsed * 100).toFixed(2)}%` : value;
+}
+
+function formatS2Multiple(value: string | null): string {
+  if (value === null) return "—";
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? `${parsed.toFixed(2)} 倍` : value;
+}
+
+function formatBeijingTime(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai", dateStyle: "medium", timeStyle: "short",
+  }).format(parsed) + "（北京时间）";
+}
 
 /** 工作区：自选、因子排名、研究卡、决策日志、实验登记。
  *
@@ -34,6 +54,9 @@ export function WorkspaceView({
   const [decisions, setDecisions] = useState<DecisionRow[] | null>(null);
   const [experiments, setExperiments] = useState<ExperimentRow[] | null>(null);
   const [strategyStatus, setStrategyStatus] = useState<StrategyVersionsResponse | null>(null);
+  const [s2Preview, setS2Preview] = useState<S2DiagnosticPreviewResponse | null>(null);
+  const [s2PreviewLoading, setS2PreviewLoading] = useState(false);
+  const [s2PreviewError, setS2PreviewError] = useState<string | null>(null);
 
   const explain = (err: unknown): string => {
     if (err instanceof AquantApiError) {
@@ -63,6 +86,21 @@ export function WorkspaceView({
     () => api.experiments(), (r) => setExperiments(r.experiments)), []);
   const loadStrategies = useCallback(() => step("载入策略能力",
     () => api.strategyVersions(), setStrategyStatus), []);
+
+  const loadS2Preview = async () => {
+    setS2Preview(null);
+    setS2PreviewError(null);
+    setS2PreviewLoading(true);
+    try {
+      setS2Preview(await api.s2DiagnosticPreview());
+    } catch (err) {
+      setS2PreviewError(err instanceof AquantApiError && err.status === 503
+        ? "后端没有可用的本机 PDF 候选归档。预览未生成，也不会回退到正式研究卡或 PIT 数据。"
+        : "S2 公式诊断预览加载失败：" + explain(err));
+    } finally {
+      setS2PreviewLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (apiUp !== true) return;
@@ -200,6 +238,116 @@ export function WorkspaceView({
                 </Callout>
               ))}
             </>
+          )}
+        </Card>
+      </Section>
+
+      {/* ------------------------ S2 受限公式诊断：独立于研究卡和正式信号 */}
+      <Section title="S2 公式诊断预览"
+        hint="只查看本机 CNINFO PDF 候选的公式演算，不生成排名或策略信号"
+        dataSource="api">
+        <Card>
+          <Callout tone="danger" title="候选数据未完成人工核对">
+            这里的数值来自尚未人工审阅的 PDF 抽取候选，不是已验收的 PIT 财务事实，
+            不能用于回测、交易或 S1/S2 对照。此预览与研究卡、因子运行、实验和模拟隔离；
+            S2 策略登记闸门仍保持关闭。
+          </Callout>
+
+          <div className="row-actions" style={{ marginTop: 12 }}>
+            <button className="btn btn-primary" disabled={s2PreviewLoading}
+              onClick={() => void loadS2Preview()}>
+              {s2PreviewLoading ? "读取候选档案…"
+                : s2Preview ? "重新读取公式预览" : "读取公式预览"}
+            </button>
+            <span className="note">
+              仅显示 F07–F09 诊断值；F10、横截面排名和回测结果均不提供。
+            </span>
+          </div>
+
+          {s2PreviewLoading && <p className="note" aria-live="polite">正在读取本机 PDF 候选档案…</p>}
+          {s2PreviewError && (
+            <Callout tone="warn" title="预览暂不可用">{s2PreviewError}</Callout>
+          )}
+
+          {s2Preview && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                <Badge tone="danger">仅候选诊断</Badge>
+                <Badge tone="warn">非正式 PIT</Badge>
+                <Badge tone="neutral">不可回测</Badge>
+                <span className="note">
+                  来源：{s2Preview.source} · 生成于 {formatBeijingTime(s2Preview.generatedAt)}
+                </span>
+              </div>
+
+              {s2Preview.instruments.length === 0 ? (
+                <Empty title="没有可预览的候选">本机候选档案没有可展示的证券。</Empty>
+              ) : (
+                <div className="table-wrap">
+                  <table className="data">
+                    <thead>
+                      <tr>
+                        <th>证券 / 报告期</th>
+                        <th className="num">F07 ROE TTM</th>
+                        <th className="num">F08 现金质量</th>
+                        <th className="num">F09 营收 TTM 同比</th>
+                        <th>资格与说明</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {s2Preview.instruments.map((item) => (
+                        <tr key={item.instrumentId}>
+                          <td>
+                            <div className="mono">{item.instrumentId}</div>
+                            <div className="note">截至 {item.latestPeriodEnd}</div>
+                          </td>
+                          <td className="num mono">{formatS2Percent(item.factors.F07)}</td>
+                          <td className="num mono">{formatS2Multiple(item.factors.F08)}</td>
+                          <td className="num mono">{formatS2Percent(item.factors.F09)}</td>
+                          <td>
+                            {item.exclusionCode ? (
+                              <>
+                                <Badge tone="warn">{item.exclusionCode}</Badge>
+                                {item.exclusionReason && (
+                                  <div className="note" style={{ marginTop: 4 }}>
+                                    {item.exclusionReason}
+                                  </div>
+                                )}
+                              </>
+                            ) : <Badge tone="neutral">仅公式演算</Badge>}
+                            {item.note && <div className="note" style={{ marginTop: 4 }}>{item.note}</div>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {s2Preview.instruments.map((item) => (
+                <details key={item.instrumentId + "-sources"} style={{ marginTop: 10 }}>
+                  <summary className="note">
+                    {item.instrumentId} 的候选来源（{item.sourceReports.length} 份报告）
+                  </summary>
+                  {item.sourceReports.length === 0 ? (
+                    <p className="note">接口未返回候选报告来源。</p>
+                  ) : (
+                    <ul className="list">
+                      {item.sourceReports.map((report) => (
+                        <li key={report.announcementId}>
+                          <a href={report.documentUrl} target="_blank" rel="noreferrer">
+                            {report.periodEnd} · {report.versionLabel} · 公告 {report.announcementId}
+                          </a>
+                          <div className="note">
+                            首次捕获 {formatBeijingTime(report.firstSeenAt)} · SHA-256 {report.pdfSha256}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </details>
+              ))}
+            </div>
           )}
         </Card>
       </Section>

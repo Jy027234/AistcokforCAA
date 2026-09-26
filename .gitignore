@@ -103,6 +103,7 @@ deploy/agentctl-q0/last-run.json
 
 # 当日第三方市值与试运行临时报告留在本机，不随源码分发。
 deploy/agentctl-q0/decision-market-caps.json
+deploy/agentctl-q0/s2-candidate-preview.json
 deploy/agentctl-q0/multiday-dual-snapshot.json
 deploy/agentctl-q0/snapshot-publish.json
 deploy/agentctl-q0/real-flow-console.log

@@ -6,6 +6,9 @@ apps/web/node_modules
 .pytest_cache
 deploy/agentctl-q0/baostock-archive
 deploy/agentctl-q0/forward-archive
+deploy/agentctl-q0/s2-candidate-preview.json
+data/s2-pdf-review/
+tmp/
 deploy/agentctl-q0/universe-bars.json
 deploy/universe-snapshot
 deploy/real-snapshot

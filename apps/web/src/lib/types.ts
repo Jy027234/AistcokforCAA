@@ -123,6 +123,47 @@ export interface ResearchCard {
   limitations: string[];
 }
 
+/**
+ * S2 候选 PDF 的只读公式诊断预览。
+ *
+ * 这是独立于正式 PIT 研究卡、因子运行、实验和交易模拟的数据类型；
+ * 后端契约明确保证这些值不能用于回测或排名。
+ */
+export interface S2DiagnosticSourceReport {
+  periodEnd: string;
+  versionLabel: string;
+  announcementId: string;
+  documentUrl: string;
+  pdfSha256: string;
+  firstSeenAt: string;
+}
+
+export interface S2DiagnosticPreviewInstrument {
+  instrumentId: string;
+  latestPeriodEnd: string;
+  sourceReports: S2DiagnosticSourceReport[];
+  factors: {
+    F07: string | null;
+    F08: string | null;
+    F09: string | null;
+    F10: null;
+  };
+  exclusionCode: string | null;
+  exclusionReason: string | null;
+  note: string | null;
+}
+
+export interface S2DiagnosticPreviewResponse {
+  schemaVersion: "aquant.s2_candidate_preview.v1";
+  status: "CANDIDATE_DIAGNOSTIC_ONLY";
+  formalPitEligible: false;
+  backtestable: false;
+  rank: null;
+  source: "cninfo";
+  generatedAt: string;
+  instruments: S2DiagnosticPreviewInstrument[];
+}
+
 export interface CandidateRow {
   instrumentId: string;
   displayName: string;

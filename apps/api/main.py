@@ -49,6 +49,9 @@ from aquant.operations.freshness import freshness  # noqa: E402
 from aquant.operations.research_jobs import (  # noqa: E402
     run_research_job, submit_research_job,
 )
+from aquant.operations.s2_candidate_preview import (  # noqa: E402
+    S2CandidatePreviewError, load_s2_candidate_preview,
+)
 from aquant.application.workspace_view import build_data_status, build_research_card
 from aquant.domain.data.db import apply_migrations, connect
 from aquant.domain.data.ingest import SnapshotBuilder
@@ -1610,6 +1613,21 @@ def create_app(state: AppState | None = None) -> FastAPI:
 
         return {"cards": research_cards(s.con, instrument_id=instrument_id,
                                         snapshot_id=snapshot_id, limit=limit)}
+
+    @app.get("/api/v1/research/s2/diagnostic-preview")
+    def s2_diagnostic_preview(request: Request) -> dict:
+        """Serve local candidate arithmetic without creating a strategy signal."""
+        identity = getattr(request.app.state, "aquant_identity", _identity_config())
+        if not identity.local_only:
+            raise HTTPException(status_code=403, detail="S2 PDF preview is local-only")
+        path = Path(os.environ.get(
+            "AQUANT_S2_CANDIDATE_PREVIEW_FILE",
+            ROOT / "deploy" / "agentctl-q0" / "s2-candidate-preview.json",
+        ))
+        try:
+            return load_s2_candidate_preview(path)
+        except (S2CandidatePreviewError, OSError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.get("/api/v1/portfolios/{portfolio_id}/reconcile")
     def reconcile(portfolio_id: str, s: AppState = Depends(svc)) -> dict:

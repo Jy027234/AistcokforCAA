@@ -1,4 +1,6 @@
-import type { DataStatus, ResearchCard } from "./types";
+import type {
+  DataStatus, ResearchCard, S2DiagnosticPreviewResponse,
+} from "./types";
 
 /** 工作台 API 客户端。
  *
@@ -612,6 +614,12 @@ export const api = {
     request<ResearchCard>(
       "/api/v1/instruments/" + encodeURIComponent(instrumentId) + "/research" +
       "?trading_day=" + encodeURIComponent(tradingDay),
+    ),
+
+  /** 未审阅 PDF 候选的独立诊断预览，不进入研究卡、正式因子或实验。 */
+  s2DiagnosticPreview: () =>
+    request<S2DiagnosticPreviewResponse>(
+      "/api/v1/research/s2/diagnostic-preview",
     ),
 
   runFactors: (limit = 0) =>
