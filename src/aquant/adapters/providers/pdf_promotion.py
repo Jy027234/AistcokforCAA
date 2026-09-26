@@ -749,6 +749,15 @@ def promote_reviewed_pdf_bundle(
         reviewed_at=cross_category_reviewed_at, pdf_receipt_id=pdf_receipt_id,
         now=now,
     )
+    if role is DisclosureRole.ORIGINAL_REPORT and any(
+        item["relevance"] == "RELATED" and
+        item["announcement_id"] != version_review.announcement_id and
+        any(reason != "period_title" for reason in item["candidate_reasons"])
+        for item in cross_dispositions
+    ):
+        raise PdfPromotionError(
+            "original report has a related amendment without S2 field-impact proof"
+        )
     evidence_seen = [first_seen]
     for row in (*index_receipts, *cross_receipts):
         seen = _aware(datetime.fromisoformat(row["first_seen_at"]), "evidence first_seen_at")

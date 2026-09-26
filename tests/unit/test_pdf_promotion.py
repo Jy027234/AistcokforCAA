@@ -629,6 +629,40 @@ def test_promoted_report_cannot_be_disposed_as_unrelated(tmp_path, monkeypatch):
         con.close()
 
 
+def test_related_correction_without_field_impact_proof_blocks_original_bundle(
+    tmp_path, monkeypatch,
+):
+    con, archive, repository, candidate, receipt, review = _setup(tmp_path, monkeypatch)
+    try:
+        excerpt = "更正本公司二零二六年半年度报告中的财务数据"
+        correction_receipt = _record(
+            archive, b"%PDF-synthetic-related-correction",
+            url="https://static.cninfo.com.cn/finalpage/2026-09-24/1004.PDF",
+            seen=_at(25, 16, 10),
+        )
+        monkeypatch.setattr(promotion, "_pdf_text", lambda _: excerpt)
+        cross_index, dispositions = _cross_fixture(
+            archive,
+            (("1001", "2026年半年度报告", _at(24, 12)),
+             ("1004", "2026年半年度报告更正公告", _at(25, 8))),
+            document_receipts={"1001": receipt, "1004": correction_receipt},
+            org_receipt=review.org_lookup_receipt_id,
+            seen=_at(25, 16, 15), reviewed_at=_at(25, 16, 40),
+            related_report_ids={"1004": ("1001",)},
+            relation_receipt_ids={"1004": correction_receipt},
+            relation_excerpt=excerpt,
+        )
+        with pytest.raises(promotion.PdfPromotionError,
+                           match="related amendment without S2 field-impact proof"):
+            _promote(archive, repository, candidate, receipt, review,
+                     cross_index=cross_index,
+                     cross_dispositions=dispositions,
+                     cross_reviewed_at=_at(25, 16, 40))
+        assert repository.load().facts == ()
+    finally:
+        con.close()
+
+
 def test_all_category_post_body_and_pagination_cannot_be_spoofed(tmp_path, monkeypatch):
     con, archive, repository, candidate, receipt, review = _setup(tmp_path, monkeypatch)
     try:
