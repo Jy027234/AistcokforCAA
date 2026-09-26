@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from ..data.db import connect, write_tx
 from .versioned import FinancialFact, VersionedFinancialFactStore
@@ -189,6 +189,107 @@ class FactReviewBundle:
         return "sha256:" + hashlib.sha256(self.evidence_json.encode("utf-8")).hexdigest()
 
 
+_S2_PDF_FIELDS = frozenset({
+    "net_profit_attributable", "net_profit_consolidated", "operating_cashflow",
+    "revenue", "parent_equity",
+})
+_IMMUTABLE_REVIEW_TRIGGERS = frozenset({
+    "financial_fact_no_update", "financial_fact_no_delete",
+    "financial_fact_review_no_update", "financial_fact_review_no_delete",
+    "financial_fact_review_member_no_update",
+    "financial_fact_review_member_no_delete",
+})
+
+
+def _accepted_s2_pdf_review(
+    row: sqlite3.Row, member_ids: set[str], facts: Mapping[str, FinancialFact],
+) -> bool:
+    """Recognize the immutable five-field proof written by PDF promotion."""
+
+    try:
+        evidence_json = row["evidence_json"]
+        evidence = json.loads(evidence_json)
+        if not isinstance(evidence, dict):
+            return False
+        canonical = json.dumps(evidence, ensure_ascii=False, sort_keys=True,
+                               separators=(",", ":"))
+        if canonical != evidence_json or row["evidence_hash"] != (
+            "sha256:" + hashlib.sha256(evidence_json.encode("utf-8")).hexdigest()
+        ):
+            return False
+        if (evidence.get("schema") != "cninfo-s2-pdf-review-v1" or
+                evidence.get("source_id") != "cninfo" or
+                evidence.get("complete_search_attested") is not True or
+                evidence.get("index_query", {}).get("request_body_verified") is not True):
+            return False
+        version_ids = evidence.get("version_ids")
+        if (not isinstance(version_ids, list) or len(version_ids) != 5 or
+                len(set(version_ids)) != 5 or set(version_ids) != member_ids or
+                not member_ids <= facts.keys()):
+            return False
+        iid = evidence["instrument_id"]
+        period = date.fromisoformat(evidence["period_end"])
+        announcement = evidence["announcement_id"]
+        content_hash = evidence["content_hash"]
+        if (row["bundle_id"] != "cninfo_pdf_" + hashlib.sha256(
+            f"{iid}|{period}|{announcement}".encode()
+        ).hexdigest()[:32] or evidence.get("announcement_role") not in
+                ("ORIGINAL_REPORT", "REVISED_REPORT") or
+                not all(evidence.get(key) for key in (
+                    "rights_register_version", "pdf_receipt_id",
+                    "org_lookup_receipt_id", "version_reviewer_id",
+                    "version_reviewed_at", "available_at", "first_seen_at",
+                    "ingested_at", "source_published_date"))):
+            return False
+        cross = evidence.get("cross_category_index")
+        if (not isinstance(cross, dict) or not cross.get("reviewer_id") or
+                not cross.get("reviewed_at") or
+                not isinstance(cross.get("candidate_dispositions"), list)):
+            return False
+        reviews = evidence.get("field_reviews")
+        if (not isinstance(reviews, list) or len(reviews) != 5 or
+                {review.get("field") for review in reviews if isinstance(review, dict)}
+                != _S2_PDF_FIELDS):
+            return False
+        by_metric = {facts[version_id].metric: facts[version_id]
+                     for version_id in member_ids}
+        if set(by_metric) != _S2_PDF_FIELDS:
+            return False
+        for field, fact in by_metric.items():
+            identity = (f"cninfo|{iid}|{period}|{field}|{announcement}|{content_hash}")
+            expected_id = "pdf_" + hashlib.sha256(identity.encode()).hexdigest()[:32]
+            expected_scope = ("ATTRIBUTABLE" if field == "net_profit_attributable" else
+                              "CONSOLIDATED" if field == "net_profit_consolidated" else None)
+            if (fact.version_id != expected_id or fact.instrument_id != iid or
+                    fact.period_end != period or fact.source_id != "cninfo" or
+                    fact.source_document_id != announcement or
+                    fact.content_hash != content_hash or fact.currency != "CNY" or
+                    fact.raw_unit != "yuan" or fact.statement_scope.value != "CONSOLIDATED" or
+                    (fact.profit_scope.value if fact.profit_scope else None) != expected_scope or
+                    fact.source_published_date.isoformat() != evidence["source_published_date"] or
+                    fact.source_published_at is not None or
+                    fact.timestamp_precision.value != "DATE" or
+                    fact.first_seen_at.isoformat() != evidence["first_seen_at"] or
+                    fact.ingested_at.isoformat() != evidence["ingested_at"] or
+                    fact.available_at.isoformat() != evidence["available_at"] or
+                    fact.availability_basis.value != "OBSERVED" or
+                    fact.pit_mode.value != "LIVE_OBSERVED"):
+                return False
+        for review in reviews:
+            fact = by_metric[review["field"]]
+            if (review.get("method") != "HUMAN_VISUAL" or
+                    not review.get("reviewer_id") or not review.get("reviewed_at") or
+                    not isinstance(review.get("pdf_page"), int) or
+                    review["pdf_page"] < 1 or
+                    review.get("source_amount_unit") not in ("元", "千元") or
+                    not review.get("current_cell") or not review.get("row_label") or
+                    Decimal(review["value_yuan"]) != Decimal(str(fact.value))):
+                return False
+        return True
+    except (KeyError, AttributeError, TypeError, ValueError, ArithmeticError):
+        return False
+
+
 class FinancialFactRepository:
     """Own an independent SQLite fact file and replay it into the PIT store.
 
@@ -199,14 +300,32 @@ class FinancialFactRepository:
     version.
     """
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(self, db_path: str | Path, *, _create_schema: bool = True) -> None:
         if str(db_path) == ":memory:":
             raise ValueError("financial fact repository requires a persistent file")
         self.db_path = Path(db_path)
+        self._read_only = not _create_schema
+        if not _create_schema:
+            if not self.db_path.is_file():
+                raise FileNotFoundError(f"financial fact repository does not exist: {self.db_path}")
+            try:
+                with closing(connect(self.db_path, read_only=True)) as con:
+                    con.execute(_SELECT + " LIMIT 0")
+            except sqlite3.Error as exc:
+                raise ValueError(
+                    f"invalid financial fact repository schema: {self.db_path}: {exc}"
+                ) from exc
+            return
         with closing(connect(self.db_path)) as con:
             # executescript commits implicitly, so schema setup stays outside
             # the short append transaction. DDL is idempotent on restart.
             con.executescript(_SCHEMA)
+
+    @classmethod
+    def open_existing(cls, db_path: str | Path) -> FinancialFactRepository:
+        """Open a validated fact file without creating a file or running DDL."""
+
+        return cls(db_path, _create_schema=False)
 
     def append(self, fact: FinancialFact) -> bool:
         """Append one version; return whether it was newly inserted."""
@@ -215,6 +334,8 @@ class FinancialFactRepository:
 
     def append_many(self, facts: Iterable[FinancialFact], *,
                     review_bundle: FactReviewBundle | None = None) -> int:
+        if self._read_only:
+            raise RuntimeError("financial fact repository was opened read-only")
         incoming: dict[str, FinancialFact] = {}
         encoded: dict[str, tuple[object, ...]] = {}
         for fact in facts:
@@ -361,6 +482,46 @@ class FinancialFactRepository:
         with closing(connect(self.db_path, read_only=True)) as con:
             rows = con.execute(_SELECT + " ORDER BY sequence").fetchall()
         return VersionedFinancialFactStore(_decode(row) for row in rows)
+
+    def load_with_accepted_s2_pdf_reviews(
+        self,
+    ) -> tuple[VersionedFinancialFactStore, dict[str, tuple[str, str]]]:
+        """Read facts and accepted CNINFO S2 PDF review links in one read snapshot.
+
+        A review is admitted only when its canonical evidence, hash, five DB
+        members, and five actual fact versions agree. Invalid or incomplete
+        reviews yield no accepted links; they never manufacture PIT facts.
+        """
+
+        with closing(connect(self.db_path, read_only=True)) as con:
+            con.execute("BEGIN")
+            triggers = {row["name"] for row in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='trigger'"
+            )}
+            if not _IMMUTABLE_REVIEW_TRIGGERS <= triggers:
+                raise ValueError("financial fact review append-only triggers are missing")
+            fact_rows = con.execute(_SELECT + " ORDER BY sequence").fetchall()
+            reviews = con.execute(
+                "SELECT bundle_id,evidence_hash,evidence_json "
+                "FROM financial_fact_review ORDER BY bundle_id"
+            ).fetchall()
+            memberships = con.execute(
+                "SELECT bundle_id,version_id FROM financial_fact_review_member "
+                "ORDER BY bundle_id,version_id"
+            ).fetchall()
+            con.execute("COMMIT")
+        store = VersionedFinancialFactStore(_decode(row) for row in fact_rows)
+        by_id = {fact.version_id: fact for fact in store.facts}
+        members: dict[str, set[str]] = {}
+        for row in memberships:
+            members.setdefault(row["bundle_id"], set()).add(row["version_id"])
+        accepted: dict[str, tuple[str, str]] = {}
+        for row in reviews:
+            member_ids = members.get(row["bundle_id"], set())
+            if _accepted_s2_pdf_review(row, member_ids, by_id):
+                for version_id in member_ids:
+                    accepted[version_id] = (row["bundle_id"], row["evidence_hash"])
+        return store, accepted
 
 
 __all__ = ["FactReviewBundle", "FinancialFactRepository"]

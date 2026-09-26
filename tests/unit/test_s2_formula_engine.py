@@ -149,6 +149,37 @@ def test_s2_computes_all_four_factors_from_pit_cumulative_facts() -> None:
     assert len(factors.fact_version_ids) > 0
 
 
+def test_year_end_s2_provenance_includes_prior_profit_used_for_f07_bundle() -> None:
+    iid = "SYN.SSE.000002"
+    prior, current = date(2024, 12, 31), date(2025, 12, 31)
+    rows = [
+        _fact(iid, "net_profit_attributable", prior, "80",
+              profit_scope=ProfitScope.ATTRIBUTABLE),
+        _fact(iid, "parent_equity", prior, "400"),
+        _fact(iid, "revenue", prior, "300"),
+        _fact(iid, "net_profit_attributable", current, "100",
+              profit_scope=ProfitScope.ATTRIBUTABLE),
+        _fact(iid, "net_profit_consolidated", current, "110",
+              profit_scope=ProfitScope.CONSOLIDATED),
+        _fact(iid, "operating_cashflow", current, "130"),
+        _fact(iid, "revenue", current, "350"),
+        _fact(iid, "parent_equity", current, "450"),
+    ]
+    factors = compute_s2_factors(
+        store=VersionedFinancialFactStore(rows), instrument_id=iid,
+        cutoff=CUTOFF, market_cap=Decimal("1000"),
+    )
+    assert len(factors.fact_version_ids) == 8
+    assert rows[0].version_id in factors.fact_version_ids
+
+    with pytest.raises(S2ComputationError) as exc:
+        compute_s2_factors(
+            store=VersionedFinancialFactStore(rows[1:]), instrument_id=iid,
+            cutoff=CUTOFF, market_cap=Decimal("1000"),
+        )
+    assert exc.value.code == "S2_TTM_INCOMPLETE"
+
+
 def test_s2_rejects_same_report_id_with_mixed_content_hashes() -> None:
     rows = _facts()
     target = next(

@@ -541,6 +541,18 @@ def compute_s2_factors(
     # annual bridge used by the TTM formula is a flow fact, so it does not
     # require a balance-sheet value at that intermediate report period.
     for period in (latest_period_end, attr_ttm.start_period_end):
+        missing = [name for rows, name in (
+            (attr_np, metrics.attributable_net_profit),
+            (equity, metrics.parent_equity),
+        ) if period not in rows]
+        if missing:
+            raise S2ComputationError(
+                "S2_TTM_INCOMPLETE",
+                f"F07 report bundle at {period.isoformat()} is missing "
+                + ", ".join(missing),
+                instrument_id=instrument_id,
+                repair_action="ingest the same-report attributable profit and equity facts",
+            )
         _same_bundle((attr_np[period], equity[period]), period_end=period,
                      label="F07 report bundle", instrument_id=instrument_id)
     for period in ttm_periods:
@@ -601,6 +613,7 @@ def compute_s2_factors(
     all_versions.update(cfo_ttm.fact_version_ids)
     all_versions.update(revenue_ttm.fact_version_ids)
     all_versions.update(prior_revenue_ttm.fact_version_ids)
+    all_versions.add(attr_np[attr_ttm.start_period_end].version_id)
     all_versions.update((equity[attr_ttm.start_period_end].version_id,
                          equity[latest_period_end].version_id))
     return S2Factors(
