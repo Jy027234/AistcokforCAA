@@ -362,6 +362,19 @@ def test_revised_report_adds_five_new_versions_and_preserves_old_cutoff(tmp_path
                 field_reviews=_reviews(revised, _at(28, 3)),
                 cross_dispositions=cross_dispositions[:-1],
             )
+        unrelated_correction = replace(
+            cross_dispositions[-1], relevance="UNRELATED",
+            rationale="已核对原文：该更正公告与本次修订报表无关",
+            document_receipt_id=None, related_report_announcement_ids=(),
+            relation_receipt_id=None, relation_excerpt=None,
+        )
+        with pytest.raises(promotion.PdfPromotionError,
+                           match="correction PDF must be a related"):
+            _promote(
+                archive, repository, revised, revised_receipt, revised_review,
+                field_reviews=_reviews(revised, _at(28, 3)),
+                cross_dispositions=(*cross_dispositions[:-1], unrelated_correction),
+            )
         assert len(repository.load().facts) == 5  # original bundle remains untouched
         revised_facts = _promote(
             archive, repository, revised, revised_receipt, revised_review,
@@ -591,6 +604,27 @@ def test_all_category_index_and_each_correction_candidate_are_required(
         )
         assert len(facts) == 5
         assert {fact.available_at for fact in facts} == {_at(28, 0, 45)}
+    finally:
+        con.close()
+
+
+def test_promoted_report_cannot_be_disposed_as_unrelated(tmp_path, monkeypatch):
+    con, archive, repository, candidate, receipt, review = _setup(tmp_path, monkeypatch)
+    try:
+        cross_index, dispositions, reviewed_at = archive._test_cross
+        active = replace(
+            dispositions[0], relevance="UNRELATED",
+            rationale="已核对原文：这份定期报告与待升仓目标无关",
+            document_receipt_id=None, related_report_announcement_ids=(),
+            relation_receipt_id=None, relation_excerpt=None,
+        )
+        with pytest.raises(promotion.PdfPromotionError,
+                           match="promoted report and predecessor"):
+            _promote(archive, repository, candidate, receipt, review,
+                     cross_index=cross_index,
+                     cross_dispositions=(active, *dispositions[1:]),
+                     cross_reviewed_at=reviewed_at)
+        assert repository.load().facts == ()
     finally:
         con.close()
 

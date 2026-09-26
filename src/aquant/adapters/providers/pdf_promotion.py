@@ -588,6 +588,17 @@ def _cross_category_evidence(
     by_id = {item.announcement_id: item for item in dispositions}
     if (len(dispositions) != len(by_id) or set(by_id) != candidate_ids):
         raise PdfPromotionError("every all-category candidate needs one explicit disposition")
+    required_report_ids = {review.announcement_id}
+    if review.predecessor_announcement_id is not None:
+        required_report_ids.add(review.predecessor_announcement_id)
+    if (not required_report_ids.issubset(candidate_ids) or
+            any(by_id[ann_id].relevance != "RELATED" for ann_id in required_report_ids)):
+        raise PdfPromotionError("promoted report and predecessor must be related index candidates")
+    if (review.correction_receipt_id is not None and
+            not any(item.relevance == "RELATED" and
+                    item.document_receipt_id == review.correction_receipt_id
+                    for item in dispositions)):
+        raise PdfPromotionError("correction PDF must be a related all-category candidate")
     disposition_evidence: list[dict] = []
     for ann_id in sorted(candidate_ids):
         entry = entries[ann_id]
