@@ -34,8 +34,12 @@ from ...domain.fundamentals.disclosure_link import (
     DisclosureRole, disclosure_role, report_period_from_title,
 )
 from ...domain.fundamentals.fact_repository import FactReviewBundle, FinancialFactRepository
+from ...domain.fundamentals.s2_pdf_review_policy import (
+    S2_PDF_PILOT_COMPANIES, S2_PDF_REQUIRED_FIELDS, S2_PDF_SUBSET_POLICY,
+)
 from ...domain.fundamentals.versioned import FinancialFact, ProfitScope, StatementScope
 from .cninfo import CrossCategoryIndexEntry, CrossCategoryIndexResult, parse_announcements
+from .cninfo_financial_candidate import extract_cninfo_candidate_facts
 from .cninfo_financial_pdf import CninfoS2CandidateFacts, extract_s2_candidate_facts
 from .cninfo_probe import (
     market_for_code, normalize_title, parse_report_period,
@@ -241,26 +245,47 @@ def _verified_index_request(
     return body_hash, page_size
 
 
+def _reviewed_amount(cell: str) -> Decimal:
+    value = cell.strip().replace(",", "").replace("（", "(").replace("）", ")")
+    if value.startswith("(") and value.endswith(")"):
+        value = "-" + value[1:-1]
+    try:
+        amount = Decimal(value)
+    except (ValueError, ArithmeticError) as exc:
+        raise PdfPromotionError("reviewed source cell is not numeric") from exc
+    if not amount.is_finite():
+        raise PdfPromotionError("reviewed source cell is not finite")
+    return amount
+
+
 def _check_reviews(candidate: CninfoS2CandidateFacts,
-                   reviews: Sequence[PdfFieldReview], *,
+                   reviews: Sequence[PdfFieldReview], *, expected_fields: frozenset[str],
                    first_seen: datetime, now: datetime) -> None:
     by_field = candidate.by_field
-    if (set(by_field) != _FIELDS or len(candidate.candidates) != len(_FIELDS) or
-            len(reviews) != len(_FIELDS) or {r.field for r in reviews} != _FIELDS):
-        raise PdfPromotionError("five distinct S2 fields and five field reviews are required")
+    if (set(by_field) != expected_fields or
+            len(candidate.candidates) != len(expected_fields) or
+            len(reviews) != len(expected_fields) or
+            {r.field for r in reviews} != expected_fields):
+        raise PdfPromotionError(
+            "five distinct S2 fields and five field reviews are required"
+            if expected_fields == _FIELDS else
+            "exact required S2 fields and field reviews are required"
+        )
     for review in reviews:
         item = by_field[review.field]
         if (not review.reviewer_id.strip() or review.method != "HUMAN_VISUAL" or
                 _aware(review.reviewed_at, "reviewed_at") < first_seen or
                 _aware(review.reviewed_at, "reviewed_at") > now):
             raise PdfPromotionError(f"{review.field}: human review identity/time is invalid")
-        if item.amount_unit not in ("元", "千元") or review.source_amount_unit != item.amount_unit:
+        if (item.amount_unit not in ("元", "千元", "万元") or
+                review.source_amount_unit != item.amount_unit):
             raise PdfPromotionError(f"{review.field}: source amount unit is unverified")
         try:
-            reviewed_raw = Decimal(review.current_cell.replace(",", "").strip())
-        except (ValueError, ArithmeticError) as exc:
-            raise PdfPromotionError(f"{review.field}: reviewed source cell is not numeric") from exc
-        scale = Decimal(1000) if item.amount_unit == "千元" else Decimal(1)
+            reviewed_raw = _reviewed_amount(review.current_cell)
+        except PdfPromotionError as exc:
+            raise PdfPromotionError(f"{review.field}: {exc}") from exc
+        scale = {"元": Decimal(1), "千元": Decimal(1000),
+                 "万元": Decimal(10000)}[item.amount_unit]
         if (review.reviewed_value_yuan != item.value_yuan or
                 reviewed_raw * scale != review.reviewed_value_yuan or
                 review.pdf_page != item.pdf_page or
@@ -284,7 +309,7 @@ def _version_evidence(
     market = market_for_code(candidate.instrument_id)
     if (review.query_stock_code != candidate.instrument_id or
             not review.query_organization_id.strip() or
-            not re.fullmatch(r"(?:gss[hz]\d{7}|\d{10})",
+            not re.fullmatch(r"(?:gss[hz]\d{7}|gshk\d{7}|GD\d{6}|\d{10})",
                              review.query_organization_id) or
             (review.query_organization_id.startswith("gss") and
              not review.query_organization_id.startswith(
@@ -698,8 +723,9 @@ def promote_reviewed_pdf_bundle(
     cross_category_reviewed_by: str, cross_category_reviewed_at: datetime,
     archive: ForwardArchive, repository: FinancialFactRepository,
     trading_calendar: Sequence[date], rights: RightsRegistry | None = None,
+    _subset_v2: bool = False,
 ) -> tuple[FinancialFact, ...]:
-    """Admit one reviewed five-field PDF report as five forward-only PIT facts.
+    """Admit one reviewed PDF report as forward-only PIT facts.
 
     The resulting ``available_at`` is the first future 08:45 Shanghai decision
     snapshot after every required observation/review/ingestion and the
@@ -720,26 +746,42 @@ def promote_reviewed_pdf_bundle(
         raise PdfPromotionError("CNINFO research and local-storage rights must be allowed")
     if candidate.pit_eligible or candidate.review_status != "requires_manual_verification":
         raise PdfPromotionError("only unpromoted, review-required PDF candidates are accepted")
+    company = None
+    expected_fields = _FIELDS
+    if _subset_v2:
+        company = S2_PDF_PILOT_COMPANIES.get(candidate.instrument_id)
+        expected_fields = S2_PDF_REQUIRED_FIELDS.get(candidate.period_end)
+        if company is None or expected_fields is None:
+            raise PdfPromotionError("security or period is outside the frozen S2 PDF subset policy")
     pdf_receipt, payload = _archived_ok(
         archive, pdf_receipt_id, expected_url=candidate.document_url,
         expected_host="static.cninfo.com.cn",
     )
     if pdf_receipt["content_hash"] != candidate.pdf_sha256:
         raise PdfPromotionError("candidate PDF hash differs from archive receipt")
-    # Re-extract from archived bytes; a hand-built candidate object alone is not
-    # evidence.  The extractor's SHA allowlist and statement layout checks run
-    # again at the admission boundary.
-    extracted = extract_s2_candidate_facts(
-        payload, instrument_id=candidate.instrument_id,
-        period_end=candidate.period_end,
-    )
+    # Re-extract from archived bytes, with the fixed policy field set for v2.
+    # A hand-built candidate or a worksheet superset is never admission proof.
+    if _subset_v2:
+        extracted = extract_cninfo_candidate_facts(
+            payload, instrument_id=candidate.instrument_id, company=company,
+            period_end=candidate.period_end,
+            announcement_id=version_review.announcement_id,
+            document_url=candidate.document_url,
+            required_fields=tuple(sorted(expected_fields)),
+        )
+    else:
+        extracted = extract_s2_candidate_facts(
+            payload, instrument_id=candidate.instrument_id,
+            period_end=candidate.period_end,
+        )
     if extracted != candidate:
         raise PdfPromotionError("candidate facts differ from archived PDF extraction")
 
     first_seen = _aware(datetime.fromisoformat(pdf_receipt["first_seen_at"]), "first_seen_at")
     if first_seen > now:
         raise PdfPromotionError("PDF cannot be observed after admission")
-    _check_reviews(candidate, field_reviews, first_seen=first_seen, now=now)
+    _check_reviews(candidate, field_reviews, expected_fields=expected_fields,
+                   first_seen=first_seen, now=now)
     published_on, role, index_receipts, request_hashes = _version_evidence(
         archive, candidate, version_review, now=now,
     )
@@ -777,7 +819,22 @@ def promote_reviewed_pdf_bundle(
     )
 
     previous_by_field: dict[str, FinancialFact] = {}
-    selected = repository.load().select(  # Avoid a second private DB protocol.
+    if _subset_v2:
+        previous_store, accepted_reviews = repository.load_with_accepted_s2_pdf_reviews()
+        prior_s2_facts = (
+            fact for fact in previous_store.facts
+            if fact.instrument_id == candidate.instrument_id and
+            fact.period_end == candidate.period_end and fact.metric in _FIELDS
+        )
+        if any(
+            not accepted_reviews.get(fact.version_id, ("", ""))[0].startswith(
+                "cninfo_pdf_v2_"
+            ) for fact in prior_s2_facts
+        ):
+            raise PdfPromotionError("existing S2 facts are not one reviewed v2 revision lineage")
+    else:
+        previous_store, accepted_reviews = repository.load(), {}
+    selected = previous_store.select(
         datetime.max.replace(tzinfo=timezone.utc),
         instrument_id=candidate.instrument_id, period_end=candidate.period_end,
         formal=False,
@@ -792,14 +849,25 @@ def promote_reviewed_pdf_bundle(
         if previous_by_field:
             raise PdfPromotionError("an original report would create a second fact root")
     elif not late_captured_revised_root and (
-          set(previous_by_field) != _FIELDS or
+          set(previous_by_field) != expected_fields or
           {fact.source_document_id for fact in previous_by_field.values()} !=
           {version_review.predecessor_announcement_id} or
           {fact.source_id for fact in previous_by_field.values()} != {"cninfo"}):
-        raise PdfPromotionError("verified five-field predecessor bundle is required")
+        raise PdfPromotionError(
+            "verified exact-field predecessor bundle is required" if _subset_v2 else
+            "verified five-field predecessor bundle is required"
+        )
+    if _subset_v2 and previous_by_field:
+        predecessor_bundles = {
+            accepted_reviews.get(fact.version_id, ("", ""))[0]
+            for fact in previous_by_field.values()
+        }
+        if (len(predecessor_bundles) != 1 or
+                not next(iter(predecessor_bundles)).startswith("cninfo_pdf_v2_")):
+            raise PdfPromotionError("reviewed v2 predecessor bundle is required")
 
     facts = []
-    for field in sorted(_FIELDS):
+    for field in sorted(expected_fields):
         item = candidate.by_field[field]
         profit_scope = (
             ProfitScope.ATTRIBUTABLE if field == "net_profit_attributable" else
@@ -825,7 +893,8 @@ def promote_reviewed_pdf_bundle(
         ))
 
     evidence = {
-        "schema": "cninfo-s2-pdf-review-v1",
+        "schema": ("cninfo-s2-pdf-review-v2" if _subset_v2 else
+                   "cninfo-s2-pdf-review-v1"),
         "source_id": "cninfo",
         "rights_register_version": REGISTER_VERSION,
         "instrument_id": candidate.instrument_id,
@@ -886,9 +955,15 @@ def promote_reviewed_pdf_bundle(
         "available_at": available_at.isoformat(),
         "version_ids": [fact.version_id for fact in facts],
     }
+    if _subset_v2:
+        evidence.update({
+            "company": company,
+            "review_policy": S2_PDF_SUBSET_POLICY,
+            "required_fields": sorted(expected_fields),
+        })
     evidence_json = json.dumps(evidence, ensure_ascii=False, sort_keys=True,
                                separators=(",", ":"))
-    bundle_id = ("cninfo_pdf_" + hashlib.sha256(
+    bundle_id = (("cninfo_pdf_v2_" if _subset_v2 else "cninfo_pdf_") + hashlib.sha256(
         f"{candidate.instrument_id}|{candidate.period_end}|{version_review.announcement_id}"
         .encode(),
     ).hexdigest()[:32])
@@ -896,7 +971,34 @@ def promote_reviewed_pdf_bundle(
     return tuple(facts)
 
 
+def promote_reviewed_cninfo_subset_bundle(
+    *, candidate: CninfoS2CandidateFacts, pdf_receipt_id: str,
+    version_review: PdfVersionReview, field_reviews: Sequence[PdfFieldReview],
+    cross_category_index: CrossCategoryIndexResult,
+    cross_category_dispositions: Sequence[CrossCategoryDisposition],
+    cross_category_reviewed_by: str, cross_category_reviewed_at: datetime,
+    archive: ForwardArchive, repository: FinancialFactRepository,
+    trading_calendar: Sequence[date], rights: RightsRegistry | None = None,
+) -> tuple[FinancialFact, ...]:
+    """Admit the exact 2026-H1 S2 pilot field cohort of one reviewed report.
+
+    This entry point never generates human reviews. The caller must supply real
+    field, version, and cross-category attestations after observing the PDF.
+    """
+    return promote_reviewed_pdf_bundle(
+        candidate=candidate, pdf_receipt_id=pdf_receipt_id,
+        version_review=version_review, field_reviews=field_reviews,
+        cross_category_index=cross_category_index,
+        cross_category_dispositions=cross_category_dispositions,
+        cross_category_reviewed_by=cross_category_reviewed_by,
+        cross_category_reviewed_at=cross_category_reviewed_at,
+        archive=archive, repository=repository,
+        trading_calendar=trading_calendar, rights=rights, _subset_v2=True,
+    )
+
+
 __all__ = [
     "PdfFieldReview", "PdfPromotionError", "PdfVersionReview",
     "cninfo_query_digest", "promote_reviewed_pdf_bundle",
+    "promote_reviewed_cninfo_subset_bundle",
 ]

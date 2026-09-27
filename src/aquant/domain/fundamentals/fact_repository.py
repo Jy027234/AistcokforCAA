@@ -19,6 +19,9 @@ from pathlib import Path
 from typing import Iterable, Mapping
 
 from ..data.db import connect, write_tx
+from .s2_pdf_review_policy import (
+    S2_PDF_PILOT_COMPANIES, S2_PDF_REQUIRED_FIELDS, S2_PDF_SUBSET_POLICY,
+)
 from .versioned import FinancialFact, VersionedFinancialFactStore
 
 
@@ -204,7 +207,7 @@ _IMMUTABLE_REVIEW_TRIGGERS = frozenset({
 def _accepted_s2_pdf_review(
     row: sqlite3.Row, member_ids: set[str], facts: Mapping[str, FinancialFact],
 ) -> bool:
-    """Recognize the immutable five-field proof written by PDF promotion."""
+    """Recognize immutable v1 five-field or v2 fixed-cohort PDF proof."""
 
     try:
         evidence_json = row["evidence_json"]
@@ -217,21 +220,39 @@ def _accepted_s2_pdf_review(
             "sha256:" + hashlib.sha256(evidence_json.encode("utf-8")).hexdigest()
         ):
             return False
-        if (evidence.get("schema") != "cninfo-s2-pdf-review-v1" or
-                evidence.get("source_id") != "cninfo" or
+        schema = evidence.get("schema")
+        if schema not in ("cninfo-s2-pdf-review-v1", "cninfo-s2-pdf-review-v2"):
+            return False
+        iid = evidence["instrument_id"]
+        period = date.fromisoformat(evidence["period_end"])
+        if schema == "cninfo-s2-pdf-review-v2":
+            expected_fields = S2_PDF_REQUIRED_FIELDS.get(period)
+            if (iid not in S2_PDF_PILOT_COMPANIES or
+                    evidence.get("company") != S2_PDF_PILOT_COMPANIES[iid] or
+                    evidence.get("review_policy") != S2_PDF_SUBSET_POLICY or
+                    expected_fields is None or
+                    evidence.get("required_fields") != sorted(expected_fields)):
+                return False
+            allowed_units = ("元", "千元", "万元")
+        else:
+            expected_fields = _S2_PDF_FIELDS
+            allowed_units = ("元", "千元")
+        if (evidence.get("source_id") != "cninfo" or
                 evidence.get("complete_search_attested") is not True or
                 evidence.get("index_query", {}).get("request_body_verified") is not True):
             return False
         version_ids = evidence.get("version_ids")
-        if (not isinstance(version_ids, list) or len(version_ids) != 5 or
-                len(set(version_ids)) != 5 or set(version_ids) != member_ids or
+        if (not isinstance(version_ids, list) or
+                len(version_ids) != len(expected_fields) or
+                len(set(version_ids)) != len(expected_fields) or
+                set(version_ids) != member_ids or
                 not member_ids <= facts.keys()):
             return False
-        iid = evidence["instrument_id"]
-        period = date.fromisoformat(evidence["period_end"])
         announcement = evidence["announcement_id"]
         content_hash = evidence["content_hash"]
-        if (row["bundle_id"] != "cninfo_pdf_" + hashlib.sha256(
+        bundle_prefix = ("cninfo_pdf_v2_" if schema == "cninfo-s2-pdf-review-v2"
+                         else "cninfo_pdf_")
+        if (row["bundle_id"] != bundle_prefix + hashlib.sha256(
             f"{iid}|{period}|{announcement}".encode()
         ).hexdigest()[:32] or evidence.get("announcement_role") not in
                 ("ORIGINAL_REPORT", "REVISED_REPORT") or
@@ -247,13 +268,13 @@ def _accepted_s2_pdf_review(
                 not isinstance(cross.get("candidate_dispositions"), list)):
             return False
         reviews = evidence.get("field_reviews")
-        if (not isinstance(reviews, list) or len(reviews) != 5 or
+        if (not isinstance(reviews, list) or len(reviews) != len(expected_fields) or
                 {review.get("field") for review in reviews if isinstance(review, dict)}
-                != _S2_PDF_FIELDS):
+                != expected_fields):
             return False
         by_metric = {facts[version_id].metric: facts[version_id]
                      for version_id in member_ids}
-        if set(by_metric) != _S2_PDF_FIELDS:
+        if set(by_metric) != expected_fields:
             return False
         for field, fact in by_metric.items():
             identity = (f"cninfo|{iid}|{period}|{field}|{announcement}|{content_hash}")
@@ -281,10 +302,21 @@ def _accepted_s2_pdf_review(
                     not review.get("reviewer_id") or not review.get("reviewed_at") or
                     not isinstance(review.get("pdf_page"), int) or
                     review["pdf_page"] < 1 or
-                    review.get("source_amount_unit") not in ("元", "千元") or
+                    review.get("source_amount_unit") not in allowed_units or
                     not review.get("current_cell") or not review.get("row_label") or
                     Decimal(review["value_yuan"]) != Decimal(str(fact.value))):
                 return False
+            if schema == "cninfo-s2-pdf-review-v2":
+                cell = review["current_cell"].strip().replace(",", "")
+                cell = cell.replace("（", "(").replace("）", ")")
+                if cell.startswith("(") and cell.endswith(")"):
+                    cell = "-" + cell[1:-1]
+                raw_amount = Decimal(cell)
+                scale = {"元": Decimal(1), "千元": Decimal(1000),
+                         "万元": Decimal(10000)}[review["source_amount_unit"]]
+                if (not raw_amount.is_finite() or
+                        raw_amount * scale != Decimal(review["value_yuan"])):
+                    return False
         return True
     except (KeyError, AttributeError, TypeError, ValueError, ArithmeticError):
         return False
@@ -488,9 +520,11 @@ class FinancialFactRepository:
     ) -> tuple[VersionedFinancialFactStore, dict[str, tuple[str, str]]]:
         """Read facts and accepted CNINFO S2 PDF review links in one read snapshot.
 
-        A review is admitted only when its canonical evidence, hash, five DB
-        members, and five actual fact versions agree. Invalid or incomplete
-        reviews yield no accepted links; they never manufacture PIT facts.
+        A review is admitted only when its canonical evidence, hash, exact DB
+        members, and actual fact versions agree. Invalid or incomplete reviews
+        yield no accepted links; they never manufacture PIT facts. Archived
+        receipts and human attestations are checked by the promotion writer,
+        not reverified from this standalone fact database at read time.
         """
 
         with closing(connect(self.db_path, read_only=True)) as con:
@@ -515,12 +549,23 @@ class FinancialFactRepository:
         members: dict[str, set[str]] = {}
         for row in memberships:
             members.setdefault(row["bundle_id"], set()).add(row["version_id"])
-        accepted: dict[str, tuple[str, str]] = {}
+        valid_bundles: dict[tuple[str, str, str], list[tuple[sqlite3.Row, set[str]]]] = {}
         for row in reviews:
             member_ids = members.get(row["bundle_id"], set())
             if _accepted_s2_pdf_review(row, member_ids, by_id):
-                for version_id in member_ids:
-                    accepted[version_id] = (row["bundle_id"], row["evidence_hash"])
+                evidence = json.loads(row["evidence_json"])
+                report_key = (evidence["instrument_id"], evidence["period_end"],
+                              evidence["announcement_id"])
+                valid_bundles.setdefault(report_key, []).append((row, member_ids))
+        accepted: dict[str, tuple[str, str]] = {}
+        for bundles in valid_bundles.values():
+            # A report has one immutable review cohort. Two independent proofs
+            # of the same announcement would permit a silent field-set mix.
+            if len(bundles) != 1:
+                continue
+            row, member_ids = bundles[0]
+            for version_id in member_ids:
+                accepted[version_id] = (row["bundle_id"], row["evidence_hash"])
         return store, accepted
 
 
