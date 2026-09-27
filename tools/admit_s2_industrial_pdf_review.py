@@ -19,10 +19,13 @@ Example (repeat separately for each reviewed report):
   # Human reads archived PDF cells and all title candidates, then fills REVIEW.
   python tools/admit_s2_industrial_pdf_review.py admit --worklist WORKLIST.json
     --candidates CANDIDATES.json --archive-root ARCHIVE --review REVIEW.json
-    --fact-db FACTS.sqlite --trading-calendar CALENDAR.json
+    --fact-db FACTS.sqlite --calendar-evidence CALENDAR.json
   # Append --commit to the same admit command only after the review is complete.
 
-The calendar is an explicit JSON array of sorted unique trading-date strings.
+Create CALENDAR.json with the ``calendar --archive-root ARCHIVE --output
+CALENDAR.json`` command. It binds observed index days, the SSE weekday rule,
+2026 annual holidays and the Mid-Autumn/National Day notice. Planned dates are
+limited to 2026; bare dates and unsupported years are refused.
 Required related notices must already have successful archived PDF receipts;
 use CninfoClient.document to archive them before the human review. A related
 amendment affecting an original report can still be rejected by the existing
@@ -59,6 +62,9 @@ from aquant.adapters.providers.pdf_promotion import (  # noqa: E402
     CrossCategoryDisposition, PdfFieldReview, PdfVersionReview,
     _archived_ok, _verified_index_request, _verified_org_lookup,
     cninfo_query_digest, promote_reviewed_cninfo_subset_bundle,
+)
+from aquant.adapters.providers.s2_calendar_evidence import (  # noqa: E402
+    capture_calendar_evidence, verify_calendar_evidence,
 )
 from aquant.domain.data.db import connect  # noqa: E402
 from aquant.domain.data.forward_archive import ForwardArchive  # noqa: E402
@@ -331,7 +337,7 @@ def _review_arguments(packet: dict) -> dict:
 
 def admit_packet(*, packet: dict, worklist_path: Path, candidates_path: Path,
                  archive: ForwardArchive, client: CninfoClient, fact_db: Path,
-                 trading_calendar: tuple[date, ...], commit: bool = False) -> dict:
+                 calendar_evidence: dict, commit: bool = False) -> dict:
     if packet.get("schema") != SCHEMA:
         raise ValueError("unknown human review input schema")
     report = packet["report"]
@@ -345,6 +351,9 @@ def admit_packet(*, packet: dict, worklist_path: Path, candidates_path: Path,
     if (reviewed_day != _now().astimezone(BEIJING).date() or
             packet["cross_category_index"]["publication_window"][1] != reviewed_day.isoformat()):
         raise ValueError("review/index must be from today's Beijing date; re-prepare and re-review")
+    trading_calendar, verified_calendar = verify_calendar_evidence(
+        calendar_evidence, archive, now=_now(),
+        published_on=date.fromisoformat(report["announcementDate"]))
     old_regular = _index_signature(packet["regular_index"], archive, cross=False)
     old_cross = _index_signature(packet["cross_category_index"], archive, cross=True)
     current_regular, current_cross = _capture(client, report["instrumentId"], report["periodEnd"], reviewed_day)
@@ -388,10 +397,13 @@ def admit_packet(*, packet: dict, worklist_path: Path, candidates_path: Path,
             "freshness_regular_receipts": [page["receipt_id"] for page in current_regular["pages"]],
             "freshness_cross_category_receipts": [page["receipt_id"] for page in current_cross["pages"]],
             "verified_at": _now().isoformat(),
+            "calendar_evidence": verified_calendar,
         }
         bundle = FactReviewBundle(rows[0]["bundle_id"], json.dumps(evidence, ensure_ascii=False,
             sort_keys=True, separators=(",", ":")))
         if commit:
+            verify_calendar_evidence(calendar_evidence, archive, now=_now(),
+                published_on=date.fromisoformat(report["announcementDate"]))
             if _now() >= min(fact.available_at for fact in facts):
                 raise ValueError("next decision snapshot elapsed during preflight; rerun admission")
             FinancialFactRepository(fact_db).append_many(facts, review_bundle=bundle)
@@ -405,6 +417,9 @@ def admit_packet(*, packet: dict, worklist_path: Path, candidates_path: Path,
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
+    calendar_cmd = sub.add_parser("calendar")
+    calendar_cmd.add_argument("--archive-root", type=Path, required=True)
+    calendar_cmd.add_argument("--output", type=Path, required=True)
     for command in ("prepare", "admit"):
         child = sub.add_parser(command)
         child.add_argument("--worklist", type=Path, required=True)
@@ -417,14 +432,22 @@ def main() -> None:
         else:
             child.add_argument("--review", type=Path, required=True)
             child.add_argument("--fact-db", type=Path, required=True)
-            child.add_argument("--trading-calendar", type=Path, required=True,
-                               help="JSON array of sorted unique ISO trading dates, covering publication and next snapshot")
+            child.add_argument("--calendar-evidence", type=Path, required=True,
+                               help="Archived index/SSE evidence packet produced by calendar; bare arrays refused")
             child.add_argument("--commit", action="store_true")
     args = parser.parse_args()
     if not (args.archive_root / "meta.sqlite").is_file():
         parser.error("an existing forward archive is required")
     with closing(connect(args.archive_root / "meta.sqlite")) as con:
         archive = ForwardArchive(con, args.archive_root)
+        if args.command == "calendar":
+            result = capture_calendar_evidence(archive)
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            with args.output.open("x", encoding="utf-8") as stream:
+                json.dump(result, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
+            print(f"Archived calendar evidence: {args.output}; scheduled opening is not observed trading.")
+            return
         client = CninfoClient(archive)
         common = dict(worklist_path=args.worklist, candidates_path=args.candidates,
                       archive=archive, client=client)
@@ -436,12 +459,8 @@ def main() -> None:
                 stream.write("\n")
             print(f"Prepared {args.output}; all human attestations are empty; no facts written.")
         else:
-            raw_calendar = json.loads(args.trading_calendar.read_text(encoding="utf-8"))
-            if not isinstance(raw_calendar, list):
-                parser.error("trading calendar must be an explicit JSON date array")
-            calendar = tuple(date.fromisoformat(day) for day in raw_calendar)
             result = admit_packet(packet=_load(args.review)[0], fact_db=args.fact_db,
-                trading_calendar=calendar, commit=args.commit, **common)
+                calendar_evidence=_load(args.calendar_evidence)[0], commit=args.commit, **common)
             print(json.dumps(result, ensure_ascii=False))
 
 

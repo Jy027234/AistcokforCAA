@@ -12,6 +12,7 @@ from urllib.parse import parse_qs
 import pytest
 
 from aquant.adapters.providers import pdf_promotion
+from aquant.adapters.providers import s2_calendar_evidence as calendars
 from aquant.adapters.providers.cninfo import CninfoClient
 from aquant.adapters.providers.cninfo_financial_pdf import CninfoS2CandidateFacts, PdfCandidateFact
 from aquant.adapters.providers.eastmoney import FetchOutcome
@@ -24,7 +25,6 @@ from tools import prepare_s2_industrial_pdf_review as worklists
 UTC = timezone.utc
 CAPTURED = datetime(2026, 9, 27, 1, tzinfo=UTC)
 REVIEWED = CAPTURED + timedelta(hours=1)
-CALENDAR = (date(2026, 9, 28), date(2026, 9, 29))
 
 
 @pytest.fixture
@@ -113,8 +113,32 @@ def case(tmp_path, monkeypatch):
     packet = intake.prepare_packet(**paths, archive=archive, client=client,
                                    stock="000651", period="2024-06-30")
     clock[0] = REVIEWED
+    def calendar_record(body, source_id, target_url):
+        content_hash, _ = archive.store_bytes(body)
+        return archive.record(source_id=source_id, url=target_url, outcome="OK",
+            requested_at=CAPTURED, responded_at=CAPTURED, http_status=200,
+            content_hash=content_hash, byte_size=len(body)).receipt_id
+
+    historical_id = calendar_record(json.dumps({"data": {"sh000001": {"day": [
+        [day, "1", "1", "1", "1", "1"] for day in ("2024-07-01", "2024-09-02", "2026-09-24")
+    ]}}}).encode(), "tencent-ifzq",
+        "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=sh000001,day,2024-07-01,2026-09-24,640,")
+    official_id = calendar_record(("<html>关于2026年中秋节、国庆节休市安排的公告 上证公告〔2026〕22号 "
+        "9月25日（星期五）至9月27日（星期日）休市，9月28日（星期一）起照常开市。"
+        "上海证券交易所 2026年9月17日</html>").encode(), "sse-site", calendars.SSE_URL)
+    rules_id = calendar_record(calendars.WEEKDAY_RULE.encode(), "sse-site", calendars.RULES_URL)
+    annual_id = calendar_record(("关于上海证券交易所2026年部分节假日休市安排的通知 上证公告〔2025〕45号 "
+        "元旦：1月1日至1月3日休市，1月5日起照常开市。春节：2月15日至2月23日休市，2月24日起照常开市。"
+        "清明节：4月4日至4月6日休市，4月7日起照常开市。劳动节：5月1日至5月5日休市，5月6日起照常开市。"
+        "端午节：6月19日至6月21日休市，6月22日起照常开市。中秋节：9月25日至9月27日休市，9月28日起照常开市。"
+        "国庆节：10月1日至10月7日休市，10月8日起照常开市。").encode(), "sse-site", calendars.ANNUAL_URL)
+    observed, _ = calendars._historical(archive, historical_id, REVIEWED)
+    scheduled, _ = calendars._scheduled(archive, {"receipt_id": official_id,
+        "rules": {"receipt_id": rules_id}, "annual": {"receipt_id": annual_id}}, REVIEWED)
+    calendar_evidence = {"schema": calendars.SCHEMA, "observed": observed,
+        "scheduled": scheduled}
     value = dict(paths, archive=archive, client=client, packet=packet,
-                 fact_db=tmp_path / "formal.sqlite", trading_calendar=CALENDAR)
+                 fact_db=tmp_path / "formal.sqlite", calendar_evidence=calendar_evidence)
     yield value, clock, rows, receipt
     archive.con.close()
 
@@ -186,6 +210,8 @@ def test_explicit_commit_preserves_observation_and_reviewed_old_receipts(case):
     assert evidence["index_receipt_ids"] == reviewed_receipts
     assert evidence["local_intake"]["freshness_regular_receipts"] != reviewed_receipts
     assert evidence["local_intake"]["version_rationale"].startswith("Synthetic")
+    assert evidence["local_intake"]["calendar_evidence"] == args["calendar_evidence"]
+    assert fact.available_at == datetime(2026, 9, 28, 0, 45, tzinfo=UTC)
 
 
 @pytest.mark.parametrize("mutation", ["cell", "missing_disposition", "future_time", "candidate_file"])
@@ -278,3 +304,113 @@ def test_total_reached_omitted_page_or_changed_total_cannot_commit(case):
     with pytest.raises(ValueError, match="indexes incomplete"):
         intake.admit_packet(**args, commit=True)
     assert not args["fact_db"].exists()
+
+
+@pytest.mark.parametrize("change", ["bare_array", "future_day", "hash", "url", "observed_time"])
+def test_calendar_evidence_cannot_be_forged_into_committed_facts(case, change):
+    args, clock, rows, receipt = case
+    _human_fill(args["packet"], receipt)
+    if change == "bare_array":
+        args["calendar_evidence"] = ["2026-09-28", "2026-09-29"]
+    elif change == "future_day":
+        args["calendar_evidence"]["observed"]["trading_days"].append("2026-09-29")
+    else:
+        key = {"hash": "content_hash", "url": "url", "observed_time": "first_seen_at"}[change]
+        args["calendar_evidence"]["scheduled"][key] = "forged"
+    with pytest.raises(ValueError, match="calendar"):
+        intake.admit_packet(**args, commit=True)
+    assert not args["fact_db"].exists()
+
+
+def test_official_rules_support_planned_weekdays_and_year_boundary(case):
+    args, *_ = case
+    _, planned = calendars._scheduled(args["archive"], args["calendar_evidence"]["scheduled"], REVIEWED)
+    assert date(2026, 9, 28) in planned and date(2026, 9, 29) in planned
+    assert date(2026, 10, 8) in planned
+    assert not any(date(2026, 10, 1) <= day <= date(2026, 10, 7) for day in planned)
+    assert date(2026, 10, 10) not in planned  # Government make-up Saturday remains closed.
+    with pytest.raises(ValueError, match="year/window"):
+        calendars.verify_calendar_evidence(args["calendar_evidence"], args["archive"],
+            now=datetime(2027, 1, 1, 0, 45, tzinfo=UTC))
+    with pytest.raises(ValueError, match="publication-date floor"):
+        calendars.verify_calendar_evidence(args["calendar_evidence"], args["archive"],
+            now=REVIEWED, published_on=date(2024, 6, 1))
+
+
+@pytest.mark.parametrize("bad", ["2025", "港股通", "9月29日"])
+def test_official_notice_wrong_year_scope_or_reopening_rejected(case, bad):
+    args, *_ = case
+    archive = args["archive"]
+    old = args["calendar_evidence"]["scheduled"]
+    body = archive.load_bytes(old["content_hash"]).decode()
+    before = {"2025": "2026", "港股通": "休市安排", "9月29日": "9月28日"}[bad]
+    changed = body.replace(before, bad).encode()
+    digest, _ = archive.store_bytes(changed)
+    new = archive.record(source_id="sse-site", url=calendars.SSE_URL, outcome="OK",
+        requested_at=CAPTURED + timedelta(minutes=1), responded_at=CAPTURED + timedelta(minutes=1),
+        http_status=200, content_hash=digest, byte_size=len(changed))
+    with pytest.raises(ValueError, match="SSE notice"):
+        calendars._reopening(archive, new.receipt_id, REVIEWED)
+
+
+@pytest.mark.parametrize("now,last_day,next_day", [
+    (datetime(2026, 9, 28, 0, 46, tzinfo=UTC), "2026-09-24", "2026-09-29"),
+    (datetime(2026, 9, 30, 2, tzinfo=UTC), "2026-09-29", "2026-10-08"),
+    (datetime(2026, 12, 31, 2, tzinfo=UTC), "2026-12-30", None),
+])
+def test_fresh_calendar_crosses_cutoff_and_holiday_but_not_year(case, now, last_day, next_day):
+    args, *_ = case
+    archive = args["archive"]
+    packet = args["calendar_evidence"]
+
+    def refresh(ref, body=None, url=None):
+        payload = body or archive.load_bytes(ref["content_hash"])
+        digest, _ = archive.store_bytes(payload)
+        return archive.record(source_id=ref["source_id"], url=url or ref["url"], outcome="OK",
+            requested_at=now - timedelta(seconds=1), responded_at=now - timedelta(seconds=1),
+            http_status=200, content_hash=digest, byte_size=len(payload)).receipt_id
+
+    refs = {"receipt_id": refresh(packet["scheduled"]),
+        "rules": {"receipt_id": refresh(packet["scheduled"]["rules"])},
+        "annual": {"receipt_id": refresh(packet["scheduled"]["annual"])}}
+    scheduled, _ = calendars._scheduled(archive, refs, now)
+    payload = json.loads(archive.load_bytes(packet["observed"]["content_hash"]))
+    payload["data"]["sh000001"]["day"][-1][0] = last_day
+    hist_id = refresh(packet["observed"], body=json.dumps(payload).encode(),
+        url=packet["observed"]["url"].replace("2026-09-24", last_day))
+    observed, _ = calendars._historical(archive, hist_id, now)
+    fresh = {"schema": calendars.SCHEMA, "scheduled": scheduled, "observed": observed}
+    if next_day is None:
+        with pytest.raises(ValueError, match="exhausted"):
+            calendars.verify_calendar_evidence(fresh, archive, now=now)
+    else:
+        days, _ = calendars.verify_calendar_evidence(fresh, archive, now=now)
+        assert min(day for day in days if calendars.preopen_instant(day) > now).isoformat() == next_day
+
+
+def test_official_capture_checks_and_archives_raw_response(case, monkeypatch):
+    from io import BytesIO
+
+    args, *_ = case
+    archive = args["archive"]
+    body = archive.load_bytes(args["calendar_evidence"]["scheduled"]["content_hash"])
+
+    class Response(BytesIO):
+        status = 200
+        headers = {"Content-Length": str(len(body))}
+
+        def geturl(self):
+            return calendars.SSE_URL
+
+    class Opener:
+        def open(self, request, timeout):
+            assert request.full_url == calendars.SSE_URL and timeout == 20
+            return Response(body)
+
+    monkeypatch.setattr(calendars.urllib.request, "build_opener", lambda handler: Opener())
+    policy = calendars.FetchPolicy(allowed_hosts=frozenset({"www.sse.com.cn"}), resolve_dns=False)
+    receipt_id = calendars.capture_reopening(archive, policy=policy)
+    ref, captured = calendars._reference(archive, receipt_id, datetime.now(UTC))
+    assert captured == body and ref["url"] == calendars.SSE_URL
+    with pytest.raises(ValueError, match="unsupported"):
+        calendars.capture_reopening(archive, url="https://example.com/calendar", policy=policy)
