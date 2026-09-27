@@ -336,6 +336,8 @@ def _version_evidence(
     evidence_receipts = [org_receipt]
     request_hashes = []
     common_page_size = None
+    raw_seen = 0
+    total = None
     for page_number, receipt_id in enumerate(review.search_receipt_ids, start=1):
         receipt, payload = _archived_ok(
             archive, receipt_id, expected_host="www.cninfo.com.cn",
@@ -361,11 +363,27 @@ def _version_evidence(
             if not isinstance(raw_rows, list):
                 raise PdfPromotionError("CNINFO index rows are missing")
             has_more = document.get("hasMore")
-            if isinstance(has_more, str) and has_more.lower() in ("true", "false"):
-                has_more = has_more.lower() == "true"
-            if not isinstance(has_more, bool) or has_more != (
-                page_number < len(review.search_receipt_ids)
-            ):
+            if isinstance(has_more, str) and has_more.strip().lower() in ("true", "false"):
+                has_more = has_more.strip().lower() == "true"
+            elif type(has_more) is int and has_more in (0, 1):
+                has_more = bool(has_more)
+            if has_more is not None and not isinstance(has_more, bool):
+                raise PdfPromotionError("CNINFO index hasMore is invalid")
+            raw_total = document.get("totalAnnouncement")
+            page_total = None if raw_total is None else int(raw_total)
+            if (isinstance(raw_total, bool) or
+                    (page_total is not None and page_total < 0)):
+                raise PdfPromotionError("CNINFO index totalAnnouncement is invalid")
+            if page_total is not None:
+                if total is not None and total != page_total:
+                    raise PdfPromotionError("CNINFO index totalAnnouncement changes between pages")
+                total = page_total
+            raw_seen += len(raw_rows)
+            last = page_number == len(review.search_receipt_ids)
+            if ((has_more is True and (last or (total is not None and raw_seen >= total))) or
+                    (has_more is False and (not last or (total is not None and raw_seen != total))) or
+                    (has_more is None and (total is None or
+                        (raw_seen != total if last else raw_seen >= total)))):
                 raise PdfPromotionError("CNINFO index pagination is incomplete or ambiguous")
             announcements = parse_announcements(payload)
             if (len(announcements) != len(raw_rows) or
@@ -544,7 +562,9 @@ def _cross_category_evidence(
             if total is not None and total != page_total:
                 raise PdfPromotionError("all-category totalAnnouncement changes between pages")
             total = page_total
-        if page_number < len(result.pages) and has_more is not True:
+        if page_number < len(result.pages) and not (
+                (has_more is True and (total is None or raw_count < total)) or
+                (has_more is None and total is not None and raw_count < total)):
             raise PdfPromotionError("all-category pagination ended before next archived page")
         if page_number == len(result.pages):
             if has_more is not False and not (has_more is None and total == raw_count):
