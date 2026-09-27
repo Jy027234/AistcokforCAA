@@ -7,6 +7,7 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -15,7 +16,11 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 sys.path.insert(0, str(ROOT / "src"))
 
 from main import build_state, create_app  # noqa: E402
-from aquant.operations.s2_candidate_preview import _factors  # noqa: E402
+from aquant.operations.s2_candidate_preview import (  # noqa: E402
+    S2CandidatePreviewError,
+    _factors,
+    load_s2_candidate_preview,
+)
 
 
 def _preview() -> dict:
@@ -65,6 +70,22 @@ def test_candidate_preview_refuses_nonlocal_or_promoted_payload(tmp_path, monkey
     file.write_text(json.dumps(promoted), encoding="utf-8")
     with TestClient(create_app(state=state)) as client:
         assert client.get("/api/v1/research/s2/diagnostic-preview").status_code == 503
+
+
+def test_expanded_preview_requires_the_complete_five_stock_batch(tmp_path) -> None:
+    file = tmp_path / "preview.json"
+    expanded = _preview()
+    expanded["instruments"].extend(
+        {"instrumentId": stock, "factors": {"F07": "0.2", "F08": "1.1",
+                                            "F09": "0.05", "F10": None}}
+        for stock in ("000651", "600276", "002415", "300750", "688981")
+    )
+    file.write_text(json.dumps(expanded), encoding="utf-8")
+    assert len(load_s2_candidate_preview(file)["instruments"]) == 8
+    expanded["instruments"].pop()
+    file.write_text(json.dumps(expanded), encoding="utf-8")
+    with pytest.raises(S2CandidatePreviewError, match="instrument"):
+        load_s2_candidate_preview(file)
 
 
 def test_formula_preview_keeps_f10_empty_and_excludes_negative_profit() -> None:

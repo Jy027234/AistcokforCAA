@@ -1,4 +1,4 @@
-"""Build a local-only F07-F09 formula preview from the three archived PDF pilots.
+"""Build a local-only F07-F09 formula preview from archived CNINFO PDFs.
 
 The output is unreviewed, is never PIT-eligible, and must not be used for
 trading, ranking, historical backtests, or formal S2 strategy registration.
@@ -28,11 +28,14 @@ def main() -> None:
                         default=ROOT / "deploy" / "agentctl-q0")
     parser.add_argument("--archive-root", type=Path,
                         default=ROOT / "deploy" / "agentctl-q0" / "forward-archive")
+    parser.add_argument("--industrial-candidates", type=Path,
+                        help="optional five-stock, five-period unreviewed worksheet")
     parser.add_argument("--output", type=Path,
                         default=ROOT / "deploy" / "agentctl-q0" / "s2-candidate-preview.json")
     args = parser.parse_args()
     preview = build_s2_candidate_preview(
         pilot_dir=args.pilot_dir, archive_root=args.archive_root,
+        industrial_path=args.industrial_candidates,
     )
     output = args.output.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)

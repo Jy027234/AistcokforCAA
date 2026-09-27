@@ -71,6 +71,7 @@ from aquant.domain.data.pit import (
 SOURCE_ID = "cninfo"
 QUERY_HOST = "www.cninfo.com.cn"
 STATIC_HOST = "static.cninfo.com.cn"
+_ORG_ID_PATTERN = re.compile(r"(?:gss[hz]\d{7}|gshk\d{7}|GD\d{6}|\d{10})")
 ORG_LOOKUP_URL = f"https://{QUERY_HOST}/new/information/topSearch/query"
 REPORT_QUERY_URL = f"http://{QUERY_HOST}/new/hisAnnouncement/query"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -706,7 +707,8 @@ class CninfoClient:
                                 f"malformed JSON: {exc}"), []
 
     def report_index(self, *, stock_code: str, report_period: str,
-                     page_size: int = 30, max_pages: int = 5) -> ReportIndexResult:
+                     page_size: int = 30, max_pages: int = 5,
+                     through: date | None = None) -> ReportIndexResult:
         """归档证券/报告期的官方索引，直到有证据表明分页已耗尽。
 
         官方 ``topSearch`` 先确定 orgId；其请求 URL 和响应也归档。每页
@@ -723,7 +725,12 @@ class CninfoClient:
         code = normalize_stock_code(stock_code)
         market = market_for_code(code)
         period = parse_report_period(report_period)
-        window = period.publication_window
+        full_window = period.publication_window
+        if through is not None and (not isinstance(through, date) or
+                                    isinstance(through, datetime) or
+                                    not full_window[0] <= through <= full_window[1]):
+            raise ValueError("report index through date is outside publication window")
+        window = (full_window[0], through or full_window[1])
         pages: list[ReportIndexPage] = []
         matches: dict[str, ReportIndexMatch] = {}
         skipped: dict[str, int] = {}
@@ -770,7 +777,7 @@ class CninfoClient:
             organization = candidates.pop()
             # CNINFO also issues numeric orgIds (for example 000333); the
             # lookup is authoritative and the security code above is exact.
-            if not re.fullmatch(r"(?:gss[hz]\d{7}|\d{10})", organization):
+            if not _ORG_ID_PATTERN.fullmatch(organization):
                 raise ValueError("organization ID has an unsupported format")
         except (ValueError, TypeError) as exc:
             return finish("org_lookup_invalid", str(exc))
@@ -912,7 +919,7 @@ class CninfoClient:
             if len(candidates) != 1:
                 raise ValueError("organization ID missing or ambiguous")
             organization = candidates.pop()
-            if not re.fullmatch(r"(?:gss[hz]\d{7}|\d{10})", organization):
+            if not _ORG_ID_PATTERN.fullmatch(organization):
                 raise ValueError("organization ID has an unsupported format")
         except (ValueError, TypeError) as exc:
             return finish("org_lookup_invalid", str(exc))

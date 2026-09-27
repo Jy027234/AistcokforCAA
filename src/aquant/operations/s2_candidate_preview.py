@@ -15,6 +15,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from ..adapters.providers.cninfo_financial_candidate import (
+    INDUSTRIAL_PILOT_COMPANIES,
+    REQUIRED_PILOT_FIELDS_BY_PERIOD,
+    extract_cninfo_candidate_facts,
+)
 from ..adapters.providers.cninfo_financial_pdf import extract_s2_candidate_facts
 from ..domain.data.db import connect
 from ..domain.data.forward_archive import ForwardArchive
@@ -141,10 +146,103 @@ def _factors(reports: list[dict[str, Any]]) -> tuple[dict[str, str | None], str 
     }, None, None
 
 
+def _industrial_instruments(archive: ForwardArchive, path: Path) -> list[dict[str, Any]]:
+    if not path.is_file():
+        raise S2CandidatePreviewError(f"industrial worksheet is absent: {path}")
+    try:
+        worksheet = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise S2CandidatePreviewError("industrial worksheet is unreadable") from exc
+    if (worksheet.get("schema") != "cninfo-industrial-s2-candidates-v1" or
+            worksheet.get("sourceId") != "cninfo" or
+            worksheet.get("status") != "UNREVIEWED_NOT_PIT_ELIGIBLE" or
+            worksheet.get("pitEligible") is not False or
+            worksheet.get("formalFactCount") != 0):
+        raise S2CandidatePreviewError("industrial worksheet identity or status differs")
+    expected = {(stock, period) for stock in INDUSTRIAL_PILOT_COMPANIES
+                for period in REQUIRED_PILOT_FIELDS_BY_PERIOD}
+    rows = worksheet.get("reports", [])
+    if (len(rows) != len(expected) or
+            {(row.get("instrumentId"), row.get("periodEnd")) for row in rows} != expected):
+        raise S2CandidatePreviewError("industrial worksheet coverage is incomplete")
+    by_key = {(row["instrumentId"], row["periodEnd"]): row for row in rows}
+    instruments = []
+    for stock, company in INDUSTRIAL_PILOT_COMPANIES.items():
+        reports = []
+        for period, required_fields in REQUIRED_PILOT_FIELDS_BY_PERIOD.items():
+            row = by_key[(stock, period)]
+            if (row.get("company") != company or
+                    row.get("status") != "UNREVIEWED_PDF_CANDIDATE_NOT_PIT_ELIGIBLE" or
+                    row.get("pitEligible") is not False or
+                    row.get("versionReviewStatus") not in (
+                        "PENDING_HUMAN_DISPOSITION",
+                        "PENDING_CROSS_CATEGORY_AND_HUMAN_DISPOSITION",
+                    )):
+                raise S2CandidatePreviewError(f"{stock} {period}: candidate state differs")
+            receipt = archive.con.execute(
+                "SELECT source_id,url,outcome,http_status,content_hash,byte_size,first_seen_at "
+                "FROM fetch_receipt WHERE receipt_id=?", (row["archiveReceiptId"],),
+            ).fetchone()
+            digest = row["contentHash"]
+            if (receipt is None or receipt["source_id"] != "cninfo" or
+                    receipt["url"] != row["documentUrl"] or
+                    receipt["outcome"] != "OK" or receipt["http_status"] != 200 or
+                    receipt["content_hash"] != digest or
+                    receipt["byte_size"] != row["byteSize"] or
+                    receipt["first_seen_at"] != row["firstSeenAt"] or
+                    not isinstance(digest, str) or not digest.startswith("sha256:") or
+                    not archive.verify(digest)):
+                raise S2CandidatePreviewError(f"{stock} {period}: PDF receipt/hash mismatch")
+            candidate = extract_cninfo_candidate_facts(
+                archive.load_bytes(digest), instrument_id=stock, company=company,
+                period_end=date.fromisoformat(period),
+                announcement_id=row["announcementId"],
+                document_url=row["documentUrl"],
+                required_fields=required_fields,
+            )
+            if (candidate.pit_eligible or candidate.pdf_sha256 != digest or
+                    set(candidate.by_field) != set(required_fields)):
+                raise S2CandidatePreviewError(f"{stock} {period}: PDF extraction differs")
+            stored = {item["field"]: item for item in row["fields"]}
+            if len(stored) != len(row["fields"]):
+                raise S2CandidatePreviewError("duplicate stored worksheet field")
+            for field, fact in candidate.by_field.items():
+                old = stored.get(field)
+                if (old is None or old["valueYuan"] != str(fact.value_yuan) or
+                        old["pdfPage"] != fact.pdf_page or
+                        old["amountUnit"] != fact.amount_unit or
+                        old["sourceCurrentCell"] != fact.source_cells[fact.source_current_cell_index] or
+                        old["sourcePriorCell"] != fact.source_cells[fact.source_prior_cell_index] or
+                        old["sourceRow"] != fact.source_row):
+                    raise S2CandidatePreviewError(f"{stock} {period} {field}: stored value differs")
+            reports.append({
+                "periodEnd": period,
+                "announcementId": row["announcementId"],
+                "versionLabel": "indexed_full_report_unreviewed",
+                "documentUrl": row["documentUrl"],
+                "pdfSha256": digest,
+                "firstSeenAt": row["firstSeenAt"],
+                "values": {field: item.value_yuan for field, item in candidate.by_field.items()},
+            })
+        factors, exclusion_code, exclusion_reason = _factors(reports)
+        instruments.append({
+            "instrumentId": stock,
+            "latestPeriodEnd": reports[-1]["periodEnd"],
+            "sourceReports": [{key: value for key, value in report.items()
+                               if key != "values"} for report in reports],
+            "factors": factors,
+            "exclusionCode": exclusion_code,
+            "exclusionReason": exclusion_reason,
+            "note": None,
+        })
+    return instruments
+
+
 def build_s2_candidate_preview(
     *, pilot_dir: str | Path, archive_root: str | Path,
+    industrial_path: str | Path | None = None,
 ) -> dict[str, Any]:
-    """Recheck local PDF bytes and compute three-sample formula diagnostics."""
+    """Recheck archived PDFs and compute isolated formula diagnostics."""
     root = Path(archive_root)
     db = root / "meta.sqlite"
     if not db.is_file():
@@ -185,6 +283,8 @@ def build_s2_candidate_preview(
                     if stock == "600519" else None
                 ),
             })
+        if industrial_path is not None:
+            instruments.extend(_industrial_instruments(archive, Path(industrial_path)))
     return {
         "schemaVersion": SCHEMA_VERSION,
         "status": PREVIEW_STATUS,
@@ -219,9 +319,10 @@ def load_s2_candidate_preview(path: str | Path) -> dict[str, Any]:
             payload.get("marketCapStatus") !=
             "NOT_USED_PDF_FIRST_SEEN_AFTER_LATEST_PUBLISHED_SNAPSHOT"):
         raise S2CandidatePreviewError("candidate preview status is invalid")
-    if (len(payload.get("instruments", [])) != len(PILOT_STOCKS) or
-            {item.get("instrumentId") for item in payload["instruments"]} !=
-            set(PILOT_STOCKS) or
+    allowed = (set(PILOT_STOCKS),
+               set(PILOT_STOCKS) | set(INDUSTRIAL_PILOT_COMPANIES))
+    if (len(payload.get("instruments", [])) not in (len(allowed[0]), len(allowed[1])) or
+            {item.get("instrumentId") for item in payload["instruments"]} not in allowed or
             any(item.get("factors", {}).get("F10") is not None
                 for item in payload["instruments"])):
         raise S2CandidatePreviewError("candidate preview instrument or F10 status is invalid")

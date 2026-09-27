@@ -180,17 +180,30 @@ def test_conflicting_pagination_metadata_fails_closed(harness) -> None:  # noqa:
     assert result.matches == result.announcements == ()
 
 
-def test_numeric_cninfo_organization_id_is_accepted(harness) -> None:  # noqa: ANN001
+@pytest.mark.parametrize("org_id", ["9900005965", "GD165627", "gshk0000981"])
+def test_observed_cninfo_organization_ids_are_accepted(harness, org_id) -> None:  # noqa: ANN001
     client, _, install = harness
     opener = install([{"announcements": [_announcement("first")],
                       "totalAnnouncement": 1, "hasMore": False}],
-                     org_id="9900005965")
+                     org_id=org_id)
 
     result = client.report_index(stock_code="600519", report_period="2026Q2")
 
     assert result.complete
-    assert result.organization_id == "9900005965"
-    assert opener.requests[0][1]["stock"] == ["600519,9900005965"]
+    assert result.organization_id == org_id
+    assert opener.requests[0][1]["stock"] == [f"600519,{org_id}"]
+
+
+def test_report_discovery_can_bound_publication_window(harness) -> None:  # noqa: ANN001
+    client, _, install = harness
+    opener = install([{"announcements": [_announcement("first")],
+                      "totalAnnouncement": 1, "hasMore": False}])
+    result = client.report_index(
+        stock_code="600519", report_period="2026Q2",
+        through=datetime(2026, 9, 30).date(),
+    )
+    assert result.complete
+    assert opener.requests[0][1]["seDate"] == ["2026-06-30~2026-09-30"]
 
 
 def test_duplicate_announcement_in_one_page_fails_closed(harness) -> None:  # noqa: ANN001
