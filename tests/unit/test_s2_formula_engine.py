@@ -29,6 +29,7 @@ from aquant.domain.research.s2 import (
     S2Template,
     build_s2_signals,
     compute_s2_factors,
+    compute_s2_financial_inputs,
     cross_sectional_ranks,
 )
 
@@ -147,6 +148,59 @@ def test_s2_computes_all_four_factors_from_pit_cumulative_facts() -> None:
     assert factors.latest_period_end == date(2026, 6, 30)
     assert factors.ttm_start_period_end == date(2025, 6, 30)
     assert len(factors.fact_version_ids) > 0
+
+
+def test_financial_bridge_exposes_actual_denominators_without_market_cap():
+    store = VersionedFinancialFactStore(_facts())
+    bridge = compute_s2_financial_inputs(store=store, instrument_id="SYN.SSE.000001", cutoff=CUTOFF)
+    assert bridge.start_parent_equity == Decimal(400)
+    assert bridge.end_parent_equity == Decimal(500)
+    assert bridge.average_parent_equity == Decimal(450)
+    assert bridge.consolidated_net_profit_ttm == Decimal(132)
+    assert bridge.prior_revenue_ttm == Decimal(420)
+    assert len(bridge.fact_version_ids) == 16
+    with pytest.raises(S2ComputationError, match="market cap"):
+        compute_s2_factors(store=store, instrument_id="SYN.SSE.000001", cutoff=CUTOFF, market_cap=None)
+
+
+def test_non_positive_denominator_bridge_is_visible_but_factors_remain_excluded():
+    facts = [replace(fact, value="-1") if fact.metric == "parent_equity" else fact for fact in _facts()]
+    store = VersionedFinancialFactStore(facts)
+    bridge = compute_s2_financial_inputs(store=store, instrument_id="SYN.SSE.000001", cutoff=CUTOFF)
+    assert bridge.average_parent_equity == Decimal(-1)
+    with pytest.raises(S2ComputationError) as exc:
+        compute_s2_factors(store=store, instrument_id="SYN.SSE.000001", cutoff=CUTOFF, market_cap="1000")
+    assert exc.value.code == "S2_NON_POSITIVE_DENOMINATOR"
+
+
+@pytest.mark.parametrize("negative_equity,negative_profit,expected_reason", [
+    (True, False, "F07 average attributable equity must be positive"),
+    (False, True, "F08 requires positive consolidated net profit"),
+    (True, True, "F07 average attributable equity must be positive"),
+])
+def test_frozen_exclusion_priority_precedes_missing_prior_revenue(
+        negative_equity, negative_profit, expected_reason):
+    """Published explanations preserve their original first failing rule.
+
+    Real frozen replay exposed 89 objects having both a non-positive F07/F08
+    denominator and a missing prior-year revenue component. Eager bridge
+    construction must not replace their original exclusion explanation.
+    """
+    facts = _facts(omit={("revenue", date(2024, 12, 31))})
+    facts = [replace(fact, value="-1") if
+             (negative_equity and fact.metric == "parent_equity") or
+             (negative_profit and fact.metric == "net_profit_consolidated") else fact
+             for fact in facts]
+    store = VersionedFinancialFactStore(facts)
+    with pytest.raises(S2ComputationError) as exc:
+        compute_s2_factors(store=store, instrument_id="SYN.SSE.000001",
+                           cutoff=CUTOFF, market_cap="1000")
+    assert exc.value.code == "S2_NON_POSITIVE_DENOMINATOR"
+    assert exc.value.message == expected_reason
+    # Independent denominator evidence still refuses an incomplete bridge.
+    with pytest.raises(S2ComputationError) as bridge_exc:
+        compute_s2_financial_inputs(store=store, instrument_id="SYN.SSE.000001", cutoff=CUTOFF)
+    assert bridge_exc.value.code == "S2_TTM_INCOMPLETE"
 
 
 def test_year_end_s2_provenance_includes_prior_profit_used_for_f07_bundle() -> None:

@@ -35,16 +35,22 @@ def main() -> int:
                     help="窗口末日；历史回放必须传入，禁止带入缓存中的未来行")
     ap.add_argument("--window", type=int, default=None)
     ap.add_argument("--financials", default=None)
+    ap.add_argument("--financial-evidence", default=None,
+                    help="实际BaoStock财务收据包；离线核验后冻结新缓存与原始base哈希，失败只降级财务")
     ap.add_argument("--actions", default=None)
     ap.add_argument("--market-caps", default=None,
                     help="决策日总市值 sidecar（默认 deploy/agentctl-q0/decision-market-caps.json）")
     ap.add_argument("--check-market-caps", action="store_true",
                     help="启用决策日总市值覆盖率质量检查；缺失时拒绝严格发布")
+    ap.add_argument("--market-caps-archive-root", default=None,
+                    help="总市值原始收据共享归档；提供时严格重放，不推测侧文件目录")
     ap.add_argument("--allow-degraded", action="store_true",
                     help="允许质量检查未通过的快照发布（仍记录检查结果）")
     ap.add_argument("--defer-promotion", action="store_true",
                     help="只发布物理快照，暂不切换 current 指针")
     ap.add_argument("--json-out", default=None)
+    ap.add_argument("--simulation-evidence", default=None,
+                    help="Luna实际采集的模拟证据summary；离线核对收据后按当前可得时点发布")
     args = ap.parse_args()
 
     data_dir = Path(args.data_dir or ROOT / "deploy" / "universe-snapshot")
@@ -61,9 +67,12 @@ def main() -> int:
             financials_path=args.financials,
             actions_path=args.actions,
             market_caps_path=args.market_caps,
+            market_caps_archive_root=args.market_caps_archive_root,
             check_market_caps=args.check_market_caps,
             strict_quality=not args.allow_degraded,
             promote=not args.defer_promotion,
+            simulation_evidence_path=args.simulation_evidence,
+            financial_evidence_path=args.financial_evidence,
         )
     except UniverseSnapshotError as exc:
         print(f"快照发布失败：{exc}")

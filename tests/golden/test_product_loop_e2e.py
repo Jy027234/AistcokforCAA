@@ -31,7 +31,9 @@ from aquant.domain.simulation.simulator import BoardRule, Lot, SimError
 
 from tests.integration.test_m1_ingest_e2e import build_snapshot
 
-TRADING_DAY = date(2026, 9, 8)
+# The fixture's EOD snapshot is dated 2026-09-11. Valuations must use that
+# same market day; using 09-08 had contradicted the existing PIT invariant.
+TRADING_DAY = date(2026, 9, 11)
 AS_OF = datetime(2026, 9, 11, 12, 30, tzinfo=timezone.utc)
 
 RULES = [
@@ -166,7 +168,7 @@ def test_explicit_decision_cutoff_after_execution_open_is_rejected(world):
     with pytest.raises(PlanError, match="not before"):
         preview(
             svc,
-            # The fixture is after 2026-09-08's open.  Supplying the explicit
+            # The fixture is after the execution day's open. Supplying the explicit
             # fields opts into strict decision/execution timing validation.
             decision_snapshot_id="snap-syn-001",
             decision_cutoff_at=AS_OF,

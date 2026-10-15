@@ -71,7 +71,22 @@ from aquant.domain.data.pit import (
 SOURCE_ID = "cninfo"
 QUERY_HOST = "www.cninfo.com.cn"
 STATIC_HOST = "static.cninfo.com.cn"
-_ORG_ID_PATTERN = re.compile(r"(?:gss[hz]\d{7}|gshk\d{7}|GD\d{6}|\d{10})")
+# 巨潮实际下发的 orgId 形态不止一种。实测归档响应里出现的族（括号为条数）：
+#
+#   ``##########`` 10 位数字 (1934)   ``gssh#######`` (326)   ``gfbj#######`` (253)
+#   ``gssz#######`` (243)            ``nssc#######`` (152)   ``gshk#######`` (76)
+#   ``GD######`` (63)                ``fzqy#######`` (12)    ``DR#######`` (6)
+#   ``gqtg#######`` (3)
+#
+# 早期只允许 ``gss[hz]``/``gshk``/``GD``/纯数字，于是 ``gfbj``、``nssc``、
+# ``fzqy``、``DR``、``gqtg`` 这些**正当**的 orgId 被判成"格式不支持"，实测全池
+# 904 只里有 139 只（15.4%）因此拿不到公告索引——而且失败是静默的：索引返回
+# 空，看起来像"这家没有公告"。
+#
+# 改为按**族**描述：2–4 个字母 + 6–7 位数字，或 10 位纯数字。这覆盖以上全部，
+# 且仍然只接受巨潮实际签发的形态（不是"任意字符串"）。安全性来自同一函数里
+# **先按证券代码精确匹配**这一步：orgId 只是匹配结果的载荷，不是身份判据。
+_ORG_ID_PATTERN = re.compile(r"(?:[A-Za-z]{2,4}\d{6,7}|\d{10})")
 ORG_LOOKUP_URL = f"https://{QUERY_HOST}/new/information/topSearch/query"
 REPORT_QUERY_URL = f"http://{QUERY_HOST}/new/hisAnnouncement/query"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -708,7 +723,9 @@ class CninfoClient:
 
     def report_index(self, *, stock_code: str, report_period: str,
                      page_size: int = 30, max_pages: int = 5,
-                     through: date | None = None) -> ReportIndexResult:
+                     through: date | None = None,
+                     organization_id: str | None = None,
+                     security_aliases: tuple[str, ...] = ()) -> ReportIndexResult:
         """归档证券/报告期的官方索引，直到有证据表明分页已耗尽。
 
         官方 ``topSearch`` 先确定 orgId；其请求 URL 和响应也归档。每页
@@ -718,6 +735,21 @@ class CninfoClient:
 
         ``complete=False`` 时保留页收据供诊断，但 ``announcements`` 和
         ``matches`` 均为空，避免截断索引被当成完整版本链。
+
+        ``organization_id`` 允许调用方传入**已从官方来源解析并归档**的 orgId
+        （例如巨潮全量证券清单 ``/new/data/szse_stock.json``，该响应同样归档
+        并留收据）。同一只证券查多个报告期时，orgId 每次查询都一样，逐期重复
+        走 ``topSearch`` 纯属浪费——实测全市场 6179 只 × 3 期会因此多出
+        **18537 次请求（约 12.9 小时）**。
+
+        传入时仍会**校验格式**，且 ``org_lookup_receipt_id``/
+        ``org_lookup_content_hash`` 记为 ``None``——因为这一步确实**没有发生**，
+        如实留空比伪造一个收据诚实；orgId 的出处由调用方持有的清单收据承担。
+        不传时行为与从前**逐字节相同**。
+
+        ``security_aliases`` 只能来自调用方已验证的官方同 orgId 代码组。
+        公告原 secCode 必须在显式别名中且原 orgId 完全一致；保留原代码和原
+        响应哈希，不按北交所换码位数推断身份。
         """
 
         if not 1 <= page_size <= 100 or not 1 <= max_pages <= 100:
@@ -758,29 +790,37 @@ class CninfoClient:
                 termination=termination, error=error,
             )
 
-        lookup_url = ORG_LOOKUP_URL + "?" + urllib.parse.urlencode(
-            {"keyWord": code, "maxNum": 10})
-        lookup = self._fetch(lookup_url, label=f"report-index:org:{code}", data=b"")
-        lookup_receipt, lookup_hash = lookup.receipt_id, lookup.content_hash
-        if not lookup.ok or lookup.payload is None:
-            return finish("org_lookup_failed", lookup.detail or "organization lookup failed")
-        try:
-            organizations = json.loads(lookup.payload)
-            if not isinstance(organizations, list):
-                raise ValueError("organization lookup is not a list")
-            candidates = {str(row.get("orgId") or "").strip()
-                          for row in organizations if isinstance(row, dict)
-                          and str(row.get("code") or "").strip() == code
-                          and str(row.get("orgId") or "").strip()}
-            if len(candidates) != 1:
-                raise ValueError("organization ID missing or ambiguous")
-            organization = candidates.pop()
-            # CNINFO also issues numeric orgIds (for example 000333); the
-            # lookup is authoritative and the security code above is exact.
+        if organization_id is not None:
+            # 调用方已从官方清单解析出 orgId；仍校验格式，但**不做**那一步查询。
+            organization = str(organization_id).strip()
             if not _ORG_ID_PATTERN.fullmatch(organization):
-                raise ValueError("organization ID has an unsupported format")
-        except (ValueError, TypeError) as exc:
-            return finish("org_lookup_invalid", str(exc))
+                return finish("org_lookup_invalid",
+                              "supplied organization ID has an unsupported format")
+        else:
+            lookup_url = ORG_LOOKUP_URL + "?" + urllib.parse.urlencode(
+                {"keyWord": code, "maxNum": 10})
+            lookup = self._fetch(lookup_url, label=f"report-index:org:{code}", data=b"")
+            lookup_receipt, lookup_hash = lookup.receipt_id, lookup.content_hash
+            if not lookup.ok or lookup.payload is None:
+                return finish("org_lookup_failed",
+                              lookup.detail or "organization lookup failed")
+            try:
+                organizations = json.loads(lookup.payload)
+                if not isinstance(organizations, list):
+                    raise ValueError("organization lookup is not a list")
+                candidates = {str(row.get("orgId") or "").strip()
+                              for row in organizations if isinstance(row, dict)
+                              and str(row.get("code") or "").strip() == code
+                              and str(row.get("orgId") or "").strip()}
+                if len(candidates) != 1:
+                    raise ValueError("organization ID missing or ambiguous")
+                organization = candidates.pop()
+                # CNINFO also issues numeric orgIds (for example 000333); the
+                # lookup is authoritative and the security code above is exact.
+                if not _ORG_ID_PATTERN.fullmatch(organization):
+                    raise ValueError("organization ID has an unsupported format")
+            except (ValueError, TypeError) as exc:
+                return finish("org_lookup_invalid", str(exc))
 
         for page_num in range(1, max_pages + 1):
             body = urllib.parse.urlencode({
@@ -807,7 +847,8 @@ class CninfoClient:
                 return finish("page_fetch_failed", fetched.detail or "page fetch failed")
             try:
                 found, page_skipped, page_total, has_more = parse_listing_payload(
-                    fetched.payload, stock_code=code, period=period)
+                    fetched.payload, stock_code=code, period=period,
+                    security_aliases=security_aliases, organization_id=organization)
                 document = json.loads(fetched.payload)
                 raw_count = len(document.get("announcements") or [])
             except (CninfoProbeError, ValueError, TypeError, OverflowError) as exc:

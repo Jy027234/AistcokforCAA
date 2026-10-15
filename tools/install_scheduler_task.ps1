@@ -17,6 +17,8 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $workerPath = Join-Path $repoRoot "tools\scheduler_worker.py"
+$launcherPath = Join-Path $repoRoot "tools\start_local_trial.ps1"
+$taskShell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 if (-not $DataDir) {
     $DataDir = Join-Path $repoRoot "deploy\universe-snapshot"
 }
@@ -27,6 +29,9 @@ $metaPath = Join-Path $resolvedDataDir "meta.sqlite"
 
 if (-not (Test-Path -LiteralPath $workerPath -PathType Leaf)) {
     throw "找不到 scheduler worker：$workerPath"
+}
+if (-not (Test-Path -LiteralPath $launcherPath -PathType Leaf)) {
+    throw "找不到持久试运行启动脚本：$launcherPath"
 }
 if (-not (Test-Path -LiteralPath $metaPath -PathType Leaf)) {
     throw "数据目录缺少 meta.sqlite：$resolvedDataDir"
@@ -42,6 +47,8 @@ $summary = [ordered]@{
     TaskName = $TaskName
     PythonPath = $resolvedPython
     WorkerPath = $workerPath
+    LauncherPath = $launcherPath
+    DailyMode = "RESEARCH_SIMULATION"
     DataDir = $resolvedDataDir
     RecoveryMinutes = $RecoveryMinutes
     Validation = "passed"
@@ -52,9 +59,9 @@ if ($ValidateOnly) {
     return
 }
 
-$arguments = ('"{0}" --data-dir "{1}"' -f $workerPath, $resolvedDataDir)
+$arguments = ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -WorkerOnly -PythonPath "{1}" -DataDir "{2}"' -f $launcherPath, $resolvedPython, $resolvedDataDir)
 $action = New-ScheduledTaskAction `
-    -Execute $resolvedPython `
+    -Execute $taskShell `
     -Argument $arguments `
     -WorkingDirectory $repoRoot
 
@@ -84,7 +91,7 @@ $definition = New-ScheduledTask `
     -Trigger @($logonTrigger, $recoveryTrigger) `
     -Settings $settings `
     -Principal $principal `
-    -Description "A-Quant Lab 独立调度 worker；产品库决定实际采集时间。"
+    -Description "A-Quant Lab 独立调度 worker；载入 real-trial.env 与研究/模拟日更模式，产品库决定实际采集时间。"
 
 Register-ScheduledTask -TaskName $TaskName -InputObject $definition -Force | Out-Null
 Start-ScheduledTask -TaskName $TaskName

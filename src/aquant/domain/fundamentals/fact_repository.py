@@ -12,17 +12,19 @@ import hashlib
 import json
 import sqlite3
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Iterable, Mapping
 
+from ...artifact_paths import resolve_archive_member, resolve_artifact_path
 from ..data.db import connect, write_tx
 from .s2_pdf_review_policy import (
     S2_PDF_PILOT_COMPANIES, S2_PDF_REQUIRED_FIELDS, S2_PDF_SUBSET_POLICY,
 )
 from .versioned import FinancialFact, VersionedFinancialFactStore
+from .proof_supplement import STORAGE_SCHEMA as _PROOF_SUPPLEMENT_SCHEMA
 
 
 _SCHEMA = """
@@ -101,6 +103,7 @@ _COLUMNS = (
     "ingested_at", "available_at", "availability_basis", "pit_mode",
     "content_hash", "supersedes_id",
 )
+_SCHEMA += _PROOF_SUPPLEMENT_SCHEMA
 _SELECT = "SELECT " + ", ".join(_COLUMNS) + " FROM financial_fact"
 _INSERT = ("INSERT INTO financial_fact (" + ", ".join(_COLUMNS) + ") VALUES ("
            + ", ".join("?" for _ in _COLUMNS) + ")")
@@ -196,6 +199,11 @@ _S2_PDF_FIELDS = frozenset({
     "net_profit_attributable", "net_profit_consolidated", "operating_cashflow",
     "revenue", "parent_equity",
 })
+#: 机器核验证据协议。与 v1/v2 人工协议**并列**，不混用、不互相替代。
+MACHINE_VERIFICATION_SCHEMA = "cninfo-s2-machine-verified-v1"
+#: 机器核验者身份前缀。人工``reviewer_id``不得以此开头，机器核验也不得
+#: 冒用人类身份，读写两侧都按前缀分开。
+MACHINE_VERIFIER_PREFIX = "machine:"
 _IMMUTABLE_REVIEW_TRIGGERS = frozenset({
     "financial_fact_no_update", "financial_fact_no_delete",
     "financial_fact_review_no_update", "financial_fact_review_no_delete",
@@ -322,9 +330,347 @@ def _accepted_s2_pdf_review(
         return False
 
 
+def _accepted_machine_verified_review(
+    row: sqlite3.Row, member_ids: set[str], facts: Mapping[str, FinancialFact],
+) -> bool:
+    """Recognize an immutable machine-verification bundle.
+
+    A bundle is admitted only when every one of its S2 facts is internally
+    consistent **and** the stored evidence proves at least one independent
+    verification path per field.  The evidence must not claim a human review,
+    and every satisfied path must be one of the named non-human paths: a
+    ``verified: true`` flag that a caller typed into JSON is not proof, because
+    the field-level ``holds`` flags and their quoted source rows are checked
+    against the persisted fact values.
+
+    Archived receipts, index windows and revision relations are verified by the
+    promotion writer at write time; this reader re-checks what a standalone
+    fact database can still prove on its own.
+    """
+
+    try:
+        evidence_json = row["evidence_json"]
+        evidence = json.loads(evidence_json)
+        if not isinstance(evidence, dict):
+            return False
+        canonical = json.dumps(evidence, ensure_ascii=False, sort_keys=True,
+                               separators=(",", ":"))
+        if canonical != evidence_json or row["evidence_hash"] != (
+            "sha256:" + hashlib.sha256(evidence_json.encode("utf-8")).hexdigest()
+        ):
+            return False
+        if evidence.get("schema") != MACHINE_VERIFICATION_SCHEMA:
+            return False
+        if evidence.get("source_id") != "cninfo":
+            return False
+        verifier_id = evidence.get("verifier_id")
+        if (not isinstance(verifier_id, str) or
+                not verifier_id.startswith(MACHINE_VERIFIER_PREFIX) or
+                not evidence.get("verifier_version")):
+            return False
+        if evidence.get("human_review_claimed") is not None:
+            return False
+        iid = evidence["instrument_id"]
+        period = date.fromisoformat(evidence["period_end"])
+        announcement = evidence["announcement_id"]
+        content_hash = evidence["content_hash"]
+        if (not isinstance(announcement, str) or not announcement or
+                not isinstance(content_hash, str) or
+                not content_hash.startswith("sha256:")):
+            return False
+        if row["bundle_id"] != "cninfo_machine_" + hashlib.sha256(
+            f"{iid}|{period}|{announcement}".encode()
+        ).hexdigest()[:32]:
+            return False
+        if evidence.get("announcement_role") not in (
+                "ORIGINAL_REPORT", "REVISED_REPORT"):
+            return False
+        if not all(evidence.get(key) for key in (
+                "rights_register_version", "pdf_receipt_id",
+                "org_lookup_receipt_id", "available_at", "first_seen_at",
+                "ingested_at", "source_published_date")):
+            return False
+        version_ids = evidence.get("version_ids")
+        if (not isinstance(version_ids, list) or not version_ids or
+                len(set(version_ids)) != len(version_ids) or
+                set(version_ids) != member_ids or
+                not member_ids <= facts.keys()):
+            return False
+        fields = evidence.get("fields")
+        if not isinstance(fields, list) or not fields:
+            return False
+        by_metric = {facts[version_id].metric: facts[version_id]
+                     for version_id in member_ids}
+        if {item.get("field") for item in fields if isinstance(item, dict)} != set(by_metric):
+            return False
+        dispositions = evidence.get("cross_category_index", {}).get("candidate_dispositions", ())
+        has_impact_disposition = any(isinstance(item, Mapping) and
+                                    item.get("relevance") == "METRIC_NO_EFFECT"
+                                    for item in dispositions)
+        if ("revision_impact_proof" in evidence or "revision_impact_archive" in evidence or
+                has_impact_disposition):
+            if not _replay_revision_impact(evidence, by_metric):
+                return False
+        for item in fields:
+            field = item["field"]
+            fact = by_metric[field]
+            identity = (f"cninfo|{iid}|{period}|{field}|{announcement}|{content_hash}")
+            expected_id = "mach_" + hashlib.sha256(identity.encode()).hexdigest()[:32]
+            expected_scope = ("ATTRIBUTABLE" if field == "net_profit_attributable" else
+                              "CONSOLIDATED" if field == "net_profit_consolidated" else None)
+            if (fact.version_id != expected_id or fact.instrument_id != iid or
+                    fact.period_end != period or fact.source_id != "cninfo" or
+                    fact.source_document_id != announcement or
+                    fact.content_hash != content_hash or fact.currency != "CNY" or
+                    fact.raw_unit != "yuan" or
+                    fact.statement_scope.value != "CONSOLIDATED" or
+                    (fact.profit_scope.value if fact.profit_scope else None) != expected_scope or
+                    fact.source_published_date is None or
+                    fact.source_published_date.isoformat() !=
+                    evidence["source_published_date"] or
+                    fact.source_published_at is not None or
+                    fact.timestamp_precision.value != "DATE" or
+                    fact.first_seen_at.isoformat() != evidence["first_seen_at"] or
+                    fact.ingested_at.isoformat() != evidence["ingested_at"] or
+                    fact.available_at.isoformat() != evidence["available_at"]):
+                return False
+            if Decimal(item["value_yuan"]) != Decimal(str(fact.value)):
+                return False
+            checks = item.get("checks")
+            if not isinstance(checks, list) or not checks:
+                return False
+            satisfied = [
+                check for check in checks
+                if isinstance(check, dict) and check.get("holds") is True
+                and check.get("path") in _MACHINE_VERIFICATION_PATHS
+                and isinstance(check.get("evidence"), dict)
+            ]
+            if not satisfied or item.get("verified") is not True:
+                return False
+            if any(not _machine_path_is_independent(check, fact, bundle_evidence=evidence)
+                   for check in satisfied):
+                return False
+        return True
+    except (KeyError, AttributeError, TypeError, ValueError, ArithmeticError):
+        return False
+
+
+def _replay_revision_impact(bundle: Mapping[str, object],
+                            facts: Mapping[str, FinancialFact]) -> bool:
+    """A field exclusion must replay the complete receipt-bound relationship set.
+
+    This does not turn a changed amount into an original version, or provide an
+    independent numerical check. Those gates still run for every member below.
+    Legacy bundles have no impact exclusion and keep their existing protocol.
+    """
+    from ...adapters.providers.s2_revision_impact import replay_revision_impact
+    try:
+        proof, archive = bundle["revision_impact_proof"], bundle["revision_impact_archive"]
+        if not isinstance(proof, Mapping) or not isinstance(archive, Mapping) or not facts:
+            return False
+        company = archive["company"]
+        if not isinstance(company, Mapping):
+            return False
+        root = resolve_artifact_path(archive["root"]).resolve()
+        if resolve_artifact_path(archive["database_path"]).resolve() != root / "meta.sqlite":
+            return False
+        first = next(iter(facts.values()))
+        if (company.get("code") != first.instrument_id or
+                company.get("orgLookupReceiptId") != bundle["org_lookup_receipt_id"] or
+                proof.get("instrumentId") != company.get("instrumentId") or
+                proof.get("issuerName") != bundle["company"] or
+                proof.get("targetPeriodEnd") != first.period_end.isoformat()):
+            return False
+        completed = datetime.fromisoformat(proof["completedAt"])
+        if completed.tzinfo is None or any(
+                not fact.first_seen_at <= completed <= fact.ingested_at <= fact.available_at
+                for fact in facts.values()):
+            return False
+        fresh = replay_revision_impact(
+            proof, archive_root=root, company=company,
+            target_period_end=first.period_end, target_metrics=tuple(sorted(facts)),
+            issuer_name=bundle["company"],
+            documents=archive.get("documents"),
+        ).as_dict()
+        cross = bundle["cross_category_index"]
+        index_receipts = fresh["indexReceipts"]
+        if (cross["org_lookup_receipt_id"] != bundle["org_lookup_receipt_id"] or
+                cross["page_receipt_ids"] != [r["receipt_id"] for r in index_receipts[1:]] or
+                cross["request_body_hashes"] != fresh["relationshipScope"]["requestBodyHashes"] or
+                cross["publication_window"] != fresh["relationshipScope"]["publicationWindow"] or
+                not completed <= datetime.fromisoformat(cross["reviewed_at"]) <= first.ingested_at):
+            return False
+        dispositions = cross["candidate_dispositions"]
+        active = [item for item in dispositions
+                  if item["announcement_id"] == first.source_document_id]
+        if (len(active) != 1 or active[0]["relevance"] != "RELATED" or
+                active[0]["document_receipt_id"] != bundle["pdf_receipt_id"] or
+                not active[0]["reviewer_id"].startswith(MACHINE_VERIFIER_PREFIX) or
+                not completed <= datetime.fromisoformat(active[0]["reviewed_at"]) <= first.ingested_at):
+            return False
+        exclusions = [item for item in dispositions if item["relevance"] == "METRIC_NO_EFFECT"]
+        excluded_ids = {item["announcement_id"] for item in exclusions}
+        if (len(exclusions) != len(excluded_ids) or
+                not set(fresh["relationshipScope"]["financialCandidateIds"]) -
+                {first.source_document_id} <= excluded_ids):
+            return False
+        all_sources = {item["announcementId"]: item for item in fresh["sources"]}
+        for item in exclusions:
+            excluded_source = all_sources[item["announcement_id"]]
+            if (item["announcement_id"] == first.source_document_id or
+                    item["announcement_id"] not in fresh["relationshipScope"]["financialCandidateIds"] or
+                    item["related_report_announcement_ids"] != [] or
+                    item["document_receipt_id"] != excluded_source["receipt"]["receipt_id"] or
+                    not item["reviewer_id"].startswith(MACHINE_VERIFIER_PREFIX) or
+                    not completed <= datetime.fromisoformat(item["reviewed_at"]) <= first.ingested_at):
+                return False
+        outcomes = fresh["outcomes"]
+        if (len(outcomes) != len(facts) or
+                {item["metric"] for item in outcomes} != set(facts)):
+            return False
+        sources = [source for source in fresh["sources"]
+                   if source["announcementId"] == first.source_document_id]
+        if len(sources) != 1:
+            return False
+        source = sources[0]
+        receipt = source["receipt"]
+        if (source["originalHash"] != first.content_hash or
+                receipt["receipt_id"] != bundle["pdf_receipt_id"] or
+                receipt["content_hash"] != first.content_hash or
+                datetime.fromisoformat(receipt["first_seen_at"]) != first.first_seen_at):
+            return False
+        for item in outcomes:
+            fact = facts[item["metric"]]
+            current = item["currentSource"]
+            if (item["status"] != "NO_EFFECT" or item["admissionStatus"] != "NOT_ADMITTED" or
+                    item["periodEnd"] != fact.period_end.isoformat() or
+                    current["announcementId"] != fact.source_document_id or
+                    current["sourceReportPeriodEnd"] != fact.period_end.isoformat() or
+                    current["factPeriodEnd"] != fact.period_end.isoformat() or
+                    current["metric"] != fact.metric or current["columnRole"] != "CURRENT" or
+                    current["statementScope"] != "CONSOLIDATED" or
+                    Decimal(current["amountYuan"]) != Decimal(str(fact.value))):
+                return False
+        return True
+    except (OSError, sqlite3.Error, KeyError, AttributeError, TypeError, ValueError, ArithmeticError):
+        return False
+
+
+#: 被承认的独立路径。新增路径必须同时实现核对逻辑并在此登记，不能只写字符串。
+_MACHINE_VERIFICATION_PATHS = frozenset({
+    "parent_statement_mirror", "equity_identity", "profit_identity",
+    "revenue_identity", "revenue_note_decomposition", "cashflow_identity",
+    "cash_rollforward",
+    "ruled_grid_cell_reextraction",
+})
+
+
+def _machine_path_is_independent(check: Mapping[str, object],
+                                 fact: FinancialFact, *,
+                                 bundle_evidence: Mapping[str, object] | None = None) -> bool:
+    """该路径是否真的携带了另一处原文，而不是一个自称的布尔值。"""
+
+    evidence = check["evidence"]
+    assert isinstance(evidence, Mapping)
+    if check["path"] == "ruled_grid_cell_reextraction":
+        return _replay_grid_cell(evidence, fact, bundle_evidence)
+    if check["path"] == "parent_statement_mirror":
+        parent_row = evidence.get("parent_row")
+        return (isinstance(parent_row, Mapping) and
+                parent_row.get("role") == "母公司" and
+                isinstance(parent_row.get("page"), int) and
+                bool(parent_row.get("current_cell")) and
+                Decimal(str(parent_row.get("amount_yuan"))) == Decimal(str(fact.value)))
+    if check["path"] == "revenue_note_decomposition":
+        # 附注收入分解：必须同时携带主营业务、其他业务与合计三处原文单元格，
+        # 三者算术自洽且等于该事实的值，并且附注页**不是**利润表所在页。
+        # 只带一处"合计"行、把三行写成同一处单元格、或让附注落在利润表页上，
+        # 都说明这不是另一处原文，一律拒绝。
+        note = evidence.get("note_section")
+        rows = (evidence.get("main_business"), evidence.get("other_business"),
+                evidence.get("total"))
+        if not isinstance(note, Mapping) or note.get("role") != "合并":
+            return False
+        if not isinstance(note.get("heading_page"), int):
+            return False
+        if not all(isinstance(row, Mapping) and isinstance(row.get("page"), int)
+                   and row.get("current_cell") for row in rows):
+            return False
+        if [row.get("label") for row in rows] != ["主营业务", "其他业务", "合计"]:
+            return False
+        # 三行必须落在**至少两处**不同单元格上：同一处单元格不可能同时承载
+        # 主营业务、其他业务与合计三个数，只可能是把一行改个名字抄了三遍。
+        # 只要求"≥2 处"而不是"3 处"，是因为主营业务与其他业务的数值真的可能
+        # 相等（那时两行的原文单元格文本相同），此时合计行仍提供第二处原文。
+        positions = {(row["page"], row["current_cell"]) for row in rows}
+        if len(positions) < 2:
+            return False
+        income_page = evidence.get("income_statement_page")
+        if (not isinstance(income_page, int)
+                or income_page == note["heading_page"]
+                or any(row["page"] == income_page for row in rows)):
+            return False
+        try:
+            components = [Decimal(str(row.get("amount_yuan"))) for row in rows]
+        except (ArithmeticError, TypeError, ValueError):
+            return False
+        return (components[0] + components[1] == components[2]
+                and components[2] == Decimal(str(fact.value)))
+    # 恒等式路径：至少要引用三处不同的原文行（一个被核对值加两个分量），
+    # 且每个分量都带页码与原始单元格。
+    rows = [value for value in evidence.values()
+            if isinstance(value, Mapping) and "page" in value]
+    if len(rows) < 2:
+        return False
+    positions = {(row.get("page"), row.get("current_cell")) for row in rows}
+    return (len(positions) >= 2 and
+            all(isinstance(row.get("page"), int) and row.get("current_cell")
+                for row in rows))
+
+
+def _replay_grid_cell(cell_evidence: Mapping[str, object], fact: FinancialFact,
+                      bundle: Mapping[str, object] | None) -> bool:
+    """Replay geometry against the original receipt-bound PDF, not JSON flags."""
+    from urllib.parse import urlsplit
+    from ...adapters.providers.cninfo_statement_geometry import extract_grid_statement_cells
+    try:
+        if bundle is None or not isinstance(bundle.get("geometry_archive"), Mapping):
+            return False
+        archive = bundle["geometry_archive"]
+        receipt_id = archive["pdf_receipt_id"]
+        if receipt_id != bundle["pdf_receipt_id"]:
+            return False
+        with closing(connect(resolve_artifact_path(archive["database_path"]), read_only=True)) as con:
+            receipt = con.execute("SELECT * FROM fetch_receipt WHERE receipt_id=?", (receipt_id,)).fetchone()
+            raw = con.execute("SELECT * FROM raw_artifact WHERE content_hash=?", (fact.content_hash,)).fetchone()
+        if receipt is None or raw is None:
+            return False
+        url = urlsplit(receipt["url"])
+        if (receipt["source_id"] != "cninfo" or receipt["outcome"] != "OK" or
+                receipt["http_status"] != 200 or receipt["content_hash"] != fact.content_hash or
+                receipt["url"] != archive["document_url"] or
+                url.scheme not in ("https", "http") or url.hostname != "static.cninfo.com.cn" or
+                url.path.rsplit("/", 1)[-1].lower() != f"{fact.source_document_id}.pdf" or
+                datetime.fromisoformat(receipt["first_seen_at"]) != fact.first_seen_at):
+            return False
+        root = resolve_artifact_path(archive["root"]).resolve()
+        path = resolve_archive_member(root, raw["stored_path"])
+        payload = path.read_bytes()
+        if (not payload.startswith(b"%PDF-") or len(payload) != receipt["byte_size"] or
+                len(payload) != raw["byte_size"] or
+                "sha256:" + hashlib.sha256(payload).hexdigest() != fact.content_hash):
+            return False
+        cells = extract_grid_statement_cells(payload, instrument_id=fact.instrument_id,
+                                             period_end=fact.period_end)
+        matches = [cell for cell in cells if cell.field == fact.metric]
+        return (len(matches) == 1 and matches[0].amount_yuan == Decimal(str(fact.value)) and
+                dict(cell_evidence) == matches[0].as_evidence())
+    except (OSError, sqlite3.Error, KeyError, TypeError, ValueError, ArithmeticError):
+        return False
+
+
 class FinancialFactRepository:
     """Own an independent SQLite fact file and replay it into the PIT store.
-
     ``append_many`` is atomic and returns the number of newly inserted
     versions. An identical ``version_id`` retry returns zero; a changed retry
     raises ``ValueError``. Revisions may be supplied out of order within one
@@ -335,7 +681,7 @@ class FinancialFactRepository:
     def __init__(self, db_path: str | Path, *, _create_schema: bool = True) -> None:
         if str(db_path) == ":memory:":
             raise ValueError("financial fact repository requires a persistent file")
-        self.db_path = Path(db_path)
+        self.db_path = resolve_artifact_path(db_path)
         self._read_only = not _create_schema
         if not _create_schema:
             if not self.db_path.is_file():
@@ -515,6 +861,11 @@ class FinancialFactRepository:
             rows = con.execute(_SELECT + " ORDER BY sequence").fetchall()
         return VersionedFinancialFactStore(_decode(row) for row in rows)
 
+    def append_machine_proof_supplement(self, **kwargs):
+        """Append a whole-cohort raw-replayed proof; preserve every old row."""
+        from .proof_supplement import append
+        return append(self, **kwargs)
+
     def load_with_accepted_s2_pdf_reviews(
         self,
     ) -> tuple[VersionedFinancialFactStore, dict[str, tuple[str, str]]]:
@@ -543,6 +894,15 @@ class FinancialFactRepository:
                 "SELECT bundle_id,version_id FROM financial_fact_review_member "
                 "ORDER BY bundle_id,version_id"
             ).fetchall()
+            has_supplements = con.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                                          "AND name='financial_fact_proof_supplement'").fetchone()
+            supplements = []
+            if has_supplements:
+                from .proof_supplement import TRIGGERS
+                if not TRIGGERS <= triggers:
+                    raise ValueError("financial proof supplement append-only triggers are missing")
+                supplements = con.execute("SELECT * FROM financial_fact_proof_supplement "
+                                          "ORDER BY supplement_id").fetchall()
             con.execute("COMMIT")
         store = VersionedFinancialFactStore(_decode(row) for row in fact_rows)
         by_id = {fact.version_id: fact for fact in store.facts}
@@ -557,15 +917,45 @@ class FinancialFactRepository:
                 report_key = (evidence["instrument_id"], evidence["period_end"],
                               evidence["announcement_id"])
                 valid_bundles.setdefault(report_key, []).append((row, member_ids))
+                continue
+            if _accepted_machine_verified_review(row, member_ids, by_id):
+                evidence = json.loads(row["evidence_json"])
+                report_key = (evidence["instrument_id"], evidence["period_end"],
+                              evidence["announcement_id"])
+                valid_bundles.setdefault(report_key, []).append((row, member_ids))
+        supplement_floors = {}
+        if supplements:
+            from .proof_supplement import validate
+            originals = {row["bundle_id"]: row for row in reviews}
+            for supplement in supplements:
+                try:
+                    base_id, cohort, available = validate(supplement, originals, members, by_id)
+                except (OSError, sqlite3.Error, KeyError, TypeError, ValueError, ArithmeticError):
+                    continue
+                base = json.loads(originals[base_id]["evidence_json"])
+                key = (base["instrument_id"], base["period_end"], base["announcement_id"])
+                existing = valid_bundles.get(key, [])
+                # Explicitly replaces proof for the same exact cohort, never
+                # merges fields from two report or human/machine namespaces.
+                existing = [(row, ids) for row, ids in existing if row["bundle_id"] != base_id]
+                link = {"bundle_id": supplement["supplement_id"], "evidence_hash": supplement["evidence_hash"]}
+                valid_bundles[key] = existing + [(link, cohort)]
+                supplement_floors.update({version:available for version in cohort})
         accepted: dict[str, tuple[str, str]] = {}
         for bundles in valid_bundles.values():
             # A report has one immutable review cohort. Two independent proofs
-            # of the same announcement would permit a silent field-set mix.
+            # of the same announcement would permit a silent field-set mix, and
+            # the human and machine protocols must never be mixed either.
             if len(bundles) != 1:
                 continue
             row, member_ids = bundles[0]
             for version_id in member_ids:
                 accepted[version_id] = (row["bundle_id"], row["evidence_hash"])
+        if supplement_floors:
+            store = VersionedFinancialFactStore(
+                replace(fact, available_at=max(fact.available_at, supplement_floors[fact.version_id]))
+                if fact.version_id in accepted and fact.version_id in supplement_floors else fact
+                for fact in store.facts)
         return store, accepted
 
 

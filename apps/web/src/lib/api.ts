@@ -1,6 +1,7 @@
 import type {
-  DataStatus, ResearchCard, S2DiagnosticPreviewResponse,
+  DataStatus, ResearchCard, ResearchCandidatesResponse, S2DiagnosticPreviewResponse,
 } from "./types";
+import type { FinancialCoverageReport } from "./financialCoverage";
 
 /** 工作台 API 客户端。
  *
@@ -18,6 +19,170 @@ export interface ApiError {
   objectId?: string;
   retryable: boolean;
   repairAction: string;
+}
+
+export interface ResearchSimulationContext {
+  researchSnapshotId: string; researchContentHash: string;
+  researchAvailableAt: string; researchDataAsOf: string;
+  decisionSnapshotId: string | null; decisionCutoffAt: string | null;
+  nextTradingDay: string | null; eligibleCandidateCount: number;
+  researchCandidateCount: number;
+  simulationParameters: { maxHoldings: number; initialTargetPct: string; maxSingleNamePct: string;
+    maxSingleIndustryPct: string; maxTotalEquityPct: string };
+  candidates: { instrumentId: string; displayName: string; position: number;
+    eligible: boolean; reasons: { code: string; message: string; repairAction?: string }[] }[];
+  blockingIssues: { code: string; message: string; repairAction?: string }[];
+}
+
+export interface ResearchSimulationDraft {
+  draftId: string; portfolioId: string; source: string; status: string;
+  researchSnapshotId: string; decisionSnapshotId: string; tradingDay: string;
+  selectedInstrumentIds: string[]; selectionReason: string; createdAt?: string;
+  planId: string | null; confirmationAvailable: boolean;
+  executionSnapshotId?: string | null; requiresRepreview?: boolean;
+  preview?: { orders: PreviewResponse["orders"]; estimated_fees_cents: number; cash_after_cents: number }; frozen?: boolean;
+  blockingIssues?: { code: string; message: string }[];
+  projection?: { orders: { instrumentId?: string; instrument_id?: string; side: string;
+    quantity: number; priceCents?: number; price_cents?: number; grossCents?: number }[];
+    estimatedFeesCents: number; cashAfterCents: number;
+    targets?: { instrumentId?: string; instrument_id?: string; weightPct?: string; weight_pct?: string }[];
+    notes?: string[] };
+}
+
+/** Actual engineering ledgers are distinct from user decisions and old replays. */
+export interface EngineeringSimulationRun {
+  runId: string; status: string; source: string; formalStrategy: false; humanConfirmed: false;
+  draftId: string; portfolioId: string; tradingDay: string; initialCashCents?: number;
+  decisionSnapshotId: string; decisionCutoffAt: string; executionSnapshotId?: string | null;
+  executionCutoffAt?: string | null; draftCreatedAt: string; researchSnapshotId: string;
+  researchContentHash: string; createdAt: string; completedAt?: string;
+  planId?: string; delayedEngineeringCalculation?: boolean;
+  cashCents?: number; positions?: Record<string, number>;
+  orders?: { order_id: string; instrument_id: string; side: string; quantity: number;
+    status: string; reject_reason?: string | null }[];
+  fills?: { fill_id: string; instrument_id: string; side: string; quantity: number;
+    price_cents: number; fees_total_cents: number }[];
+  rejections?: Record<string, unknown>[];
+  valuation?: { published: boolean; net_value_cents: number; cash_available_cents: number;
+    positions_value_cents: number; receivables_cents: number; violations?: unknown[] };
+  reconciliation?: { reconciled: boolean; fees_total_cents: number; fill_count: number };
+  limitations: string[]; error?: { message?: string; code?: string }; blockingIssues?: { message: string }[];
+}
+
+export interface ForwardComparisonObservation {
+  tradingDay: string; snapshotId: string; cutoffAt: string; observedAt: string;
+  missingEodDays: string[]; delayedEngineeringCalculation: boolean;
+  observationTargetReached: boolean; interpretation: string;
+  attribution?: SimulationAttributionReport | null;
+  portfolios: Record<string, { portfolioId: string | null; status: string; reason?: string;
+    netValueCents?: number; cashCents?: number; netReturnPct?: string; cashPct?: string;
+    equityPct?: string; feesTotalCents?: number; fillCount?: number; reconciled?: boolean;
+    industryExposurePct?: Record<string, string | null>; executionPlanId?: string | null;
+    dayExecution?: { tradingDay: string; recordedAt: string; orderCount: number; fillCount: number;
+      unfilledOrderCount: number; feesTotalCents: number; grossTurnoverCents: number;
+      orders: { order_id: string; instrument_id: string; side: string; quantity: number;
+        status: string; reject_reason: string | null; created_at: string }[];
+      fills: { fill_id: string; order_id: string; instrument_id: string; side: string; quantity: number;
+        price_cents: number; gross_amount_cents: number; fees_total_cents: number; filled_at: string;
+        feeCharges: { fee_code: string; amount_cents: number; fee_version: string }[] }[] } }>;
+}
+export interface SimulationAccountingPortfolio {
+  portfolioId: string; initialCashCents: number; netValueCents: number; netReturnPct: string;
+  accounting: { reconciled: boolean; total_net_pnl_cents: number; allocated_net_pnl_cents: number;
+    unallocated_residual_cents: number; unallocated_reason: string | null;
+    securities: { instrument_id: string; industry_code: string; price_pnl_cents: number;
+      corporate_action_pnl_cents: number; fees_cents: number; net_pnl_cents: number; net_contribution_pct_initial_capital: string }[];
+    industries: { industry_code: string; price_pnl_cents: number; corporate_action_pnl_cents: number; fees_cents: number; net_pnl_cents: number }[] };
+  netAssetBridge: { initialCashCents: number; pricePnlCents: number; corporateActionPnlCents: number;
+    otherSecurityCashCents: number; feesCents: number; unallocatedResidualCents: number; finalNetValueCents: number; reconciled: boolean };
+  cashBridge: { initialCashCents: number; buySettlementCents: number; sellSettlementCents: number;
+    feeCashCents: number; corporateActionCashCents: number; otherCashCents: number; finalCashCents: number; unallocatedResidualCents: number; reconciled: boolean };
+  execution: { orderCount: number; fillCount: number; unfilledOrderCount: number;
+    unfilledOrderPct: string | null; unfilledQuantityPct: string | null; reasons: Record<string, number>;
+    targetCount: number; belowMinimumLotCount: number; grossTradedCents: number; turnoverGrossPctInitialCapital: string | null;
+    noOrderTargets: { instrumentId: string; reason: string; weightPct: string; targetAmountCents: string; referencePriceCents: number | null; lotSize: number | null }[] };
+  exposure: { cashPct: string; equityPct: string; industryExposurePct: Record<string, string>;
+    largestIndustryPctEquity: string | null; industryHhiEquity: string | null };
+  originalProposal: Record<string, unknown>; originalTargets: { instrument_id: string; industry_code: string; weight_pct: string }[];
+  evidenceHash: string;
+}
+export interface SimulationAttributionReport {
+  originId: string; originHash: string; subjectId: string; tradingDay: string; snapshotId: string;
+  contentHash: string; createdAt: string; kind: string; basis: string; limitations: string[];
+  portfolios: Record<string, SimulationAccountingPortfolio>;
+  comparisons: Record<string, { left: string; right: string; interpretation: string;
+    net_wealth_difference_cents: number; net_return_difference_pct_points: string;
+    direct_fee_debit_difference_cents: number; remaining_wealth_difference_cents: number;
+    unallocated_contribution_difference_cents: number; accounting_contribution_differences_reconciled: boolean;
+    cash_pct_difference_points: string; added_final_holdings: string[]; removed_final_holdings: string[];
+    security_accounting_contribution_differences: { instrument_id: string; industry_code: string;
+      price_pnl_cents_difference: number; corporate_action_pnl_cents_difference: number; fees_cents_difference: number; net_pnl_cents_difference: number }[];
+    industry_accounting_contribution_differences: { industry_code: string; net_pnl_cents_difference: number }[] }>;
+  causalAttribution: { reason: string }; comparisonStatus: string;
+}
+export interface ForwardComparisonSeries {
+  seriesId: string; experimentVersion: string; runKind: string; status: string;
+  createdAt: string; firstTradingDay: string; decisionSnapshotId: string; decisionCutoffAt: string;
+  researchSnapshotId: string; researchContentHash: string; researchAvailableAt: string;
+  commonPool: string[]; commonPoolCount: number; initialCashCents: number;
+  observedSessionCount: number; observationTargetSessions: number;
+  human: { status: string; reason: string }; eventInterpretation: string;
+  eventBuyBlockedInstrumentIds: string[]; benchmarkBudget: { equal_weight_pct: string; allocated_equity_pct: string };
+  modelTargets: { instrument_id: string; industry_code: string; weight_pct: string }[];
+  eventTargets: { instrument_id: string; industry_code: string; weight_pct: string }[];
+  benchmarkTargets: { instrument_id: string; industry_code: string; weight_pct: string }[];
+  constructionParams: Record<string, unknown>; fees: { commissionSource: string; firstDaySchedule: Record<string, unknown> };
+  rebalancingPolicy: string; observations: ForwardComparisonObservation[]; limitations: string[];
+  broadMarketReference: { status: string; reason: string };
+}
+
+export interface ComparisonResult {
+  run_id: string; status: string; run_kind: string; human_origin: string; experiment_version: string;
+  limitations: string[]; error?: { message: string }; pending_reason?: string;
+  portfolios?: Record<string, { initial_cash_cents: number; final_net_value_cents: number;
+    net_return_pct: string; max_drawdown_pct: string; fees_total_cents: number; fill_count: number;
+    order_count?: number; unfilled_order_count?: number; turnover_gross_pct_initial_capital?: string | null;
+    annualized_volatility_pct?: string | null; volatility_basis?: string;
+    series: { trading_day: string; cash_pct: string; equity_pct: string; net_value_cents: number;
+      industry_exposure_pct?: Record<string, string | null>; largest_industry_code?: string | null;
+      largest_industry_pct_net_assets?: string | null; largest_industry_pct_equity?: string | null;
+      industry_hhi_equity?: string | null }[];
+    benchmark_difference?: { net_wealth_difference_cents: number; net_return_difference_pct_points: string;
+      basis: string; broad_market_unavailable_reason: string };
+    evaluation?: {
+      market_exposure: { final_equity_pct: string; mean_observed_equity_pct: string;
+        min_observed_equity_pct: string; max_observed_equity_pct: string; basis: string };
+      industry_concentration: { final_largest_industry_code: string | null;
+        final_largest_industry_pct_net_assets: string | null; final_largest_industry_pct_equity: string | null;
+        final_hhi_equity: string | null; unknown_industry_pct_equity: string | null; basis: string };
+      turnover: { gross_traded_cents: number; buy_traded_cents: number; sell_traded_cents: number;
+        mean_observed_net_assets_cents: string; gross_pct_mean_observed_assets: string | null; basis: string };
+      unfilled: { order_count: number; unfilled_order_count: number; unfilled_order_pct: string | null;
+        requested_quantity_shares: number; filled_quantity_shares: number; unfilled_quantity_pct: string | null;
+        reasons: Record<string, number>; basis: string };
+      capacity_proxy: { status: string; lookback_trading_days: number; simulator_participation_cap_pct: string;
+        order_count: number; usable_adv_order_count: number; full_lookback_order_count: number;
+        max_requested_participation_pct: string | null; max_filled_participation_pct: string | null;
+        volume_cap_rejection_count: number; basis: string; reason: string | null;
+        capital_capacity_unavailable_reason: string };
+      volatility: { observed_interval_sample_std_pct: string | null; return_interval_count: number;
+        daily_intervals: boolean; annualized_pct: string | null; annualized_unavailable_reason: string | null;
+        basis: string; sharpe_unavailable_reason: string };
+    } }>;
+  observation_basis?: { sample_count?: number; missing_eod_days?: string[]; continuous_eod?: boolean;
+    drawdown_basis?: string; observed_days?: string[]; contiguous_daily_eod?: boolean };
+  portfolio_runs?: Record<string, { days: { trading_day: string; target_count: number; order_count: number;
+    fill_count: number; below_minimum_lot_target_count?: number; below_minimum_lot_instruments?: string[] }[] }>;
+  event_shadow?: { interpretation?: string; rule_triggered?: boolean };
+  human_difference?: { interpretation: string; net_wealth_difference_cents: number;
+    direct_fee_debit_difference_cents: number; remaining_wealth_difference_cents: number;
+    added_final_holdings?: string[]; removed_final_holdings?: string[]; cash_pct_difference_points?: string;
+    industry_exposure_difference_pct_points?: Record<string, string>;
+    unknown_reason: string; accounting_contribution_differences_reconciled?: boolean;
+    security_accounting_contribution_differences?: { instrument_id: string; industry_code: string;
+      price_pnl_cents_difference: number; corporate_action_pnl_cents_difference: number;
+      fees_cents_difference: number; net_pnl_cents_difference: number }[];
+    industry_accounting_contribution_differences?: { industry_code: string; net_pnl_cents_difference: number }[] };
 }
 
 export interface FeeStatus {
@@ -135,7 +300,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const envelope = (nested?.error ?? nested) as Partial<ApiError> | null;
     throw new AquantApiError(res.status, {
       code: envelope?.code ?? "HTTP_" + res.status,
-      message: envelope?.message ?? "请求被拒绝（HTTP " + res.status + "）",
+      message: envelope?.message ?? (typeof body?.detail === "string" ? body.detail : "请求被拒绝（HTTP " + res.status + "）"),
       objectId: envelope?.objectId,
       retryable: envelope?.retryable ?? false,
       repairAction: envelope?.repairAction ?? "检查输入后重试",
@@ -370,6 +535,9 @@ export interface DecisionRow {
   plan_id: string | null;
   snapshot_id: string;
   decision_type: string;
+  model_proposed: unknown | null;
+  human_final: unknown | null;
+  rule_check: unknown | null;
   diff: {
     comparable?: boolean; identical?: boolean; changed_keys?: string[];
     removed_keys?: string[]; added_keys?: string[];
@@ -514,6 +682,25 @@ export interface ScheduleStatus {
 
 
 export const api = {
+  financialCoverage: () => request<FinancialCoverageReport>("/api/v1/research/financial-coverage"),
+  engineeringSimulationRuns: () => request<{ runs: EngineeringSimulationRun[] }>("/api/v1/engineering/simulation/runs"),
+  engineeringAttributions: () => request<{ reports: SimulationAttributionReport[] }>("/api/v1/engineering/simulation/attributions"),
+  forwardComparisons: () => request<{ series: ForwardComparisonSeries[] }>("/api/v1/comparisons/forward"),
+  comparisons: () => request<{ results: ComparisonResult[] }>("/api/v1/comparisons"),
+  researchSimulationContext: () => request<ResearchSimulationContext>("/api/v1/research/simulation/context?limit=5000"),
+  researchSimulationDrafts: () => request<{ drafts: ResearchSimulationDraft[] }>("/api/v1/research/simulation/drafts"),
+  previewSavedResearchDraft: (draftId: string, executionSnapshotId: string) =>
+    request<ResearchSimulationDraft>(`/api/v1/research/simulation/drafts/${encodeURIComponent(draftId)}/preview`, {
+      method: "POST", body: JSON.stringify({ executionSnapshotId }),
+    }),
+  createResearchSimulationDraft: (body: {
+    portfolioId: string; researchSnapshotId: string; researchContentHash: string;
+    decisionSnapshotId: string; decisionCutoffAt: string; tradingDay: string; selectedInstrumentIds: string[];
+    selectionReason: string; excludedReasons: Record<string, string>; initialCashCents: number;
+    source: "USER_SELECTION" | "ENGINEERING_TRIAL";
+  }) => request<ResearchSimulationDraft>("/api/v1/research/simulation/draft", {
+    method: "POST", body: JSON.stringify(body),
+  }),
   health: () => request<{ status: string }>("/api/v1/health"),
 
   status: () => request<DataStatus>("/api/v1/status"),
@@ -609,6 +796,15 @@ export const api = {
       "/api/v1/decisions" + (portfolioId ? "?portfolio_id=" + encodeURIComponent(portfolioId) : ""),
     ),
 
+  recordNoChange: (body: {
+    portfolio_id: string; snapshot_id: string; reason_note: string;
+    model_proposed: Record<string, unknown> | null; rule_check: Record<string, unknown> | null;
+    external_information_used: boolean;
+  }) => request<{ decision_id: string; decision_type: string }>("/api/v1/decisions", {
+    method: "POST", body: JSON.stringify({ ...body, decision_type: "NO_CHANGE", plan_id: null,
+      human_final: { action: "NO_CHANGE", orders: [] }, reason_category: "NO_CHANGE" }),
+  }),
+
   /** 研究卡。字段名与 workspace.json 的 ResearchCard 一致，可直接复用类型。 */
   research: (instrumentId: string, tradingDay: string) =>
     request<ResearchCard>(
@@ -621,6 +817,17 @@ export const api = {
     request<S2DiagnosticPreviewResponse>(
       "/api/v1/research/s2/diagnostic-preview",
     ),
+
+  /** 只读研究名单；数据日期与 S1 工作台快照独立。 */
+  researchCandidates: (options: { limit?: number; offset?: number; q?: string;
+    board?: string; industry?: string; view?: "candidates" | "all" | "financial" } = {}) => {
+    const params = new URLSearchParams({
+      limit: String(options.limit ?? 20), offset: String(options.offset ?? 0),
+      q: options.q ?? "", board: options.board ?? "", industry: options.industry ?? "",
+      view: options.view ?? "candidates",
+    });
+    return request<ResearchCandidatesResponse>("/api/v1/research/candidates?" + params);
+  },
 
   runFactors: (limit = 0) =>
     request<ResearchRunResponse>("/api/v1/research/runs", {

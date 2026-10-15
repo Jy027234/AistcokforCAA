@@ -128,7 +128,8 @@ def _reviewed_bundles(iid: str) -> list[tuple[list[FinancialFact], FactReviewBun
     return bundles
 
 
-def _snapshot(tmp_path, instruments: list[dict]) -> tuple[object, str]:
+def _snapshot(tmp_path, instruments: list[dict], *, data_mode=DataMode.SYNTHETIC,
+              trading_day="2026-09-24", cutoff=CUTOFF) -> tuple[object, str]:
     root = tmp_path / "snapshot"
     api = root / "api"
     sid = "snap-s2-test"
@@ -138,9 +139,9 @@ def _snapshot(tmp_path, instruments: list[dict]) -> tuple[object, str]:
         refs = []
         for name, payload in (
             ("instruments", instruments),
-            ("trading_calendar", ["2026-09-24"]),
+            ("trading_calendar", [trading_day]),
             ("daily_quotes", [
-                {"instrument_id": row["instrument_id"], "trading_day": "2026-09-24",
+                {"instrument_id": row["instrument_id"], "trading_day": trading_day,
                  "open_cents": 100, "high_cents": 100, "low_cents": 100,
                  "close_cents": 100, "volume_shares": 100}
                 for row in instruments
@@ -150,11 +151,11 @@ def _snapshot(tmp_path, instruments: list[dict]) -> tuple[object, str]:
                 api, f"datasets/{sid}/{name}.json",
                 json.dumps(payload).encode("utf-8"),
             ))
-        refs = [replace(ref, as_of_upper_bound=CUTOFF) for ref in refs]
+        refs = [replace(ref, as_of_upper_bound=cutoff) for ref in refs]
         SnapshotStore(con, api).publish(SnapshotDraft(
-            snapshot_id=sid, kind="EOD", data_mode=DataMode.SYNTHETIC,
-            input_cutoff_at=CUTOFF, as_of_time=CUTOFF,
-            created_at=CUTOFF, code_version="test", data_version="test",
+            snapshot_id=sid, kind="EOD", data_mode=data_mode,
+            input_cutoff_at=cutoff, as_of_time=cutoff,
+            created_at=cutoff, code_version="test", data_version="test",
             watermark="TEST", datasets=refs,
         ))
     finally:
@@ -338,3 +339,214 @@ def test_existing_fact_repository_opener_is_read_only_and_validates_schema(tmp_p
     assert len(repository.load().facts) == 8
     with pytest.raises(RuntimeError, match="read-only"):
         repository.append_many(_facts("SH.600001"))
+
+
+def test_exact_bare_code_mapping_retains_formal_reviews_and_reports_denominator(tmp_path):
+    iid = "SH.600000"
+    root, sid = _snapshot(tmp_path, [_instrument(iid, "C39")])
+    repository = FinancialFactRepository(tmp_path / "facts.sqlite")
+    for facts, review in _reviewed_bundles("600000"):
+        repository.append_many(facts, review_bundle=review)
+    report = build_s2_readiness_report(snapshot_dir=root, snapshot_id=sid,
+        facts_db=repository.db_path, latest_period_end=date(2025, 12, 31), include_signals=True)
+    assert report["complete_s2_count"] == report["ranking_pool_size"] == 1
+    assert report["required_metric_period_count"] == report["accepted_metric_period_count"] == 8
+    assert report["scope_status"] == "READY"
+    assert report["signals"][0]["instrument_id"] == iid
+    bridge = report["security_demand"][0]["financial_inputs"]
+    assert bridge["average_parent_equity"] == "450"
+    assert bridge["consolidated_net_profit_ttm"] == "120"
+    assert {fact.instrument_id for fact in repository.load().facts} == {"600000"}
+
+
+def test_fixed_h1_denominator_keeps_securities_without_facts(tmp_path):
+    root, sid = _snapshot(tmp_path, [_instrument("SH.600000", "C39"),
+                                   _instrument("SZ.000001", "J66")])
+    repository = FinancialFactRepository(tmp_path / "facts.sqlite")
+    report = build_s2_readiness_report(snapshot_dir=root, snapshot_id=sid,
+        facts_db=repository.db_path, latest_period_end=date(2026, 6, 30))
+    assert report["pool_size"] == 2
+    assert report["required_metric_period_count"] == 32
+    assert report["accepted_metric_period_count"] == 0
+    assert len(report["security_demand"]) == 2
+    assert all(row["financial_inputs"] is None for row in report["security_demand"])
+
+
+def test_readiness_ranks_only_accepted_pool_and_keeps_unreviewed_successors(tmp_path):
+    root, sid = _snapshot(tmp_path, [_instrument("SH.600000", "C39"),
+                                   _instrument("SH.600002", "C39")])
+    repository = FinancialFactRepository(tmp_path / "facts.sqlite")
+    for facts, review in _reviewed_bundles("600000"):
+        repository.append_many(facts, review_bundle=review)
+    repository.append_many(_facts("600002"))
+    report = build_s2_readiness_report(snapshot_dir=root, snapshot_id=sid,
+        facts_db=repository.db_path, include_signals=True)
+    assert report["ranking_pool_size"] == 1
+    assert report["signals"][0]["signal_rank"] == 0.5
+    assert report["scope_status"] == "PARTIAL_READY"
+    assert report["exclusion_counts"] == {"S2_REVIEW_MISSING": 1}
+
+
+def test_wrong_exchange_never_maps_into_snapshot(tmp_path):
+    root, sid = _snapshot(tmp_path, [_instrument("SH.600000", "C39")])
+    repository = FinancialFactRepository(tmp_path / "facts.sqlite")
+    repository.append_many(_facts("SZ.600000"))
+    report = build_s2_readiness_report(snapshot_dir=root, snapshot_id=sid, facts_db=repository.db_path)
+    assert report["fact_versions_in_pool"] == 0
+
+
+def test_production_unproven_cap_is_not_a_real_denominator(tmp_path):
+    root, sid = _snapshot(tmp_path, [_instrument("SH.600000", "C39")], data_mode=DataMode.PRODUCTION)
+    repository = FinancialFactRepository(tmp_path / "facts.sqlite")
+    for facts, review in _reviewed_bundles("600000"):
+        repository.append_many(facts, review_bundle=review)
+    report = build_s2_readiness_report(snapshot_dir=root, snapshot_id=sid, facts_db=repository.db_path)
+    assert report["complete_s2_count"] == 0
+    assert report["missing_market_cap_count"] == 1
+    assert report["security_demand"][0]["financial_input_status"] == "ACCEPTED"
+    assert report["security_demand"][0]["market_cap"]["value_yuan"] is None
+
+
+def test_production_frozen_cap_matches_original_archive_and_real_f10(tmp_path):
+    from tests.unit.test_decision_market_caps_archive import _real_frozen_cap
+    archive, instrument, cutoff = _real_frozen_cap(tmp_path)
+    instrument["industry_code"] = "C39"
+    root, sid = _snapshot(tmp_path, [instrument], data_mode=DataMode.PRODUCTION,
+                          trading_day="2026-09-22", cutoff=cutoff)
+    repository = FinancialFactRepository(tmp_path / "facts.sqlite")
+    for facts, review in _reviewed_bundles("600519"):
+        repository.append_many(facts, review_bundle=review)
+    report = build_s2_readiness_report(snapshot_dir=root, snapshot_id=sid,
+        facts_db=repository.db_path, market_caps_archive_root=archive, include_signals=True)
+    assert report["scope_status"] == "READY"
+    assert report["market_cap_evidence"]["mode"] == "RECEIPT_VERIFIED_FROZEN_SNAPSHOT"
+    assert report["security_demand"][0]["market_cap"]["value_yuan"] == "1234.56"
+    assert report["signals"][0]["factors"]["F10"] == str(Decimal(100) / Decimal("1234.56"))
+
+
+def test_per_security_target_applies_to_denominator_bridge_and_ready_scope(tmp_path):
+    root, sid = _snapshot(tmp_path, [_instrument("SH.600000", "C39"),
+                                   _instrument("SH.600002", "C39")])
+    repository = FinancialFactRepository(tmp_path / "facts.sqlite")
+    for code in ("600000", "600002"):
+        for facts, review in _reviewed_bundles(code):
+            repository.append_many(facts, review_bundle=review)
+    report = build_s2_readiness_report(snapshot_dir=root, snapshot_id=sid,
+        facts_db=repository.db_path, latest_period_end=date(2026, 6, 30),
+        latest_period_ends={"600000": date(2025, 12, 31)}, include_signals=True)
+    assert report["required_metric_period_count"] == 8 + 16
+    assert report["complete_s2_count"] == report["ranking_pool_size"] == 1
+    assert report["eligible_scope"]["ranking_pool_ids"] == ["SH.600000"]
+    rows = {row["instrument_id"]: row for row in report["security_demand"]}
+    assert rows["SH.600000"]["financial_input_status"] == "ACCEPTED"
+    assert rows["SH.600002"]["financial_input_status"] == "S2_TARGET_PERIOD_MISMATCH"
+    assert rows["SH.600000"]["target_period_basis"] == "EXPLICIT_SECURITY_TARGET"
+
+
+def test_larger_shared_target_source_is_projected_without_injecting_extra_ids(tmp_path):
+    root, sid = _snapshot(tmp_path, [_instrument("SH.600000", "C39")])
+    repository = FinancialFactRepository(tmp_path / "facts.sqlite")
+    report = build_s2_readiness_report(snapshot_dir=root, snapshot_id=sid,
+        facts_db=repository.db_path, latest_period_end=date(2026, 6, 30),
+        latest_period_ends={"SH.600000": date(2026, 6, 30), "SZ.000333": date(2026, 9, 30)})
+    assert report["pool_size"] == 1
+    assert report["required_metric_period_count"] == 16
+    assert report["target_map_projection"]["unused_source_ids"] == ["SZ.000333"]
+    assert report["eligible_scope"]["requested_pool_ids"] == ["SH.600000"]
+    with pytest.raises(ValueError, match="无法归一|不支持"):
+        build_s2_readiness_report(snapshot_dir=root, snapshot_id=sid,
+            facts_db=repository.db_path, latest_period_ends={"SH.000333": date(2026, 6, 30)})
+
+
+def test_future_q3_discovery_keeps_original_decision_baseline_and_names_future_target(tmp_path):
+    root, sid = _snapshot(tmp_path, [_instrument("SH.600000", "C39")])
+    repository = FinancialFactRepository(tmp_path / "facts.sqlite")
+    for facts, review in _reviewed_bundles("600000"):
+        repository.append_many(facts, review_bundle=review)
+    report = build_s2_readiness_report(snapshot_dir=root, snapshot_id=sid,
+        facts_db=repository.db_path, latest_period_end=date(2025, 12, 31),
+        latest_period_ends={"600000": date(2026, 9, 30)},
+        target_period_records=[{"instrument_id": "SH.600000", "latest_period_end": "2026-09-30",
+            "index_observed_at": (CUTOFF + timedelta(seconds=1)).isoformat(), "discovery_status": "INDEX_COMPLETE"}])
+    assert report["complete_s2_count"] == 1
+    assert report["required_metric_period_count"] == 8
+    assert report["security_demand"][0]["target_period_end"] == "2025-12-31"
+    assert report["security_demand"][0]["target_discovery"]["latest_period_end"] == "2026-09-30"
+    assert report["target_map_projection"]["future_observed_target_ids"] == ["SH.600000"]
+
+
+def test_frozen_target_map_validates_declared_scope_and_source_hash(tmp_path):
+    from aquant.operations.s2_readiness import load_s2_target_period_map
+    artifact = tmp_path / "discovery.json"
+    artifact.write_text("{}", encoding="utf-8")
+    payload = {"schema": "aquant.s2_target_periods.v1", "source_scope_ids": ["SH.600000"],
+               "latest_period_ends": {"600000": "2026-06-30"},
+               "records": [{"instrument_id": "SH.600000", "latest_period_end": "2026-06-30"}],
+               "source_artifacts": [{"role": "official_discovery", "path": str(artifact),
+                    "content_hash": "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()}]}
+    path = tmp_path / "target-map.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert load_s2_target_period_map(path)["latest_period_ends"] == {"SH.600000": "2026-06-30"}
+    artifact.write_text("changed", encoding="utf-8")
+    with pytest.raises(S2ReadinessError, match="source artifact hash changed"):
+        load_s2_target_period_map(path)
+
+
+def test_target_map_scope_cannot_misstate_its_hash_bound_frozen_source(tmp_path):
+    from aquant.operations.s2_readiness import load_s2_target_period_map
+    artifact = tmp_path / "source-instruments.json"
+    artifact.write_text(json.dumps([{"instrument_id": "SH.600000"}, {"instrument_id": "SH.600002"}]), encoding="utf-8")
+    payload = {"schema": "aquant.s2_target_periods.v1", "source_scope_ids": ["SH.600000"],
+               "latest_period_ends": {"SH.600000": "2026-06-30"},
+               "records": [{"instrument_id": "SH.600000", "latest_period_end": "2026-06-30"}],
+               "source_artifacts": [{"role": "frozen_pool_instruments", "path": str(artifact),
+                    "content_hash": "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()}]}
+    path = tmp_path / "target-map.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(S2ReadinessError, match="declared scope differs from frozen source instruments"):
+        load_s2_target_period_map(path)
+
+
+@pytest.mark.parametrize("changed_claim", ["observation", "period", "undiscovered"])
+def test_official_target_claims_are_rebuilt_from_unchanged_source(tmp_path, changed_claim):
+    from aquant.domain.research.s2 import required_s2_periods
+    from aquant.operations.s2_readiness import load_s2_target_period_map
+
+    observed = "2026-10-13T04:30:00Z"
+    artifact = tmp_path / "official-discovery.json"
+    artifact.write_text(json.dumps({"companies": [{"code": "600000",
+        "allCategoryComplete": True, "latestPeriodEnd": "2026-06-30",
+        "allCategoryObservedAt": observed}]}), encoding="utf-8")
+
+    def demand(period):
+        required = required_s2_periods(date.fromisoformat(period))
+        return {"required_periods": {key: [value.isoformat() for value in values]
+                                    for key, values in required.items()},
+                "required_metric_period_count": sum(map(len, required.values()))}
+
+    payload = {"schema": "aquant.s2_target_periods.v1",
+        "source_scope_ids": ["SH.600000", "SH.600002"],
+        "latest_period_ends": {"SH.600000": "2026-06-30"},
+        "records": [{"instrument_id": "SH.600000", "scope": "OTHER_100",
+            "latest_period_end": "2026-06-30", "all_category_complete": True,
+            "index_observed_at": observed, **demand("2026-06-30")},
+            {"instrument_id": "SH.600002", "scope": "OTHER_100",
+             "latest_period_end": None, "all_category_complete": False}],
+        "source_artifacts": [{"role": "other100_official_discovery", "path": str(artifact),
+            "content_hash": "sha256:" + hashlib.sha256(artifact.read_bytes()).hexdigest()}]}
+    path = tmp_path / "target-map.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    assert load_s2_target_period_map(path)["latest_period_ends"] == {"SH.600000": "2026-06-30"}
+    if changed_claim == "observation":
+        payload["records"][0]["index_observed_at"] = "2026-01-01T00:00:00Z"
+        expected = "observation time differs"
+    else:
+        iid = "SH.600002" if changed_claim == "undiscovered" else "SH.600000"
+        row = payload["records"][1 if changed_claim == "undiscovered" else 0]
+        row.update(latest_period_end="2025-12-31", all_category_complete=True,
+                   index_observed_at=observed, **demand("2025-12-31"))
+        payload["latest_period_ends"][iid] = "2025-12-31"
+        expected = "period differs"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(S2ReadinessError, match=expected):
+        load_s2_target_period_map(path)

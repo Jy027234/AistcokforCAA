@@ -21,6 +21,7 @@ import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 from typing import Sequence
 from urllib.parse import parse_qs, urlsplit
 
@@ -31,7 +32,8 @@ from ...domain.data.pit import (
 )
 from ...domain.data.rights import REGISTER_VERSION, RightsRegistry, default_rights
 from ...domain.fundamentals.disclosure_link import (
-    DisclosureRole, disclosure_role, report_period_from_title,
+    FINANCIAL_CORRECTION_PHRASES, DisclosureRole, disclosure_role,
+    is_financial_correction_title, report_period_from_title,
 )
 from ...domain.fundamentals.fact_repository import FactReviewBundle, FinancialFactRepository
 from ...domain.fundamentals.s2_pdf_review_policy import (
@@ -45,6 +47,30 @@ from .cninfo_probe import (
     market_for_code, normalize_title, parse_report_period,
     title_matches_period, title_revision_flags,
 )
+from .cninfo_statement_sections import extract_section_facts
+from .s2_machine_verification import (
+    MACHINE_VERIFICATION_SCHEMA,
+    VERIFIER_ID,
+    VERIFIER_VERSION,
+    MachineVerification,
+    MachineVerificationError,
+    verify_machine_evidence,
+)
+
+
+#: 机器核验协议的字段级方法名。与人工 ``HUMAN_VISUAL`` 并列且不可互换。
+MACHINE_REVIEW_METHOD = "MACHINE_INDEPENDENT_PATH"
+
+#: 真正可能改写财报金额的更正类标题短语。判据集中在
+#: :func:`aquant.domain.fundamentals.disclosure_link.is_financial_correction_title`，
+#: 索引层与升仓层共用一份定义，避免规则漂移。
+#:
+#: 全分类索引是**召回**通道：公司章程修订对照表、股东会补充通知同样带
+#: "修订/补充"字样，但它们不改财报数值。若按"修订/补充"一刀切，正常样本会
+#: 全部被推回人工，正好违反本方案"机器处理正常样本、人工只处理无法消除的
+#: 歧义"的分工。因此机器核验只对**会计口径**的更正停止自动准入；其余候选
+#: 仍逐条处置为 UNRELATED 并保留理由与索引观察时点。
+FINANCIAL_CORRECTION_MARKERS = FINANCIAL_CORRECTION_PHRASES
 
 
 _FIELDS = frozenset({
@@ -260,7 +286,8 @@ def _reviewed_amount(cell: str) -> Decimal:
 
 def _check_reviews(candidate: CninfoS2CandidateFacts,
                    reviews: Sequence[PdfFieldReview], *, expected_fields: frozenset[str],
-                   first_seen: datetime, now: datetime) -> None:
+                   first_seen: datetime, now: datetime,
+                   required_method: str = "HUMAN_VISUAL") -> None:
     by_field = candidate.by_field
     if (set(by_field) != expected_fields or
             len(candidate.candidates) != len(expected_fields) or
@@ -273,11 +300,18 @@ def _check_reviews(candidate: CninfoS2CandidateFacts,
         )
     for review in reviews:
         item = by_field[review.field]
-        if (not review.reviewer_id.strip() or review.method != "HUMAN_VISUAL" or
+        if (not review.reviewer_id.strip() or review.method != required_method or
                 _aware(review.reviewed_at, "reviewed_at") < first_seen or
                 _aware(review.reviewed_at, "reviewed_at") > now):
-            raise PdfPromotionError(f"{review.field}: human review identity/time is invalid")
-        if (item.amount_unit not in ("元", "千元", "万元") or
+            # Keep the legacy message verbatim for the human protocol; the
+            # machine protocol gets its own wording so an operator can tell the
+            # two apart in the exception queue.
+            label = ("human review" if required_method == "HUMAN_VISUAL"
+                     else "machine review")
+            raise PdfPromotionError(f"{review.field}: {label} identity/time is invalid")
+        allowed_units = (("元", "千元", "万元", "百万元") if
+                         required_method == MACHINE_REVIEW_METHOD else ("元", "千元", "万元"))
+        if (item.amount_unit not in allowed_units or
                 review.source_amount_unit != item.amount_unit):
             raise PdfPromotionError(f"{review.field}: source amount unit is unverified")
         try:
@@ -285,7 +319,7 @@ def _check_reviews(candidate: CninfoS2CandidateFacts,
         except PdfPromotionError as exc:
             raise PdfPromotionError(f"{review.field}: {exc}") from exc
         scale = {"元": Decimal(1), "千元": Decimal(1000),
-                 "万元": Decimal(10000)}[item.amount_unit]
+                 "万元": Decimal(10000), "百万元": Decimal(1000000)}[item.amount_unit]
         if (review.reviewed_value_yuan != item.value_yuan or
                 reviewed_raw * scale != review.reviewed_value_yuan or
                 review.pdf_page != item.pdf_page or
@@ -309,13 +343,16 @@ def _version_evidence(
     market = market_for_code(candidate.instrument_id)
     if (review.query_stock_code != candidate.instrument_id or
             not review.query_organization_id.strip() or
-            not re.fullmatch(r"(?:gss[hz]\d{7}|gshk\d{7}|GD\d{6}|\d{10})",
+            not re.fullmatch(r"(?:gss[hz]\d{7}|gshk\d{7}|nssc\d{7}|gfbj\d{7}|GD\d{6}|\d{10})",
                              review.query_organization_id) or
             (review.query_organization_id.startswith("gss") and
              not review.query_organization_id.startswith(
                  "gssh" if market == "sse" else "gssz")) or
-            (review.query_period_start, review.query_period_end) !=
-            period.publication_window or
+            review.query_period_start != period.end_date or
+            review.query_period_end < min(period.publication_window[1],
+                _aware(review.reviewed_at, "version reviewed_at").astimezone(
+                    timezone(timedelta(hours=8))).date()) or
+            review.query_period_end > period.publication_window[1] or
             review.query_digest != cninfo_query_digest(
                 stock_code=review.query_stock_code,
                 organization_id=review.query_organization_id,
@@ -468,7 +505,7 @@ def _cross_category_evidence(
     result: CrossCategoryIndexResult,
     dispositions: Sequence[CrossCategoryDisposition], *,
     review: PdfVersionReview, reviewed_by: str, reviewed_at: datetime,
-    pdf_receipt_id: str, now: datetime,
+    pdf_receipt_id: str, now: datetime, revision_impact: dict | None = None,
 ) -> tuple[list[dict], list[str], list[dict]]:
     """Replay every archived all-category page and dispose of every candidate.
 
@@ -488,7 +525,9 @@ def _cross_category_evidence(
             result.stock_code != candidate.instrument_id or
             result.organization_id != review.query_organization_id or
             result.report_period != candidate.period_end.isoformat() or
-            result.publication_window != (candidate.period_end, china_day) or
+            len(result.publication_window) != 2 or
+            result.publication_window[0] > candidate.period_end or
+            result.publication_window[1] != china_day or
             not result.pages or len(result.pages) > 100):
         raise PdfPromotionError("complete all-category index through review day is required")
     org_receipt = _verified_org_lookup(
@@ -519,10 +558,10 @@ def _cross_category_evidence(
             archive, receipt, stock_code=candidate.instrument_id,
             organization_id=review.query_organization_id,
             page_number=page_number, category="", market=market,
-            period_start=candidate.period_end,
+            period_start=result.publication_window[0],
             period_end=result.publication_window[1],
             detail_prefix=(f"cross-category:{candidate.instrument_id}:"
-                           f"{candidate.period_end.isoformat()}~"
+                           f"{result.publication_window[0].isoformat()}~"
                            f"{result.publication_window[1].isoformat()}"),
         )
         if body_hash != page.request_body_hash:
@@ -598,7 +637,7 @@ def _cross_category_evidence(
             announced = datetime.fromtimestamp(
                 millis / 1000, tz=timezone.utc,
             ).astimezone(timezone(timedelta(hours=8))).date()
-            if not candidate.period_end <= announced <= result.publication_window[1]:
+            if not result.publication_window[0] <= announced <= result.publication_window[1]:
                 raise PdfPromotionError("all-category announcement is outside query dates")
             is_correction, is_revision, is_supplement, _ = title_revision_flags(title)
             reasons = tuple(name for name, active in (
@@ -630,6 +669,15 @@ def _cross_category_evidence(
 
     candidate_ids = {entry.announcement_id for entry in entries.values()
                      if entry.candidate_reasons}
+    impact_sources = {}
+    impact_completed_at = None
+    if revision_impact is not None:
+        impact_ids = set(revision_impact['relationshipScope']['financialCandidateIds'])
+        if not impact_ids.issubset(entries):
+            raise PdfPromotionError('machine impact candidate is absent from complete original index')
+        candidate_ids.update(impact_ids)
+        impact_sources = {item['announcementId']: item for item in revision_impact['sources']}
+        impact_completed_at = _aware(datetime.fromisoformat(revision_impact['completedAt']), 'impact completed_at')
     by_id = {item.announcement_id: item for item in dispositions}
     if (len(dispositions) != len(by_id) or set(by_id) != candidate_ids):
         raise PdfPromotionError("every all-category candidate needs one explicit disposition")
@@ -656,7 +704,25 @@ def _cross_category_evidence(
         if (not item.reviewer_id.strip() or not item.rationale.strip() or
                 disposition_time < page_seen or disposition_time > completed_at):
             raise PdfPromotionError("all-category candidate disposition lacks review evidence")
-        if item.relevance == "UNRELATED":
+        if item.relevance == "METRIC_NO_EFFECT":
+            source = impact_sources.get(ann_id)
+            if (impact_completed_at is None or source is None or
+                    ann_id not in revision_impact['relationshipScope']['financialCandidateIds'] or
+                    ann_id == review.announcement_id or not item.reviewer_id.startswith('machine:') or
+                    disposition_time < impact_completed_at or
+                    item.document_receipt_id != source['receipt']['receipt_id'] or
+                    item.related_report_announcement_ids or len(item.rationale.strip()) < 12):
+                raise PdfPromotionError('metric no-effect disposition lacks exact machine source impact proof')
+            document_receipt, document_bytes = _archived_ok(
+                archive, item.document_receipt_id, expected_url=entry.document_url,
+                expected_host='static.cninfo.com.cn')
+            if (document_receipt['content_hash'] != source['originalHash'] or
+                    len(document_bytes) != source['originalBytes'] or
+                    not document_bytes.startswith(b'%PDF-') or
+                    _aware(datetime.fromisoformat(document_receipt['first_seen_at']), 'impact source first_seen_at') > impact_completed_at):
+                raise PdfPromotionError('metric no-effect PDF differs from replayed original source')
+            receipts.append(document_receipt)
+        elif item.relevance == "UNRELATED":
             if (ann_id in {review.announcement_id,
                            review.predecessor_announcement_id} or
                     len(item.rationale.strip()) < 12 or
@@ -725,6 +791,64 @@ def _cross_category_evidence(
     return receipts, request_hashes, disposition_evidence
 
 
+def _validated_revision_impact(*, proof: dict | None, descriptor: dict | None,
+                               archive: ForwardArchive, candidate: CninfoS2CandidateFacts,
+                               pdf_receipt_id: str, required_fields: Sequence[str],
+                               cross: CrossCategoryIndexResult, review: PdfVersionReview,
+                               reviewed_at: datetime, company_name: str) -> dict | None:
+    """A scoped no-effect verdict is re-derived from the complete real archive."""
+    if proof is None and descriptor is None:
+        return None
+    if proof is None or descriptor is None:
+        raise PdfPromotionError('machine revision impact requires both proof and archive')
+    from .s2_revision_impact import replay_revision_impact, RevisionImpactError
+    try:
+        actual_db = next(row[2] for row in archive.con.execute('PRAGMA database_list') if row[1] == 'main')
+        if (Path(descriptor['root']).resolve() != archive.root.resolve() or
+                Path(descriptor['database_path']).resolve() != Path(actual_db).resolve()):
+            raise PdfPromotionError('machine impact archive differs from actual promotion archive')
+        company = descriptor['company']
+        if (company['code'] != candidate.instrument_id or
+                company['orgLookupReceiptId'] != cross.org_lookup_receipt_id or
+                company['orgLookupReceiptId'] != review.org_lookup_receipt_id):
+            raise PdfPromotionError('machine impact issuer/index identity differs from bundle')
+        replay_revision_impact(proof, archive_root=archive.root, company=company,
+                               documents=descriptor.get('documents'), target_period_end=candidate.period_end,
+                               target_metrics=tuple(sorted(required_fields)), issuer_name=company_name)
+        if (proof['instrumentId'] != company['instrumentId'] or proof['issuerName'] != company_name or
+                proof['targetPeriodEnd'] != candidate.period_end.isoformat() or
+                proof['relationshipScope']['completeForArchivedIndexResponse'] is not True or
+                proof['relationshipScope']['publicationWindow'] != [day.isoformat() for day in cross.publication_window] or
+                [item['receipt_id'] for item in proof['indexReceipts'][1:]] != [page.receipt_id for page in cross.pages] or
+                proof['relationshipScope']['requestBodyHashes'] != [page.request_body_hash for page in cross.pages]):
+            raise PdfPromotionError('machine impact complete index scope differs from bundle')
+        completed = _aware(datetime.fromisoformat(proof['completedAt']), 'impact completed_at')
+        if completed > _aware(reviewed_at, 'cross reviewed_at') or completed > _aware(review.reviewed_at, 'version reviewed_at'):
+            raise PdfPromotionError('machine impact must complete before version/disposition review')
+        outcomes = {item['metric']: item for item in proof['outcomes']}
+        values = {item.field: item.value_yuan for item in candidate.candidates}
+        if len(outcomes) != len(proof['outcomes']) or set(outcomes) != set(required_fields):
+            raise PdfPromotionError('machine impact must cover the exact required metric set')
+        for metric, item in outcomes.items():
+            source = item['currentSource']
+            if (item['status'] != 'NO_EFFECT' or item['periodEnd'] != candidate.period_end.isoformat() or
+                    source['announcementId'] != review.announcement_id or
+                    source['factPeriodEnd'] != candidate.period_end.isoformat() or
+                    source['sourceReportPeriodEnd'] != candidate.period_end.isoformat() or
+                    source['columnRole'] != 'CURRENT' or source['statementScope'] != 'CONSOLIDATED' or
+                    Decimal(source['amountYuan']) != values[metric]):
+                raise PdfPromotionError('machine impact is changed/unknown or differs from the current fact')
+        sources = {item['announcementId']: item for item in proof['sources']}
+        target = sources[review.announcement_id]
+        if (target['receipt']['receipt_id'] != pdf_receipt_id or
+                target['originalHash'] != candidate.pdf_sha256 or
+                target['index']['documentUrl'] != candidate.document_url):
+            raise PdfPromotionError('machine impact current PDF differs from promotion source')
+    except (KeyError, TypeError, ValueError, RevisionImpactError) as exc:
+        raise PdfPromotionError(f'machine revision impact replay rejected: {exc}') from exc
+    return proof
+
+
 def _next_available_snapshot(after: datetime, calendar: Sequence[date]) -> datetime:
     if not calendar or tuple(calendar) != tuple(sorted(set(calendar))):
         raise PdfPromotionError("trading calendar must be nonempty, unique and sorted")
@@ -733,6 +857,96 @@ def _next_available_snapshot(after: datetime, calendar: Sequence[date]) -> datet
         if instant >= after:
             return instant
     raise PdfPromotionError("trading calendar does not reach the next available snapshot")
+
+
+def promote_machine_verified_bundle(
+    *, instrument_id: str, period_end: date, company: str,
+    pdf_receipt_id: str, version_review: PdfVersionReview,
+    cross_category_index: CrossCategoryIndexResult,
+    cross_category_dispositions: Sequence[CrossCategoryDisposition],
+    cross_category_reviewed_by: str, cross_category_reviewed_at: datetime,
+    archive: ForwardArchive, repository: FinancialFactRepository,
+    trading_calendar: Sequence[date], required_fields: tuple[str, ...],
+    rights: RightsRegistry | None = None,
+    revision_impact_proof: dict | None = None,
+    revision_impact_archive: dict | None = None,
+) -> tuple[
+    tuple[FinancialFact, ...],
+    "MachineVerification",
+    tuple[str, ...],
+]:
+    """Admit one report through the versioned machine-verification protocol.
+
+    This is the entry point the plan requires: normal reports are processed by
+    deterministic programmes plus an auditable independent check, instead of
+    every amount being signed by a human.  It does **not** weaken any gate:
+
+    * the archived PDF is re-extracted here and the machine verification is
+      re-derived from those bytes, so a hand-written ``verified: true`` payload
+      cannot be promoted;
+    * the official regular-report index and the all-category index are still
+      replayed against the archive, including their POST bodies and pagination;
+    * any all-category candidate whose title carries a correction/revision
+      marker aborts promotion into the human exception queue, because a title
+      is a recall signal and not a disposition;
+    * the human ``reviewer_id`` is never claimed: every review identity in the
+      emitted evidence carries the machine prefix.
+
+    Returns the persisted facts, the machine verification, and the identifiers
+    of the candidates that were routed to the human exception queue.
+    """
+
+    pdf_receipt, payload = _archived_ok(
+        archive, pdf_receipt_id, expected_host="static.cninfo.com.cn",
+    )
+    if pdf_receipt["source_id"] != "cninfo":
+        raise PdfPromotionError("machine verification requires a CNINFO archive receipt")
+    candidate = extract_section_facts(
+        payload, instrument_id=instrument_id, company=company,
+        period_end=period_end, announcement_id=version_review.announcement_id,
+        document_url=str(pdf_receipt["url"]),
+        required_fields=tuple(sorted(required_fields)),
+    )
+    try:
+        verification = verify_machine_evidence(
+            payload, candidate=candidate,
+            expected_fields=tuple(sorted(required_fields)))
+    except MachineVerificationError as exc:
+        raise PdfPromotionError(f"machine verification failed: {exc}") from exc
+    if not verification.verified:
+        raise PdfPromotionError(
+            "machine verification has unverified fields: "
+            + ", ".join(verification.unverified_fields))
+
+    blocking = tuple(sorted(
+        entry.announcement_id for entry in cross_category_index.candidates
+        if entry.announcement_id != version_review.announcement_id
+        and is_financial_correction_title(entry.title or "")
+    ))
+    impact = _validated_revision_impact(
+        proof=revision_impact_proof, descriptor=revision_impact_archive,
+        archive=archive, candidate=candidate, pdf_receipt_id=pdf_receipt_id,
+        required_fields=required_fields, cross=cross_category_index, review=version_review,
+        reviewed_at=cross_category_reviewed_at, company_name=company)
+    if blocking and impact is None:
+        raise PdfPromotionError(
+            "all-category index shows revision-titled candidates that need human "
+            "disposition before admission: " + ", ".join(blocking))
+
+    facts = promote_reviewed_pdf_bundle(
+        candidate=candidate, pdf_receipt_id=pdf_receipt_id,
+        version_review=version_review, field_reviews=(),
+        cross_category_index=cross_category_index,
+        cross_category_dispositions=cross_category_dispositions,
+        cross_category_reviewed_by=cross_category_reviewed_by,
+        cross_category_reviewed_at=cross_category_reviewed_at,
+        archive=archive, repository=repository,
+        trading_calendar=trading_calendar, rights=rights,
+        _machine_verification=verification, _expected_fields=frozenset(required_fields),
+        _machine_company=company,
+        _revision_impact_proof=impact, _revision_impact_archive=revision_impact_archive,
+    )
+    return facts, verification, blocking
 
 
 def promote_reviewed_pdf_bundle(
@@ -744,6 +958,11 @@ def promote_reviewed_pdf_bundle(
     archive: ForwardArchive, repository: FinancialFactRepository,
     trading_calendar: Sequence[date], rights: RightsRegistry | None = None,
     _subset_v2: bool = False,
+    _machine_verification: "MachineVerification | None" = None,
+    _expected_fields: frozenset[str] | None = None,
+    _machine_company: str | None = None,
+    _revision_impact_proof: dict | None = None,
+    _revision_impact_archive: dict | None = None,
 ) -> tuple[FinancialFact, ...]:
     """Admit one reviewed PDF report as forward-only PIT facts.
 
@@ -756,6 +975,37 @@ def promote_reviewed_pdf_bundle(
     """
 
     now = _utc_now()
+    machine = _machine_verification
+    if machine is not None and _subset_v2:
+        raise PdfPromotionError("machine verification and the frozen subset policy cannot be mixed")
+    if machine is not None:
+        if not isinstance(machine, MachineVerification):
+            raise PdfPromotionError("machine verification must be a re-derived verification")
+        if _expected_fields is None:
+            raise PdfPromotionError("machine verification requires its expected field set")
+        if (machine.instrument_id != candidate.instrument_id or
+                machine.period_end != candidate.period_end or
+                machine.pdf_sha256 != candidate.pdf_sha256 or
+                machine.announcement_id != version_review.announcement_id):
+            raise PdfPromotionError("machine verification does not describe this report")
+        if not machine.verified:
+            raise PdfPromotionError(
+                "machine verification has unverified fields: "
+                + ", ".join(machine.unverified_fields))
+        field_reviews = tuple(
+            PdfFieldReview(
+                field=item.field, reviewed_value_yuan=item.value_yuan,
+                pdf_page=candidate.by_field[item.field].pdf_page,
+                current_cell=candidate.by_field[item.field].source_cells[
+                    candidate.by_field[item.field].source_current_cell_index] or "",
+                row_label=(candidate.by_field[item.field].display_row_label or
+                           (candidate.by_field[item.field].source_cells[0] or "")),
+                source_amount_unit=candidate.by_field[item.field].amount_unit,
+                reviewer_id=VERIFIER_ID, reviewed_at=now,
+                method=MACHINE_REVIEW_METHOD,
+            )
+            for item in machine.fields
+        )
     if not isinstance(cross_category_index, CrossCategoryIndexResult):
         raise PdfPromotionError("complete all-category index is required before admission")
     if cross_category_dispositions is None:
@@ -768,7 +1018,15 @@ def promote_reviewed_pdf_bundle(
         raise PdfPromotionError("only unpromoted, review-required PDF candidates are accepted")
     company = None
     expected_fields = _FIELDS
-    if _subset_v2:
+    if machine is not None:
+        expected_fields = _expected_fields
+        company = _machine_company
+        if not company or not company.strip():
+            raise PdfPromotionError(
+                "machine verification requires the official cover company name")
+    elif _revision_impact_proof is not None or _revision_impact_archive is not None:
+        raise PdfPromotionError('machine revision impact cannot claim a human protocol')
+    elif _subset_v2:
         company = S2_PDF_PILOT_COMPANIES.get(candidate.instrument_id)
         expected_fields = S2_PDF_REQUIRED_FIELDS.get(candidate.period_end)
         if company is None or expected_fields is None:
@@ -781,7 +1039,24 @@ def promote_reviewed_pdf_bundle(
         raise PdfPromotionError("candidate PDF hash differs from archive receipt")
     # Re-extract from archived bytes, with the fixed policy field set for v2.
     # A hand-built candidate or a worksheet superset is never admission proof.
-    if _subset_v2:
+    if machine is not None:
+        extracted = extract_section_facts(
+            payload, instrument_id=candidate.instrument_id, company=company,
+            period_end=candidate.period_end,
+            announcement_id=version_review.announcement_id,
+            document_url=candidate.document_url,
+            required_fields=tuple(sorted(expected_fields)),
+        )
+        # Re-derive the independent checks from these exact bytes, so the
+        # evidence that gets persisted is the writer's own result and not a
+        # caller-supplied claim.
+        rederived = verify_machine_evidence(
+            payload, candidate=extracted,
+            expected_fields=tuple(sorted(expected_fields)))
+        if rederived.as_evidence() != machine.as_evidence():
+            raise PdfPromotionError(
+                "machine verification differs from the archived PDF re-derivation")
+    elif _subset_v2:
         extracted = extract_cninfo_candidate_facts(
             payload, instrument_id=candidate.instrument_id, company=company,
             period_end=candidate.period_end,
@@ -801,15 +1076,32 @@ def promote_reviewed_pdf_bundle(
     if first_seen > now:
         raise PdfPromotionError("PDF cannot be observed after admission")
     _check_reviews(candidate, field_reviews, expected_fields=expected_fields,
-                   first_seen=first_seen, now=now)
+                   first_seen=first_seen, now=now,
+                   required_method=(MACHINE_REVIEW_METHOD if machine is not None
+                                    else "HUMAN_VISUAL"))
+    if machine is not None:
+        # A machine bundle must never carry a human reviewer identity; the
+        # reader enforces the same separation on the persisted evidence.
+        if any(not review.reviewer_id.startswith("machine:") for review in field_reviews):
+            raise PdfPromotionError("machine field review cannot claim a human reviewer")
+        if not version_review.reviewer_id.startswith("machine:"):
+            raise PdfPromotionError("machine version review cannot claim a human reviewer")
+        if not cross_category_reviewed_by.startswith("machine:"):
+            raise PdfPromotionError(
+                "machine cross-category disposition cannot claim a human reviewer")
     published_on, role, index_receipts, request_hashes = _version_evidence(
         archive, candidate, version_review, now=now,
     )
+    impact = _validated_revision_impact(
+        proof=_revision_impact_proof, descriptor=_revision_impact_archive,
+        archive=archive, candidate=candidate, pdf_receipt_id=pdf_receipt_id,
+        required_fields=tuple(sorted(expected_fields or ())), cross=cross_category_index,
+        review=version_review, reviewed_at=cross_category_reviewed_at, company_name=company or '')
     cross_receipts, cross_request_hashes, cross_dispositions = _cross_category_evidence(
         archive, candidate, cross_category_index, cross_category_dispositions,
         review=version_review, reviewed_by=cross_category_reviewed_by,
         reviewed_at=cross_category_reviewed_at, pdf_receipt_id=pdf_receipt_id,
-        now=now,
+        now=now, revision_impact=impact,
     )
     if role is DisclosureRole.ORIGINAL_REPORT and any(
         item["relevance"] == "RELATED" and
@@ -834,10 +1126,6 @@ def promote_reviewed_pdf_bundle(
         date_floor, _ = date_only_available_at(published_on, trading_calendar)
     except ValueError as exc:
         raise PdfPromotionError("trading calendar lacks publication-date floor") from exc
-    available_at = _next_available_snapshot(
-        max(date_floor, *evidence_seen, *review_times, now), trading_calendar,
-    )
-
     previous_by_field: dict[str, FinancialFact] = {}
     if _subset_v2:
         previous_store, accepted_reviews = repository.load_with_accepted_s2_pdf_reviews()
@@ -886,6 +1174,17 @@ def promote_reviewed_pdf_bundle(
                 not next(iter(predecessor_bundles)).startswith("cninfo_pdf_v2_")):
             raise PdfPromotionError("reviewed v2 predecessor bundle is required")
 
+    # 原文二次抽取、独立核验、索引/修订证据与前驱检查全部完成后，才确定
+    # 真实入库时点。使用函数入口的 now 会在长 PDF 重解析跨过08:45时把
+    # 尚未完成核验的事实错误放入当日盘前；不能把解析开始时间当完成时间。
+    completed_at = _utc_now()
+    if completed_at < now:
+        raise PdfPromotionError("admission clock moved backwards during verification")
+    now = completed_at
+    available_at = _next_available_snapshot(
+        max(date_floor, *evidence_seen, *review_times, now), trading_calendar,
+    )
+
     facts = []
     for field in sorted(expected_fields):
         item = candidate.by_field[field]
@@ -906,14 +1205,17 @@ def promote_reviewed_pdf_bundle(
             first_seen_at=first_seen, ingested_at=now, available_at=available_at,
             availability_basis=AvailabilityBasis.OBSERVED,
             pit_mode=PitMode.LIVE_OBSERVED, content_hash=candidate.pdf_sha256,
-            version_id="pdf_" + hashlib.sha256(identity.encode()).hexdigest()[:32],
+            version_id=(
+                "mach_" if machine is not None else "pdf_")
+            + hashlib.sha256(identity.encode()).hexdigest()[:32],
             supersedes_id=(previous_by_field[field].version_id
                            if role is DisclosureRole.REVISED_REPORT and
                            not late_captured_revised_root else None),
         ))
 
     evidence = {
-        "schema": ("cninfo-s2-pdf-review-v2" if _subset_v2 else
+        "schema": (MACHINE_VERIFICATION_SCHEMA if machine is not None else
+                   "cninfo-s2-pdf-review-v2" if _subset_v2 else
                    "cninfo-s2-pdf-review-v1"),
         "source_id": "cninfo",
         "rights_register_version": REGISTER_VERSION,
@@ -981,12 +1283,44 @@ def promote_reviewed_pdf_bundle(
             "review_policy": S2_PDF_SUBSET_POLICY,
             "required_fields": sorted(expected_fields),
         })
+    if machine is not None:
+        # Machine-verified bundles carry the re-derived per-field independent
+        # checks. They never claim a human reviewer, and the reader rejects any
+        # bundle that mixes the two identities.
+        evidence.update({
+            "company": company,
+            "required_fields": sorted(expected_fields),
+            "verifier_id": VERIFIER_ID,
+            "verifier_version": VERIFIER_VERSION,
+            "human_review_claimed": None,
+            "fields": [item.as_dict() for item in machine.fields],
+            "sections": list(machine.sections),
+            "identities": [check.as_dict() for check in machine.identities],
+        })
+        if impact is not None:
+            evidence['revision_impact_proof'] = impact
+            evidence['revision_impact_archive'] = _revision_impact_archive
+        if any(check.holds and check.path == "ruled_grid_cell_reextraction"
+               for field in machine.fields for check in field.checks):
+            # Consumer must re-run this second algorithm on the SQL-bound
+            # original bytes. Paths describe the actual archive used here.
+            archive_db = next(row[2] for row in archive.con.execute("PRAGMA database_list")
+                              if row[1] == "main")
+            evidence["geometry_archive"] = {
+                "database_path": str(Path(archive_db).resolve()),
+                "root": str(archive.root.resolve()),
+                "pdf_receipt_id": pdf_receipt_id,
+                "document_url": candidate.document_url,
+            }
     evidence_json = json.dumps(evidence, ensure_ascii=False, sort_keys=True,
                                separators=(",", ":"))
-    bundle_id = (("cninfo_pdf_v2_" if _subset_v2 else "cninfo_pdf_") + hashlib.sha256(
-        f"{candidate.instrument_id}|{candidate.period_end}|{version_review.announcement_id}"
-        .encode(),
-    ).hexdigest()[:32])
+    bundle_id = (
+        ("cninfo_machine_" if machine is not None else
+         "cninfo_pdf_v2_" if _subset_v2 else "cninfo_pdf_")
+        + hashlib.sha256(
+            f"{candidate.instrument_id}|{candidate.period_end}|"
+            f"{version_review.announcement_id}".encode(),
+        ).hexdigest()[:32])
     repository.append_many(facts, review_bundle=FactReviewBundle(bundle_id, evidence_json))
     return tuple(facts)
 
@@ -1018,7 +1352,10 @@ def promote_reviewed_cninfo_subset_bundle(
 
 
 __all__ = [
+    "MACHINE_REVIEW_METHOD",
     "PdfFieldReview", "PdfPromotionError", "PdfVersionReview",
-    "cninfo_query_digest", "promote_reviewed_pdf_bundle",
+    "CrossCategoryDisposition",
+    "cninfo_query_digest", "promote_machine_verified_bundle",
+    "promote_reviewed_pdf_bundle",
     "promote_reviewed_cninfo_subset_bundle",
 ]

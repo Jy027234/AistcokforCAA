@@ -13,16 +13,21 @@ from aquant.adapters.providers.eastmoney import FetchOutcome
 from aquant.operations.decision_market_caps import (
     DecisionMarketCapError, load_sidecar,
     sidecar_from_market_cap_values,
+    verify_frozen_market_caps_archive, market_cap_items_hash, normalize_instrument_id,
 )
 from tools.collect_market_caps import collect_tencent_pool
 
 
-def _archived_sidecar(tmp_path, monkeypatch):
+def _archived_sidecar(tmp_path, monkeypatch, *, raw_override=None):
     archive_root = tmp_path / "forward-archive"
     con = connect(archive_root / "meta.sqlite")
     archive = ForwardArchive(con, archive_root)
     now = datetime(2026, 9, 22, 8, 30, tzinfo=timezone.utc)
-    raw = b'v_sh600519="archived provider response";'
+    fields = [""] * 46
+    fields[2], fields[30], fields[45] = "600519", "20260922163000", "0.0000123456"
+    raw = ('v_sh600519="' + "~".join(fields) + '";').encode("gbk")
+    if raw_override is not None:
+        raw = raw_override
     raw_hash, _ = archive.store_bytes(raw)
     raw_receipt = archive.record(
         source_id="tencent-qt", url="https://qt.gtimg.cn/q=sh600519",
@@ -60,6 +65,25 @@ def test_archived_market_cap_sidecar_is_accepted(tmp_path, monkeypatch):
     loaded = load_sidecar(path, expected_as_of="2026-09-22",
                           archive_root=archive_root)
     assert loaded.items["SH.600519"].market_cap_cents == 123456
+
+
+@pytest.mark.parametrize("kind", ["no_fields", "wrong_day", "before_close", "wrong_value", "wrong_identity"])
+def test_sidecar_self_claim_cannot_replace_actual_raw_market_cap_evidence(tmp_path, monkeypatch, kind):
+    fields = [""] * 46
+    fields[2], fields[30], fields[45] = "600519", "20260922163000", "0.0000123456"
+    if kind == "wrong_day":
+        fields[30] = "20260921163000"
+    elif kind == "before_close":
+        fields[30] = "20260922145959"
+    elif kind == "wrong_value":
+        fields[45] = "0.0000223456"
+    elif kind == "wrong_identity":
+        fields[2] = "600000"
+    payload = (b'v_sh600519="archived provider response";' if kind == "no_fields" else
+               ('v_sh600519="' + "~".join(fields) + '";').encode("gbk"))
+    path, archive_root, _ = _archived_sidecar(tmp_path, monkeypatch, raw_override=payload)
+    with pytest.raises(DecisionMarketCapError, match="原始数值不匹配"):
+        load_sidecar(path, expected_as_of="2026-09-22", archive_root=archive_root)
 
 
 def test_market_cap_value_tampering_is_rejected(tmp_path, monkeypatch):
@@ -106,3 +130,60 @@ def test_tencent_intraday_quote_is_not_accepted_as_closing_cap(tmp_path):
         assert values == {}
     finally:
         con.close()
+
+
+def _real_frozen_cap(tmp_path):
+    archive_root = tmp_path / "real-archive"
+    con = connect(archive_root / "meta.sqlite")
+    archive = ForwardArchive(con, archive_root)
+    now = datetime(2026, 9, 22, 8, 30, tzinfo=timezone.utc)
+    lines = []
+    values = {"SH.600519": 123456, "SZ.000333": 246912}
+    for iid, cents in values.items():
+        fields = [""] * 46
+        fields[2] = iid[3:]
+        fields[30] = "20260922163000"
+        fields[45] = str(cents / 10000000000)
+        lines.append(f'v_{iid[:2].lower()}{iid[3:]}="' + "~".join(fields) + '";')
+    payload = "".join(lines).encode("gbk")
+    raw_hash, _ = archive.store_bytes(payload)
+    raw_receipt = archive.record(source_id="tencent-qt", url="https://qt.gtimg.cn/q=sh600519,sz000333",
+        outcome="OK", requested_at=now, responded_at=now, content_hash=raw_hash, byte_size=len(payload))
+    manifest = {"schema_version": "aquant.tencent_market_cap_batches.v1", "market_day": "2026-09-22",
+                "items_hash": market_cap_items_hash(values), "batches": [{
+                    "receipt_id": raw_receipt.receipt_id, "content_hash": raw_hash,
+                    "accepted_ids": list(values)}]}
+    body = json.dumps(manifest).encode()
+    digest, _ = archive.store_bytes(body)
+    receipt = archive.record(source_id="tencent-qt", url="https://qt.gtimg.cn/q=#manifest",
+        outcome="OK", requested_at=now, responded_at=now, content_hash=digest, byte_size=len(body))
+    row = {"instrument_id": "SH.600519", "market_cap_cents": 123456,
+           "market_cap_as_of": "2026-09-22", "market_cap_source_id": "tencent-qt",
+           "market_cap_receipt_id": receipt.receipt_id, "market_cap_content_hash": digest,
+           "market_cap_observed_at": now.isoformat()}
+    con.close()
+    return archive_root, row, now
+
+
+def test_frozen_subset_cap_replays_exact_raw_values_and_receipts(tmp_path):
+    archive, row, cutoff = _real_frozen_cap(tmp_path)
+    verify_frozen_market_caps_archive([row], archive_root=archive,
+                                      expected_as_of="2026-09-22", cutoff=cutoff)
+    row["market_cap_cents"] += 1
+    with pytest.raises(DecisionMarketCapError, match="与原始响应不匹配"):
+        verify_frozen_market_caps_archive([row], archive_root=archive,
+                                          expected_as_of="2026-09-22", cutoff=cutoff)
+
+
+def test_frozen_cap_cannot_backfill_an_earlier_cutoff(tmp_path):
+    from datetime import timedelta
+    archive, row, cutoff = _real_frozen_cap(tmp_path)
+    with pytest.raises(DecisionMarketCapError, match="晚于决策cutoff"):
+        verify_frozen_market_caps_archive([row], archive_root=archive,
+            expected_as_of="2026-09-22", cutoff=cutoff - timedelta(seconds=1))
+
+
+@pytest.mark.parametrize("code", ["SH.6005191", "600５１９", "SZ.600519"])
+def test_security_identity_requires_exact_exchange_and_six_ascii_digits(code):
+    with pytest.raises(DecisionMarketCapError):
+        normalize_instrument_id(code)

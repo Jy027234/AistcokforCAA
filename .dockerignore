@@ -4,10 +4,15 @@ apps/web/node_modules
 **/__pycache__
 **/*.pyc
 .pytest_cache
+.env
+*.env
+deploy/local-trial/
 deploy/agentctl-q0/baostock-archive
 deploy/agentctl-q0/forward-archive
 deploy/agentctl-q0/s2-candidate-preview.json
 data/s2-pdf-review/
+# Live source archives are bound into the real deployment, never baked into it.
+/data/
 tmp/
 deploy/agentctl-q0/universe-bars.json
 deploy/universe-snapshot

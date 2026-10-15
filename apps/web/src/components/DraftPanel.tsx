@@ -36,6 +36,7 @@ export function DraftPanel({
    * 账本数字"。修复方式不是加一句说明，而是让**表格本身就来自服务端**。
    */
   const usingLive = livePreview !== null;
+  const uncomputed = !usingLive && apiUp === true;
   const checks = usingLive
     ? livePreview.rule_checks.map((c) => ({ name: c.check || c.order, passed: c.passed }))
     : draft.ruleChecks;
@@ -130,11 +131,11 @@ export function DraftPanel({
         订单差异预览
         <span className="note">
           {usingLive ? "（来自服务端预览，冻结的就是这一份）"
-                     : "（演示数据）"}
+                      : uncomputed ? "（尚未计算）" : "（演示数据）"}
         </span>
       </h4>
       {rows.length === 0 ? (
-        <p className="note">当前没有需要调整的持仓，草稿为空。</p>
+        <p className="note">{uncomputed ? "尚未生成预览，暂不能判断是否需要调整。" : "本次预览没有调整订单，可查看依据后记录维持不动的决定。"}</p>
       ) : (
         <div className="table-wrap">
           <table className="data">
@@ -218,7 +219,7 @@ export function DraftPanel({
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
           <button className="btn btn-sm" onClick={onRequestPreview}
             disabled={offline || !previewEnabled}>
-            请求服务端预览
+            计算调整预览
           </button>
           {livePreview ? (
             <Badge tone="ok">服务端预览已生成 · {livePreview.orders.length} 笔</Badge>

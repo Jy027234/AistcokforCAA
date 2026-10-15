@@ -30,6 +30,18 @@ def cand(iid, industry="IND_A", rank=1.0):
     return Candidate(instrument_id=iid, industry_code=industry, signal_rank=rank)
 
 
+@pytest.mark.parametrize("count,expected_cash", [(2, "92"), (25, "20")])
+def test_original_initial_allocation_is_distinct_from_the_single_name_risk_cap(count, expected_cash):
+    params = ConstructionParams(initial_target_pct=Decimal("4"), max_holdings=20)
+    candidates = [cand(f"SYN.A.{i:06d}", industry=f"IND_{i // 5}", rank=100 - i) for i in range(count)]
+    result = construct_targets(candidates=candidates, params=params,
+        bar_by_instrument={c.instrument_id: bar(c.instrument_id) for c in candidates})
+    assert len(result.targets) == min(count, 20)
+    assert all(t.weight_pct == Decimal("4") for t in result.targets)
+    assert params.max_single_name_pct == Decimal("10")
+    assert result.cash_weight_pct == Decimal(expected_cash)
+
+
 # ------------------------------------------------------------------ 排序确定性
 def test_ties_are_broken_by_instrument_id():
     """§10.3 同分时用证券 ID 稳定打破平局，结果必须可复现。"""

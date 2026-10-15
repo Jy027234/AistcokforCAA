@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   api, AquantApiError,
   type CorporateActionOutcome, type ExecuteResponse, type FillRow,
@@ -21,7 +21,7 @@ import { Badge, Callout, Card } from "./ui";
  *      绝不因为"数字看起来正常"就把它显示成已发布。
  */
 export function LedgerPanel({
-  portfolioId, snapshotId, tradingDay, planId, frozen, persistedPlanStatus,
+  portfolioId, snapshotId, tradingDay, planId, frozen, persistedPlanStatus, onChanged,
 }: {
   portfolioId: string;
   snapshotId: string;
@@ -29,6 +29,7 @@ export function LedgerPanel({
   planId: string | null;
   frozen: boolean;
   persistedPlanStatus: "FROZEN" | "EXECUTED" | null;
+  onChanged?: () => void;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -65,6 +66,7 @@ export function LedgerPanel({
       // 免得界面把上一轮的净值继续挂在这里。
       setValuation(null);
       setRecon(null);
+      onChanged?.();
     });
   };
 
@@ -72,13 +74,17 @@ export function LedgerPanel({
     run("日终估值", () => api.value({
       portfolio_id: portfolioId, snapshot_id: snapshotId, trading_day: tradingDay,
       ...(planId ? { execution_plan_id: planId } : {}),
-    }), setValuation);
+    }), output => { setValuation(output); onChanged?.(); });
 
   const onReconcile = () =>
     run("对账", () => api.reconcile(portfolioId), setRecon);
 
   // ------------------------------------------------------- 账本明细
   const [ledger, setLedger] = useState<LedgerResponse | null>(null);
+  useEffect(() => {
+    setExecuted(null); setValuation(null); setRecon(null); setLedger(null); setError(null);
+    setCorporateActions(false);
+  }, [portfolioId, planId, snapshotId, tradingDay]);
 
   const onLedger = () =>
     run("载入账本", () => api.ledger(portfolioId), setLedger);

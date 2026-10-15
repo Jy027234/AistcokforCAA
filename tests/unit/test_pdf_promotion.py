@@ -34,6 +34,33 @@ FIELDS = (
 )
 
 
+@pytest.mark.parametrize("finish_minute, expected_day", [(44, 28), (46, 29)])
+def test_availability_uses_actual_verification_completion_after_preopen(
+    tmp_path, monkeypatch, finish_minute, expected_day,
+):
+    con, archive, repository, candidate, receipt, review = _setup(tmp_path, monkeypatch)
+    started = _at(28, 0, 44)
+    completed = _at(28, 0, finish_minute)
+    times = iter((started, completed))
+    monkeypatch.setattr(promotion, "_utc_now", lambda: next(times))
+    try:
+        facts = _promote(archive, repository, candidate, receipt, review)
+        assert all(fact.ingested_at == completed for fact in facts)
+        assert all(fact.available_at == _at(expected_day, 0, 45) for fact in facts)
+        assert all(fact.available_at >= fact.ingested_at for fact in facts)
+        _, accepted = repository.load_with_accepted_s2_pdf_reviews()
+        assert len(accepted) == 5
+        # 开始时刻已过日期公开规则，但不能在尚未完成核验的今日盘前读取。
+        if finish_minute > 45:
+            assert not repository.load().select_pit(_at(28, 0, 45), instrument_id="600519")
+        with sqlite3.connect(repository.db_path) as fact_con:
+            evidence = json.loads(fact_con.execute(
+                "SELECT evidence_json FROM financial_fact_review").fetchone()[0])
+        assert datetime.fromisoformat(evidence["ingested_at"]) == completed
+    finally:
+        con.close()
+
+
 def _at(day: int, hour: int, minute: int = 0) -> datetime:
     return datetime(2026, 9, day, hour, minute, tzinfo=UTC)
 
@@ -91,7 +118,8 @@ def _index_record(archive: ForwardArchive, payload: bytes, *, seen: datetime,
                   page: int = 1, stock: str = "600519",
                   org: str = "gssh0600519", page_size: int = 30,
                   category: str = "category_bndbg_szsh",
-                  period_range: str = "2026-06-30~2028-06-29") -> str:
+                  period_range: str = "2026-06-30~2028-06-29",
+                  report_period: str = "2026-06-30") -> str:
     body = urlencode({
         "pageNum": page, "pageSize": page_size, "column": "sse",
         "tabName": "fulltext", "plate": "", "stock": f"{stock},{org}",
@@ -103,7 +131,7 @@ def _index_record(archive: ForwardArchive, payload: bytes, *, seen: datetime,
     return _record(
         archive, payload,
         url="http://www.cninfo.com.cn/new/hisAnnouncement/query", seen=seen,
-        detail=f"report-index:{stock}:2026-06-30:page={page}:request={request_hash}",
+        detail=f"report-index:{stock}:{report_period}:page={page}:request={request_hash}",
     )
 
 
@@ -114,13 +142,14 @@ def _cross_fixture(
     related_report_ids: dict[str, tuple[str, ...]] | None = None,
     relation_receipt_ids: dict[str, str] | None = None,
     relation_excerpt: str | None = None,
+    query_start: date = date(2026, 6, 30),
 ):
     through = reviewed_at.astimezone(timezone(timedelta(hours=8))).date()
     body = urlencode({
         "pageNum": 1, "pageSize": 30, "column": "sse",
         "tabName": "fulltext", "plate": "", "stock": "600519,gssh0600519",
         "searchkey": "", "secid": "", "category": "", "trade": "",
-        "seDate": f"2026-06-30~{through.isoformat()}",
+        "seDate": f"{query_start.isoformat()}~{through.isoformat()}",
         "sortName": "", "sortType": "", "isHLtitle": "true",
     }).encode()
     body_hash, _ = archive.store_bytes(body)
@@ -129,7 +158,7 @@ def _cross_fixture(
         archive, response,
         url="http://www.cninfo.com.cn/new/hisAnnouncement/query",
         seen=seen,
-        detail=(f"cross-category:600519:2026-06-30~{through.isoformat()}:"
+        detail=(f"cross-category:600519:{query_start.isoformat()}~{through.isoformat()}:"
                 f"page=1:request={body_hash}"),
     )
     response_hash = archive.con.execute(
@@ -172,7 +201,7 @@ def _cross_fixture(
     result = CrossCategoryIndexResult(
         stock_code="600519", organization_id="gssh0600519",
         report_period="2026-06-30",
-        publication_window=(date(2026, 6, 30), through),
+        publication_window=(query_start, through),
         org_lookup_receipt_id=org_receipt,
         org_lookup_content_hash=archive.con.execute(
             "SELECT content_hash FROM fetch_receipt WHERE receipt_id = ?",
@@ -730,6 +759,86 @@ def test_all_category_index_and_each_correction_candidate_are_required(
         )
         assert len(facts) == 5
         assert {fact.available_at for fact in facts} == {_at(28, 0, 45)}
+    finally:
+        con.close()
+
+
+def test_complete_company_index_is_shared_without_rewriting_its_real_window(tmp_path, monkeypatch):
+    con, archive, repository, candidate, receipt, review = _setup(tmp_path, monkeypatch)
+    try:
+        older_publication = datetime(2025, 8, 21, 12, tzinfo=UTC)
+        cross, dispositions = _cross_fixture(archive,
+            (("1001", "2026年半年度报告", _at(24, 12)),
+             ("1005", "2025年半年度报告", older_publication)),
+            document_receipts={"1001": receipt}, org_receipt=review.org_lookup_receipt_id,
+            seen=_at(25, 16, 15), reviewed_at=_at(25, 16, 40), query_start=date(2024, 6, 30))
+        facts = _promote(archive, repository, candidate, receipt, review,
+            cross_index=cross, cross_dispositions=dispositions, cross_reviewed_at=_at(25, 16, 40))
+        assert len(facts) == 5
+        store, accepted = repository.load_with_accepted_s2_pdf_reviews()
+        assert set(accepted) == {fact.version_id for fact in store.facts}
+        with sqlite3.connect(repository.db_path) as fact_con:
+            evidence = json.loads(fact_con.execute("SELECT evidence_json FROM financial_fact_review").fetchone()[0])
+        assert evidence["cross_category_index"]["publication_window"] == ["2024-06-30", "2026-09-26"]
+        assert evidence["cross_category_index"]["request_body_hashes"] == [cross.pages[0].request_body_hash]
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("kind", ["late_start", "wrong_end", "missing_page", "hidden_correction"])
+def test_shared_company_index_cannot_hide_scope_pages_or_corrections(tmp_path, monkeypatch, kind):
+    con, archive, repository, candidate, receipt, review = _setup(tmp_path, monkeypatch)
+    try:
+        correction = _record(archive, b"%PDF-correction", seen=_at(25, 16, 10),
+            url="https://static.cninfo.com.cn/finalpage/2026-09-24/1004.PDF")
+        cross, dispositions = _cross_fixture(archive,
+            (("1001", "2026年半年度报告", _at(24, 12)),
+             ("1004", "2024年年度报告更正公告", _at(25, 8))),
+            document_receipts={"1001": receipt, "1004": correction},
+            org_receipt=review.org_lookup_receipt_id,
+            seen=_at(25, 16, 15), reviewed_at=_at(25, 16, 40), query_start=date(2024, 6, 30))
+        if kind == "late_start":
+            cross = replace(cross, publication_window=(date(2026, 7, 1), cross.publication_window[1]))
+        elif kind == "wrong_end":
+            cross = replace(cross, publication_window=(cross.publication_window[0], date(2026, 9, 25)))
+        elif kind == "missing_page":
+            cross = replace(cross, pages=(replace(cross.pages[0], page_num=2),))
+        else:
+            cross = replace(cross, announcements=tuple(entry for entry in cross.announcements
+                                                       if entry.announcement_id != "1004"))
+            dispositions = dispositions[:1]
+        with pytest.raises(promotion.PdfPromotionError):
+            _promote(archive, repository, candidate, receipt, review,
+                cross_index=cross, cross_dispositions=dispositions, cross_reviewed_at=_at(25, 16, 40))
+        assert not repository.load().facts
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("old_period", [False, True])
+def test_regular_report_window_uses_actual_review_horizon_capped_by_provider_window(tmp_path, monkeypatch, old_period):
+    con, archive, repository, candidate, receipt, review = _setup(tmp_path, monkeypatch)
+    try:
+        period_end = date(2024, 6, 30) if old_period else date(2026, 6, 30)
+        actual_review = datetime(2026, 10, 13, 0, 10, tzinfo=UTC)
+        end = min(date(2026, 10, 13), parse_report_period(period_end.isoformat()).publication_window[1])
+        published = datetime(period_end.year, 8, 21, 12, tzinfo=UTC)
+        candidate = replace(candidate, period_end=period_end,
+            candidates=tuple(replace(item, period_end=period_end) for item in candidate.candidates))
+        index = _index_record(archive, _index_payload(("1001", f"{period_end.year}年半年度报告", published)),
+            seen=_at(25, 16, 15), report_period=period_end.isoformat(),
+            period_range=f"{period_end.isoformat()}~{end.isoformat()}")
+        version = replace(review, index_receipt_id=index, search_receipt_ids=(index,),
+            query_period_start=period_end, query_period_end=end, reviewed_at=actual_review,
+            query_digest=promotion.cninfo_query_digest(stock_code="600519", organization_id="gssh0600519",
+                period_start=period_end, period_end=end))
+        publication, _, _, _ = promotion._version_evidence(archive, candidate, version, now=actual_review)
+        assert publication == published.date()
+        too_short = replace(version, query_period_end=end - timedelta(days=1),
+            query_digest=promotion.cninfo_query_digest(stock_code="600519", organization_id="gssh0600519",
+                period_start=period_end, period_end=end - timedelta(days=1)))
+        with pytest.raises(promotion.PdfPromotionError):
+            promotion._version_evidence(archive, candidate, too_short, now=actual_review)
     finally:
         con.close()
 

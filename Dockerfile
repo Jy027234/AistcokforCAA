@@ -24,7 +24,7 @@ ENV PYTHONUNBUFFERED=1 \
 RUN pip install --no-cache-dir \
       'fastapi>=0.110' 'uvicorn>=0.29' 'pydantic>=2.0' \
       'PyYAML>=6.0' 'httpx>=0.27' 'pytest>=8.0' 'jsonschema>=4.20' \
-      'baostock>=0.8'
+      'baostock>=0.8' 'pypdf==6.16.2' 'pdfplumber==0.11.9' 'pypdfium2==5.7.1'
 
 WORKDIR /app
 # 整个仓库都进镜像：apps/api 启动时会用 tests/ 里的合成夹具自举一份快照，

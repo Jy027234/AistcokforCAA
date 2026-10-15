@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import hashlib
 import sqlite3
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
+from aquant.artifact_paths import resolve_archive_member
 
 SCHEMA_VERSION = "aquant.decision_market_caps.v1"
 DEFAULT_FILENAME = "decision-market-caps.json"
@@ -100,12 +102,12 @@ def normalize_instrument_id(value: object) -> str:
     text = str(value or "").strip().upper().replace("-", ".")
     if "." in text:
         market, code = text.split(".", 1)
-        if market in {"SH", "SSE", "SZ", "SZSE"} and code.isdigit():
+        if market in {"SH", "SSE", "SZ", "SZSE"} and re.fullmatch(r"[0-9]{6}", code):
             prefix = "SH" if market in {"SH", "SSE"} else "SZ"
             if _is_supported_a_share_code(prefix, code):
                 return prefix + "." + code
             raise DecisionMarketCapError(f"不支持的沪深证券代码：{value!r}")
-    if text.isdigit() and len(text) == 6:
+    if re.fullmatch(r"[0-9]{6}", text):
         if text.startswith(("60", "68")):
             return "SH." + text
         if text.startswith(("00", "30")):
@@ -291,7 +293,10 @@ def _verified_receipt_bytes(con: sqlite3.Connection, archive_root: Path, *,
     if artifact is None:
         raise DecisionMarketCapError(f"总市值原始归档缺失：{content_hash}")
     root = archive_root.resolve()
-    path = (root / artifact["stored_path"]).resolve()
+    try:
+        path = resolve_archive_member(root, artifact["stored_path"])
+    except ValueError as exc:
+        raise DecisionMarketCapError("总市值原始归档路径越界") from exc
     if root not in path.parents:
         raise DecisionMarketCapError("总市值原始归档路径越界")
     try:
@@ -308,6 +313,8 @@ def verify_sidecar_archive(sidecar: DecisionMarketCapSidecar,
     """核对 sidecar 数值摘要、批次清单、原始响应及其归档收据。"""
 
     root = Path(archive_root)
+    if not sidecar.items:
+        raise DecisionMarketCapError("总市值sidecar没有可验证证券")
     db_path = root / "meta.sqlite"
     if not db_path.is_file():
         raise DecisionMarketCapError(f"总市值归档数据库缺失：{db_path}")
@@ -357,6 +364,92 @@ def verify_sidecar_archive(sidecar: DecisionMarketCapSidecar,
         if isinstance(exc, DecisionMarketCapError):
             raise
         raise DecisionMarketCapError(f"无法校验总市值归档：{exc}") from exc
+    verify_frozen_market_caps_archive([
+        {"instrument_id": iid, "market_cap_cents": item.market_cap_cents,
+         "market_cap_as_of": item.market_cap_as_of,
+         "market_cap_source_id": sidecar.source_id,
+         "market_cap_receipt_id": sidecar.receipt_id,
+         "market_cap_content_hash": sidecar.content_hash,
+         "market_cap_observed_at": sidecar.observed_at}
+        for iid, item in sidecar.items.items()], archive_root=root,
+        expected_as_of=sidecar.market_cap_as_of, cutoff=sidecar.observed_at_dt)
+
+
+def verify_frozen_market_caps_archive(instruments: list[dict], *, archive_root: str | Path,
+                                      expected_as_of: str, cutoff: datetime) -> None:
+    """Verify frozen cap rows against their original batch receipts and values.
+
+    The frozen pool can be a subset of the archived collection. Verification
+    therefore replays original bytes instead of comparing a subset items hash
+    against the whole collection's hash. This function performs no fetches.
+    """
+    root = Path(archive_root)
+    if not (root / "meta.sqlite").is_file():
+        raise DecisionMarketCapError("总市值归档数据库缺失")
+    grouped: dict[tuple, list[dict]] = {}
+    for row in instruments:
+        if row.get("market_cap_cents") is None:
+            continue
+        key = tuple(row.get("market_cap_" + name) for name in
+                    ("source_id", "receipt_id", "content_hash", "observed_at"))
+        grouped.setdefault(key, []).append(row)
+    as_of = date.fromisoformat(expected_as_of)
+    with sqlite3.connect((root / "meta.sqlite").resolve().as_uri() + "?mode=ro", uri=True) as con:
+        con.row_factory = sqlite3.Row
+        for (source, receipt_id, digest, stamp), rows in grouped.items():
+            if source not in SUPPORTED_SOURCE_IDS:
+                raise DecisionMarketCapError("冻结总市值缺少受支持的真实来源")
+            observed = _parse_aware_datetime(stamp, "market_cap_observed_at")
+            _validate_observation_time(observed, as_of)
+            if observed > cutoff:
+                raise DecisionMarketCapError("冻结总市值观测晚于决策cutoff")
+            manifest = json.loads(_verified_receipt_bytes(con, root, receipt_id=receipt_id,
+                content_hash=digest, source_id=source, as_of=as_of, observed_at=observed))
+            schema = ("aquant.tencent_market_cap_batches.v1" if source == "tencent-qt"
+                      else "aquant.eastmoney_market_cap_pages.v1")
+            if manifest.get("schema_version") != schema or manifest.get("market_day") != expected_as_of:
+                raise DecisionMarketCapError("冻结总市值归档清单来源或日期不匹配")
+            children = manifest.get("batches" if source == "tencent-qt" else "pages")
+            if not isinstance(children, list) or not children:
+                raise DecisionMarketCapError("冻结总市值归档缺少原始批次")
+            values: dict[str, int] = {}
+            for child in children:
+                payload = _verified_receipt_bytes(con, root, receipt_id=child["receipt_id"],
+                    content_hash=child["content_hash"], source_id=source, as_of=as_of,
+                    observed_at=observed)
+                if source == "tencent-qt":
+                    parsed = {}
+                    for match in re.finditer(r'v_((?:sh|sz)[0-9]{6})="([^"]*)";',
+                                             payload.decode("gbk", "replace")):
+                        symbol, body = match.groups()
+                        fields = body.split("~")
+                        if len(fields) <= 45 or fields[2].strip() != symbol[2:]:
+                            continue
+                        try:
+                            quote_at = datetime.strptime(fields[30], "%Y%m%d%H%M%S")
+                            cents = market_cap_cents_from_yuan(Decimal(fields[45]) * Decimal("100000000"))
+                        except (ValueError, InvalidOperation):
+                            continue
+                        iid = normalize_instrument_id(symbol[:2] + "." + symbol[2:])
+                        if quote_at.date() == as_of and quote_at.time() >= MARKET_CLOSE:
+                            if "accepted_ids" not in child or iid in child["accepted_ids"]:
+                                if iid in parsed:
+                                    raise DecisionMarketCapError("冻结总市值原始响应证券重复")
+                                parsed[iid] = cents
+                else:
+                    raw_rows = (json.loads(payload).get("data") or {}).get("diff") or []
+                    if isinstance(raw_rows, dict):
+                        raw_rows = list(raw_rows.values())
+                    parsed = market_cap_cents_from_eastmoney_rows(raw_rows)
+                if values.keys() & parsed.keys():
+                    raise DecisionMarketCapError("冻结总市值原始批次证券重复")
+                values.update(parsed)
+            if manifest.get("items_hash") != market_cap_items_hash(values):
+                raise DecisionMarketCapError("冻结总市值归档清单与原始数值不匹配")
+            for row in rows:
+                iid = normalize_instrument_id(row["instrument_id"])
+                if row.get("market_cap_as_of") != expected_as_of or values.get(iid) != row["market_cap_cents"]:
+                    raise DecisionMarketCapError(f"{iid} 冻结总市值与原始响应不匹配")
 
 
 def load_sidecar(
@@ -470,4 +563,5 @@ __all__ = [
     "sidecar_from_eastmoney_rows",
     "sidecar_from_market_cap_values",
     "verify_sidecar_archive",
+    "verify_frozen_market_caps_archive",
 ]

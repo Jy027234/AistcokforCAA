@@ -1,24 +1,40 @@
 import type { WorkspaceData } from "../lib/types";
 import { categoryLabel, directionLabel, formatAsOf, verificationLabel } from "../lib/format";
 import { Badge, Callout, Card, Empty, Section } from "../components/ui";
+import type { PreviewResponse, ResearchSimulationDraft } from "../lib/api";
+import { summarizePlan } from "../lib/workflow";
 
 /** 今日：数据状态、重要变化、持仓事件、研究候选、待处理项（§5.2）。
  *  交互原则：先变化后排行；允许"今日无需调整"。
  */
 export function TodayView({
-  data, onOpenCard, onOpenDraft,
-}: { data: WorkspaceData; onOpenCard: (id: string) => void; onOpenDraft: () => void }) {
+  data, onOpenCard, onOpenDraft, onOpenResearch, livePreview = null,
+  persistedPlanStatus = null, researchDrafts = [], draftReadError = null, watchIds = [],
+}: { data: WorkspaceData; onOpenCard: (id: string) => void; onOpenDraft: () => void;
+  onOpenResearch?: () => void; livePreview?: PreviewResponse | null;
+  persistedPlanStatus?: "FROZEN" | "EXECUTED" | null;
+  researchDrafts?: ResearchSimulationDraft[]; draftReadError?: string | null; watchIds?: string[];
+}) {
   const { status, todayChanges, candidates, draft } = data;
-  const pending = draft.ruleChecks.filter((c) => !c.passed);
-  // API 初始态还没有请求过计划预览，不能把“尚未计算”说成“今日无需调整”。
-  const nothingToDo = todayChanges.length === 0 && pending.length === 0 &&
-    (data.dataSource !== "api" || draft.planId !== "");
+  const source = data.dataSource === "api" ? "api" : "fixture";
+  const plan = summarizePlan(draft, livePreview, persistedPlanStatus, source);
+  const pending = (livePreview?.rule_checks ?? draft.ruleChecks).filter(item => !item.passed);
+  const userDrafts = researchDrafts.filter(item => item.source === "USER_SELECTION" && item.portfolioId === draft.portfolioId);
+  const outstanding = userDrafts.filter(item => ["WAITING_EXECUTION_SNAPSHOT", "READY_FOR_REVIEW", "BLOCKED", "FROZEN"].includes(item.status));
+  const relevant = todayChanges.filter(item => item.subjects.some(id => watchIds.includes(id)));
+  const orderedChanges = [...relevant, ...todayChanges.filter(item => !relevant.includes(item))];
+  const nothingToDo = plan.computed && plan.checked && plan.orders === 0 && pending.length === 0 &&
+    !persistedPlanStatus && outstanding.length === 0 && status.blockingIssues.length === 0;
 
   return (
     <>
+      <div className="page-intro">
+        <h1>今天从这里开始</h1>
+        <p>先看与你关注的股票有关的变化，再继续研究或处理模拟方案。研究时间：{formatAsOf(status.asOfTime)}。</p>
+      </div>
       {status.blockingIssues.length > 0 && (
         <div className="section">
-          <Callout tone="danger" title="数据不完整，已阻断正式研究">
+          <Callout tone="warn" title="当前数据有待处理项">
             {status.blockingIssues.map((b, i) => (
               <div key={i} style={{ marginTop: i ? 6 : 0 }}>
                 <span className="mono">{b.code}</span> · {b.message}
@@ -29,15 +45,16 @@ export function TodayView({
         </div>
       )}
 
-      <div className="grid-2 section">
+      <Section title="今日变化与待办" dataSource={source}>
+      <div className="grid-2">
         <Card title="今天改变了什么" >
           {todayChanges.length === 0 ? (
             <Empty title="今日没有新的可用变化">
-              没有新证据时系统不会生成变化摘要。
+              当前发布资料没有新的变化摘要；这不表示市场没有变化，也不代表已评估组合。
             </Empty>
           ) : (
             <ul className="list">
-              {todayChanges.map((c) => {
+              {orderedChanges.map((c) => {
                 const v = verificationLabel(c.verification);
                 const d = directionLabel(c.direction);
                 return (
@@ -46,6 +63,7 @@ export function TodayView({
                       <Badge tone="accent">{categoryLabel(c.category)}</Badge>
                       <Badge tone={v.tone}>{v.text}</Badge>
                       <Badge tone={d.tone}>{d.text}</Badge>
+                      {relevant.includes(c) && <Badge tone="accent">关联我的自选</Badge>}
                     </div>
                     <div>{c.summary}</div>
                     <div className="note">
@@ -59,40 +77,47 @@ export function TodayView({
           )}
         </Card>
 
-        <Card title="我的组合需要关注什么">
+        <Card title="接下来做什么">
+          <Badge tone={plan.tone}>{plan.label}</Badge>
+          <p style={{ margin: "10px 0" }}>{plan.detail}</p>
           <dl className="kv">
-            <dt>草稿订单</dt><dd>{draft.orders.length} 笔</dd>
-            <dt>预计费用</dt><dd>{draft.estimatedFees}</dd>
+            <dt>草稿订单</dt><dd>{plan.computed ? `${plan.orders} 笔` : "尚未计算"}</dd>
             <dt>规则检查</dt>
             <dd>
-              {pending.length === 0
+              {!plan.checked ? <Badge tone="neutral">尚无检查结果</Badge> : pending.length === 0
                 ? <Badge tone="ok">全部通过</Badge>
                 : <Badge tone="warn">{pending.length} 项未通过</Badge>}
             </dd>
-            <dt>计划状态</dt><dd><Badge tone="neutral">{draft.frozenLabel}</Badge></dd>
+            {outstanding.length > 0 && <><dt>已保存方案</dt><dd>{outstanding.length} 份待继续</dd></>}
           </dl>
           {pending.length > 0 && (
             <div style={{ marginTop: 10 }}>
               <Callout tone="warn" title="以下检查未通过">
                 <ul style={{ margin: 0, paddingLeft: 18 }}>
-                  {pending.map((c) => <li key={c.name}>{c.name}</li>)}
+                  {pending.map((c, index) => <li key={index}>{"name" in c ? c.name : c.check || c.order}</li>)}
                 </ul>
               </Callout>
             </div>
           )}
           <div style={{ marginTop: 12 }}>
-            <button className="btn btn-sm btn-primary" onClick={onOpenDraft} disabled={draft.orders.length === 0}>
-              查看模拟草稿
+            <button className="btn btn-primary" onClick={onOpenDraft}>
+              {outstanding.length ? "继续已保存方案" : plan.action}
             </button>
+            {onOpenResearch && <button className="btn" style={{ marginLeft: 8 }} onClick={onOpenResearch}>研究股票</button>}
           </div>
+          {outstanding.map(item => <p className="note" key={item.draftId} style={{ marginTop: 8 }}>
+            {item.tradingDay} · {item.status === "WAITING_EXECUTION_SNAPSHOT" ? "等待执行日行情" : item.status === "READY_FOR_REVIEW" ? "已复核，待你确认" : item.status === "FROZEN" ? "已确认，继续查看执行状态" : "资格或配置待补齐"}
+          </p>)}
+          {draftReadError && <Callout tone="warn" title="保存方案状态暂未读到">{draftReadError}</Callout>}
         </Card>
       </div>
+      </Section>
 
       <Section
-        title="研究候选"
-        hint="先变化后排行"
+        title="可继续研究的股票"
+        hint="当前规则快照候选；完整研究名单在研究页"
         dataSource={data.dataSource === "api" ? "api" : "fixture"}
-        actions={<span className="note">全部数值绑定同一快照 {status.snapshotId}</span>}
+        actions={onOpenResearch && <button className="btn btn-sm" onClick={onOpenResearch}>查看全部研究</button>}
       >
         <Card padded={false}>
           {candidates.length === 0 ? (
@@ -114,7 +139,7 @@ export function TodayView({
                   </tr>
                 </thead>
                 <tbody>
-                  {candidates.map((c) => (
+                  {candidates.slice(0, 5).map((c) => (
                     <tr key={c.instrumentId}>
                       <td>
                         <div style={{ fontWeight: 550 }}>{c.displayName}</div>
@@ -144,8 +169,8 @@ export function TodayView({
       </Section>
 
       {nothingToDo && (
-        <Callout tone="ok" title="今日无需调整">
-          没有新的可用证据，也没有未通过的规则检查。保持观察是有效结论。
+        <Callout tone="ok" title="本次预览没有调整订单">
+          已计算且已有规则检查。你仍可在模拟组合中明确记录维持不动的决定及理由。
         </Callout>
       )}
     </>

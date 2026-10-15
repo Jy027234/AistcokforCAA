@@ -1,0 +1,36 @@
+export interface FinancialCoverageReport {
+  schema: string; snapshotId: string; snapshotCutoffAt: string; generatedAt: string;
+  latestPeriodEnd: string; targetPeriodEnd: string; targetPeriodBasis: string;
+  s1Optional: { statementSecurityCount: number; ttmSecurityCount: number; poolCount: number;
+    presenceRatio: number; ttmRatio: number; note: string };
+  formalS2: { requiredMetricPeriodCount: number; acceptedMetricPeriodCount: number;
+    completeFactSecurityCount: number; completeFactorSecurityCount: number;
+    acceptedFactCount: number; liveFactCount: number; strategyFamilyStatus: string;
+    pendingMetricPeriodCount: number; pendingCompleteFactSecurityCount?: number;
+    scopeStatus?: string; rankingPoolSize?: number; missingMarketCapCount?: number };
+  historicalReconstructed: { requiredMetricPeriodCount: number; availableMetricPeriodCount: number;
+    completeFactSecurityCount: number; pitMode: string };
+  securities: { instrumentId: string; code: string; displayName: string; isPriority: boolean; targetPeriodEnd: string;
+    targetPeriodBasis?: string;
+    targetPeriodDiscovery?: { latest_period_end: string | null; discovery_status: string;
+      index_observed_at: string | null; all_category_complete: boolean; effective_at_cutoff: boolean } | null;
+    s1Optional: { statementPresent: boolean; ttmAvailable: boolean; ttmNetProfitMicros: number | null;
+      missingPeriods: string[] };
+    formalS2: { requiredMetricPeriodCount: number; acceptedMetricPeriodCount: number; completeFacts: boolean;
+      completePendingFacts?: boolean;
+      financialInputs?: { attributable_net_profit_ttm: string; consolidated_net_profit_ttm: string;
+        operating_cashflow_ttm: string; revenue_ttm: string; prior_revenue_ttm: string;
+        start_parent_equity: string; end_parent_equity: string; average_parent_equity: string;
+        latest_period_end: string; ttm_start_period_end: string; fact_version_ids: string[];
+        non_positive_denominator_factors?: string[] } | null;
+      financialInputStatus?: string; financialInputCutoffAt?: string;
+      marketCap?: { status: string; value_yuan: string | null; as_of: string | null;
+        source_id: string | null; observed_at: string | null; receipt_id: string | null; content_hash: string | null };
+      signal?: { signal_rank: number; quality_rank: number; value_rank: number;
+        factors: { F07: string; F08: string; F09: string; F10: string } } | null;
+      factorExclusionCode: string | null; metricPeriods: { metric: string; periodEnd: string; status: string;
+        valueYuan: string | null; versionId: string | null; bundleId: string | null;
+        firstSeenAt: string | null; availableAt: string | null }[] };
+    historicalReconstructed: { availableMetricPeriodCount: number; completeFacts: boolean };
+  }[];
+}

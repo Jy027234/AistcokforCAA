@@ -184,6 +184,43 @@ class S2Signal:
 
 
 @dataclass(frozen=True, slots=True)
+class S2FinancialInputs:
+    """Verified PIT financial bridge, independent of decision-date market cap.
+
+    Non-positive denominators remain visible here; factor construction applies
+    the existing exclusion rules. This is never a partial S2 signal.
+    """
+
+    instrument_id: str
+    attributable_net_profit_ttm: Decimal
+    consolidated_net_profit_ttm: Decimal
+    operating_cashflow_ttm: Decimal
+    revenue_ttm: Decimal
+    prior_revenue_ttm: Decimal
+    start_parent_equity: Decimal
+    end_parent_equity: Decimal
+    average_parent_equity: Decimal
+    latest_period_end: date
+    ttm_start_period_end: date
+    feature_template: S2Template
+    fact_version_ids: tuple[str, ...]
+
+    def as_dict(self) -> dict[str, object]:
+        return {"instrument_id": self.instrument_id,
+                **{name: str(getattr(self, name)) for name in (
+                    "attributable_net_profit_ttm", "consolidated_net_profit_ttm",
+                    "operating_cashflow_ttm", "revenue_ttm", "prior_revenue_ttm",
+                    "start_parent_equity", "end_parent_equity", "average_parent_equity")},
+                "latest_period_end": self.latest_period_end.isoformat(),
+                "ttm_start_period_end": self.ttm_start_period_end.isoformat(),
+                "feature_template": self.feature_template.value,
+                "non_positive_denominator_factors": [name for name, value in (
+                    (F07, self.average_parent_equity), (F08, self.consolidated_net_profit_ttm),
+                    (F09, self.prior_revenue_ttm)) if value <= 0],
+                "fact_version_ids": list(self.fact_version_ids)}
+
+
+@dataclass(frozen=True, slots=True)
 class S2Evaluation:
     """构建证券池时的成功或拒绝结果。
 
@@ -447,6 +484,139 @@ def _collect_selected(
             instrument_id=instrument_id,
             repair_action="repair publication time, availability basis or revision chain",
         ) from exc
+
+
+def compute_s2_financial_inputs(
+    *,
+    store: VersionedFinancialFactStore,
+    instrument_id: str,
+    cutoff: datetime,
+    industry_template: S2Template | str | None = S2Template.ORDINARY,
+    metrics: S2MetricNames = DEFAULT_S2_METRICS,
+) -> S2FinancialInputs:
+    """Select the same required financial versions and expose actual TTM bridges."""
+
+    template = _template(industry_template, instrument_id=instrument_id)
+    if template is not S2Template.ORDINARY:
+        raise UnsupportedS2Industry(instrument_id, template.value)
+
+    if cutoff.tzinfo is None or cutoff.utcoffset() is None:
+        raise S2ComputationError(
+            "PIT_UNVERIFIED",
+            "cutoff must be timezone-aware",
+            instrument_id=instrument_id,
+            repair_action="pass an aware UTC cutoff to the PIT store",
+        )
+    selected = _collect_selected(store, instrument_id=instrument_id, cutoff=cutoff)
+    attr_np = _index_metric(
+        selected, metric=metrics.attributable_net_profit,
+        statement_scope=StatementScope.CONSOLIDATED,
+        profit_scope=ProfitScope.ATTRIBUTABLE, instrument_id=instrument_id)
+    consolidated_np = _index_metric(
+        selected, metric=metrics.consolidated_net_profit,
+        statement_scope=StatementScope.CONSOLIDATED,
+        profit_scope=ProfitScope.CONSOLIDATED, instrument_id=instrument_id)
+    cfo = _index_metric(
+        selected, metric=metrics.operating_cash_flow,
+        statement_scope=StatementScope.CONSOLIDATED,
+        profit_scope=None, instrument_id=instrument_id)
+    revenue = _index_metric(
+        selected, metric=metrics.revenue,
+        statement_scope=StatementScope.CONSOLIDATED,
+        profit_scope=None, instrument_id=instrument_id)
+    equity = _index_metric(
+        selected, metric=metrics.parent_equity,
+        statement_scope=StatementScope.CONSOLIDATED,
+        profit_scope=None, instrument_id=instrument_id)
+
+    latest_period_end = _latest_period(attr_np, instrument_id=instrument_id,
+                                       label=metrics.attributable_net_profit)
+    for rows, label in (
+        (consolidated_np, metrics.consolidated_net_profit),
+        (cfo, metrics.operating_cash_flow),
+        (revenue, metrics.revenue),
+        (equity, metrics.parent_equity),
+    ):
+        if _latest_period(rows, instrument_id=instrument_id, label=label) != latest_period_end:
+            raise S2ComputationError(
+                "S2_PERIOD_ALIGNMENT_MISMATCH",
+                f"{label} latest period does not match {latest_period_end.isoformat()}",
+                instrument_id=instrument_id,
+                repair_action="provide all S2 metrics for one common latest report period",
+            )
+
+    # Current-period S2 facts must be one report bundle. For prior periods,
+    # each formula below checks its own multi-table bundle as well.
+    _same_bundle(
+        (attr_np[latest_period_end], consolidated_np[latest_period_end],
+         cfo[latest_period_end], revenue[latest_period_end], equity[latest_period_end]),
+        period_end=latest_period_end, label="current S2 bundle",
+        instrument_id=instrument_id)
+
+    attr_ttm = _ttm(attr_np, latest_period_end=latest_period_end,
+                    instrument_id=instrument_id, label=metrics.attributable_net_profit)
+    np_ttm = _ttm(consolidated_np, latest_period_end=latest_period_end,
+                  instrument_id=instrument_id, label=metrics.consolidated_net_profit)
+    cfo_ttm = _ttm(cfo, latest_period_end=latest_period_end,
+                   instrument_id=instrument_id, label=metrics.operating_cash_flow)
+    revenue_ttm = _ttm(revenue, latest_period_end=latest_period_end,
+                       instrument_id=instrument_id, label=metrics.revenue)
+
+    # Validate same-announcement pairing for every multi-table component that
+    # enters the formulas. This prevents silently combining a revised income
+    # value with an unrevised balance/cashflow value.
+    year, quarter = _quarter_end(latest_period_end, instrument_id=instrument_id)
+    ttm_periods = ([latest_period_end] if quarter == 4 else [
+        latest_period_end, _period(year - 1, 4), _period(year - 1, quarter)])
+    # F07 needs equity only at the rolling window's two endpoints. The
+    # annual bridge used by the TTM formula is a flow fact, so it does not
+    # require a balance-sheet value at that intermediate report period.
+    for period in (latest_period_end, attr_ttm.start_period_end):
+        missing = [name for rows, name in (
+            (attr_np, metrics.attributable_net_profit),
+            (equity, metrics.parent_equity),
+        ) if period not in rows]
+        if missing:
+            raise S2ComputationError(
+                "S2_TTM_INCOMPLETE",
+                f"F07 report bundle at {period.isoformat()} is missing "
+                + ", ".join(missing),
+                instrument_id=instrument_id,
+                repair_action="ingest the same-report attributable profit and equity facts",
+            )
+        _same_bundle((attr_np[period], equity[period]), period_end=period,
+                     label="F07 report bundle", instrument_id=instrument_id)
+    for period in ttm_periods:
+        _same_bundle((consolidated_np[period], cfo[period]), period_end=period,
+                     label="F08 report bundle", instrument_id=instrument_id)
+
+    start_equity = _decimal(equity[attr_ttm.start_period_end].value,
+                            field=f"{metrics.parent_equity}@{attr_ttm.start_period_end}",
+                            instrument_id=instrument_id)
+    end_equity = _decimal(equity[latest_period_end].value,
+                          field=f"{metrics.parent_equity}@{latest_period_end}",
+                          instrument_id=instrument_id)
+    average_equity = (start_equity + end_equity) / Decimal(2)
+    prior_endpoint = _period(year - 1, quarter)
+    prior_revenue_ttm = _ttm(
+        revenue, latest_period_end=prior_endpoint,
+        instrument_id=instrument_id, label=f"{metrics.revenue} prior-year")
+    all_versions = set(attr_ttm.fact_version_ids)
+    all_versions.update(np_ttm.fact_version_ids)
+    all_versions.update(cfo_ttm.fact_version_ids)
+    all_versions.update(revenue_ttm.fact_version_ids)
+    all_versions.update(prior_revenue_ttm.fact_version_ids)
+    all_versions.add(attr_np[attr_ttm.start_period_end].version_id)
+    all_versions.update((equity[attr_ttm.start_period_end].version_id,
+                         equity[latest_period_end].version_id))
+    return S2FinancialInputs(
+        instrument_id=instrument_id, attributable_net_profit_ttm=attr_ttm.value,
+        consolidated_net_profit_ttm=np_ttm.value, operating_cashflow_ttm=cfo_ttm.value,
+        revenue_ttm=revenue_ttm.value, prior_revenue_ttm=prior_revenue_ttm.value,
+        start_parent_equity=start_equity, end_parent_equity=end_equity,
+        average_parent_equity=average_equity, latest_period_end=latest_period_end,
+        ttm_start_period_end=attr_ttm.start_period_end, feature_template=template,
+        fact_version_ids=tuple(sorted(all_versions)))
 
 
 def compute_s2_factors(
@@ -748,12 +918,14 @@ __all__ = [
     "S2ComputationError",
     "S2Evaluation",
     "S2Factors",
+    "S2FinancialInputs",
     "S2MetricNames",
     "S2Signal",
     "S2Template",
     "UnsupportedS2Industry",
     "build_s2_signals",
     "compute_s2_factors",
+    "compute_s2_financial_inputs",
     "cross_sectional_ranks",
     "required_s2_periods",
 ]

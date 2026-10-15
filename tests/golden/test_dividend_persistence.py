@@ -31,6 +31,7 @@ from aquant.domain.simulation.fees import synthetic_fee_table
 from aquant.domain.simulation.simulator import BoardRule, Lot
 
 from tests.integration.test_m1_ingest_e2e import build_snapshot
+from tools.check_multiday_dual_snapshot import _publish_daily_snapshots
 
 SNAPSHOT_ID = "snap-syn-001"
 PORTFOLIO = "pf-div-M"
@@ -62,6 +63,7 @@ def world(tmp_path):
     store = SnapshotStore(con, root)
     builder = SnapshotBuilder(con, root / "datasets")
     build_snapshot(con, builder, store)
+    _publish_daily_snapshots(con, root)
     reader = SnapshotReader(store)
     svc = PlanService(con, reader, synthetic_fee_table(), RULES, LISTINGS)
     yield con, reader, svc, store
@@ -96,7 +98,7 @@ def _setup(svc, *, snapshot_id: str, shares: int = SHARES, acquired: date = RECO
 def _value(svc, *, snapshot_id: str, day: date, lots: list[Lot]):
     return svc.value(
         portfolio_id=PORTFOLIO, snapshot_id=snapshot_id, trading_day=day,
-        as_of=datetime(2026, 9, 11, 12, 30, tzinfo=timezone.utc),
+        as_of=svc.reader.ref(snapshot_id).as_of_time,
         lots=lots, cash_available_cents=OPENING_CASH,
     )
 
@@ -166,7 +168,7 @@ def test_valuation_includes_open_receivable_without_being_told(world):
     """
 
     con, reader, svc, store = world
-    snapshot_id = SNAPSHOT_ID
+    snapshot_id = "dual-eod-2026-09-09"
     lots = _setup(svc, snapshot_id=snapshot_id)
     _advance(svc, lots, day=EX_DAY)
 
@@ -186,7 +188,7 @@ def test_valuation_includes_open_receivable_without_being_told(world):
 # ============================================== 到账日：应收转现金，净值不跳变
 def test_pay_date_settles_into_cash_and_net_value_does_not_double_count(world):
     con, reader, svc, store = world
-    snapshot_id = SNAPSHOT_ID
+    snapshot_id = "dual-eod-2026-09-09"
     lots = _setup(svc, snapshot_id=snapshot_id)
 
     _advance(svc, lots, day=EX_DAY)
@@ -199,7 +201,7 @@ def test_pay_date_settles_into_cash_and_net_value_does_not_double_count(world):
     assert _open_receivable(con) == 0, "结清后不得留下未结应收"
     assert _cash(con) == cash_after_ex + EXPECTED_RECEIVABLE
 
-    on_pay = _value(svc, snapshot_id=snapshot_id, day=PAY_DAY, lots=lots)
+    on_pay = _value(svc, snapshot_id="dual-eod-2026-09-10", day=PAY_DAY, lots=lots)
     assert on_pay["receivables_cents"] == 0
 
     # 核心判据。注意**不能**断言"两天的净值相等"：持仓价格在两天之间

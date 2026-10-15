@@ -3,6 +3,8 @@ import type { WorkspaceData } from "../lib/types";
 import { api, AquantApiError } from "../lib/api";
 import { Badge, Callout, Card, Empty, Section } from "../components/ui";
 import { ResearchCard } from "../components/ResearchCard";
+import { ResearchCandidates } from "../components/ResearchCandidates";
+import { FinancialCoverage } from "../components/FinancialCoverage";
 
 type Scope = "market" | "industry" | "watchlist" | "event";
 
@@ -16,7 +18,7 @@ const SCOPES: { id: Scope; label: string }[] = [
 /** 研究范围来自候选 API，研究卡按选中标的从同一快照按需读取。 */
 export function ResearchView({
   data, selectedId, onSelect, onOpenEvidence, onAction,
-  onRequestResearch, loadingResearchId,
+  onRequestResearch, loadingResearchId, onPrepareSimulation, focusedInstrumentId,
 }: {
   data: WorkspaceData;
   selectedId: string | null;
@@ -25,13 +27,21 @@ export function ResearchView({
   onAction: (id: string, cardId: string) => void;
   onRequestResearch?: (id: string) => void;
   loadingResearchId?: string | null;
+  onPrepareSimulation?: (instrumentId: string, researchSnapshotId: string | null) => void;
+  focusedInstrumentId?: string | null;
 }) {
   const [scope, setScope] = useState<Scope>("market");
   const [watchlist, setWatchlist] = useState<string[]>([]);
   const [watchBusy, setWatchBusy] = useState<string | null>(null);
   const [watchError, setWatchError] = useState<string | null>(null);
+  const [snapshotResearchOpen, setSnapshotResearchOpen] = useState(Boolean(selectedId));
+  const [financialCoverageVisited, setFinancialCoverageVisited] = useState(false);
   const source = data.dataSource === "api" ? "api" : "fixture";
   const cardsById = new Map(data.researchCards.map((c) => [c.instrumentId, c]));
+
+  useEffect(() => {
+    if (selectedId) setSnapshotResearchOpen(true);
+  }, [selectedId]);
 
   useEffect(() => {
     if (source !== "api") return;
@@ -95,7 +105,20 @@ export function ResearchView({
 
   return (
     <>
-      <Section title="研究" hint="同一实体使用同一卡片与证据链" dataSource={source}
+      <ResearchCandidates onPrepareSimulation={onPrepareSimulation} focusedInstrumentId={focusedInstrumentId} />
+      {source === "api" && <details className="section" onToggle={(event) => {
+        if (event.currentTarget.open) setFinancialCoverageVisited(true);
+      }}>
+        <summary>查看财务数据覆盖与缺项</summary>
+        {financialCoverageVisited && <div style={{ marginTop: 16 }}>
+          <FinancialCoverage snapshotId={data.status.snapshotId} />
+        </div>}
+      </details>}
+      <details className="section" open={snapshotResearchOpen}
+        onToggle={(event) => setSnapshotResearchOpen(event.currentTarget.open)}>
+      <summary>查看规则基线研究与自选（S1 原快照）</summary>
+      <div style={{ marginTop: 16 }}>
+      <Section title="规则基线研究与自选" hint="按原快照查看价格规则、证据与模拟资格" dataSource={source}
         actions={<div className="tabs" role="tablist" aria-label="研究范围">
           {SCOPES.map((s) => (
             <button key={s.id} role="tab" aria-selected={scope === s.id} className="tab"
@@ -180,6 +203,8 @@ export function ResearchView({
           </div>
         )}
       </Section>
+      </div>
+      </details>
     </>
   );
 }

@@ -86,3 +86,10 @@ def test_detail_matches_catalog_shape(snapshot_api):
 
     assert detail.status_code == 200, detail.text
     assert detail.json() == listed
+
+
+def test_future_annual_calendar_does_not_change_observed_quote_market_day(snapshot_api, monkeypatch):
+    client, state = snapshot_api
+    monkeypatch.setattr(state.reader, "trading_calendar", lambda *a, **kw: ["2026-12-31"])
+    item = client.get("/api/v1/snapshots/snap-syn-001").json()
+    assert item["tradingDay"] == "2026-09-11"

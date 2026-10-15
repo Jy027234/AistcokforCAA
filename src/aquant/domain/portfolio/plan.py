@@ -348,13 +348,63 @@ class PlanService:
     def __init__(self, con: sqlite3.Connection, reader: SnapshotReader,
                  fee_table: FeeTable, board_rules: list[BoardRule],
                  listings: dict[str, tuple[str, str]],
-                 params: ConstructionParams | None = None) -> None:
+                 params: ConstructionParams | None = None, *,
+                 delayed_engineering_calculation: bool = False) -> None:
         self.con = con
         self.reader = reader
         self.fee_table = fee_table
         self.board_rules = board_rules
         self.listings = listings
         self.params = params or ConstructionParams()
+        # Internal engineering calculations may observe an old market day late.
+        # Public API services keep the strict same-day default. Actual snapshot
+        # cutoffs are never rewritten to pretend observation happened earlier.
+        self.delayed_engineering_calculation = delayed_engineering_calculation
+
+    def _assert_account_write_mode(self, portfolio_id: str, *, human_confirmation: bool = False) -> None:
+        """Reserved engineering ledgers cannot be changed through public plans.
+
+        A new user-confirmed plan could otherwise sell an engineering account's
+        holdings even though the original plan has no confirmation subject.
+        Only the internal registered engineering path may write this namespace.
+        """
+        if portfolio_id.startswith("pf-engineering-") and (
+                not self.delayed_engineering_calculation or human_confirmation):
+            raise PlanError("ENGINEERING_ACCOUNT_RESERVED",
+                            "engineering accounts are reserved for their registered internal simulation",
+                            portfolio_id, "use an independent ordinary user simulation account")
+
+    def _execution_snapshot_time_valid(self, snapshot_id: str, trading_day: date,
+                                       cutoff: datetime) -> bool:
+        if not self.delayed_engineering_calculation:
+            return _is_execution_day_close(cutoff, trading_day)
+        if (cutoff.tzinfo is None or cutoff < _market_datetime(trading_day, _A_SHARE_CLOSE)
+                or self.reader.store.require_published(snapshot_id)["kind"] != "EOD"):
+            return False
+        rows = self.reader.daily_quotes(snapshot_id, as_of=cutoff)
+        return bool(rows) and max(r.trading_day for r in rows) == trading_day
+
+    def _assert_engineering_binding(self, portfolio_id: str, plan_id: str | None) -> None:
+        if not self.delayed_engineering_calculation:
+            return
+        if not portfolio_id.startswith("pf-engineering-"):
+            raise PlanError("DATA_NOT_READY", "delayed calculation requires an isolated engineering account",
+                            portfolio_id, "use the internal engineering runner")
+        if plan_id is None:
+            # Daily marks after the initial execution carry no new plan ID.
+            # Require the account's durable executed engineering origin instead
+            # of falsely binding today's valuation to an old execution day.
+            row = self.con.execute("SELECT p.confirmed_by,p.confirmation_token_hash,e.plan_id "
+                "FROM simulation_plan p JOIN engineering_plan_provenance e ON e.plan_id=p.plan_id "
+                "WHERE p.portfolio_id=? AND p.status='EXECUTED' "
+                "ORDER BY p.created_at DESC LIMIT 1", (portfolio_id,)).fetchone()
+        else:
+            row = self.con.execute("SELECT p.confirmed_by,p.confirmation_token_hash,e.plan_id "
+                "FROM simulation_plan p JOIN engineering_plan_provenance e ON e.plan_id=p.plan_id "
+                "WHERE p.plan_id=? AND p.portfolio_id=?", (plan_id, portfolio_id)).fetchone()
+        if row is None or row["confirmed_by"] is not None or row["confirmation_token_hash"] is not None:
+            raise PlanError("DATA_NOT_READY", "delayed calculation has no unconfirmed engineering provenance",
+                            portfolio_id, "use the bound internal engineering plan")
 
     # ------------------------------------------------------------ helpers
     def load_persisted_plan(self, plan_id: str) -> sqlite3.Row | None:
@@ -550,7 +600,9 @@ class PlanService:
             )
 
         snapshot_day = as_of.astimezone(_MARKET_TZ).date()
-        if snapshot_day != trading_day:
+        matches_day = (self._execution_snapshot_time_valid(snapshot_id, trading_day, as_of)
+                       if self.delayed_engineering_calculation else snapshot_day == trading_day)
+        if not matches_day:
             raise PlanError(
                 "PIT_UNVERIFIED",
                 f"valuation trading_day {trading_day.isoformat()} does not match "
@@ -983,12 +1035,19 @@ class PlanService:
         decision_snapshot_id: str | None = None,
         decision_cutoff_at: datetime | None = None,
         execution_snapshot_id: str | None = None,
+        target_weights: list[TargetWeight] | None = None,
+        buy_blocked_instruments: set[str] | None = None,
     ) -> PlanPreview:
         """只算不冻。不写 simulation_plan，不写账本（A08）。"""
+
+        self._assert_account_write_mode(portfolio_id)
 
         # ``snapshot_id`` is the old name for the decision snapshot.  Keep it
         # as an alias, but make the two roles explicit before any data read.
         decision_id = decision_snapshot_id or snapshot_id
+        if self.delayed_engineering_calculation and not portfolio_id.startswith("pf-engineering-"):
+            raise PlanError("DATA_NOT_READY", "delayed preview requires an engineering account", portfolio_id,
+                            "use the internal engineering runner")
         if decision_id != snapshot_id:
             raise PlanError(
                 "PIT_UNVERIFIED",
@@ -1059,7 +1118,7 @@ class PlanService:
                     decision_id,
                     "use a decision snapshot that was actually published before execution open",
                 )
-            if not _is_execution_day_close(execution_ref.as_of_time, trading_day):
+            if not self._execution_snapshot_time_valid(execution_id, trading_day, execution_ref.as_of_time):
                 raise PlanError(
                     "DATA_NOT_READY",
                     f"execution snapshot {execution_id} is not an end-of-day snapshot "
@@ -1112,6 +1171,59 @@ class PlanService:
         construction.excluded.extend(listing_excluded)
         construction.notes.extend(listing_notes)
 
+        if target_weights is not None:
+            # Explicit research/user/benchmark targets share the ordinary execution
+            # and money path. Never let a caller evade universe or risk rules by
+            # supplying an industry label or a target instead of a candidate.
+            eligible = {c.instrument_id: c for c in aged if c.simulatable}
+            seen: set[str] = set()
+            industry_pct: dict[str, Decimal] = {}
+            total_pct = Decimal(0)
+            target_pct_by_id: dict[str, Decimal] = {}
+            for target in target_weights:
+                weight = target.weight_pct
+                candidate = eligible.get(target.instrument_id)
+                if (candidate is None or target.instrument_id in seen
+                        or candidate.industry_code != target.industry_code
+                        or not isinstance(weight, Decimal) or not weight.is_finite()
+                        or weight <= 0 or weight > self.params.max_single_name_pct):
+                    raise PlanError(
+                        "RULE_VERSION_MISSING", "invalid or ineligible explicit target",
+                        target.instrument_id,
+                        "use unique eligible candidates, their frozen industries and allowed Decimal weights",
+                    )
+                seen.add(target.instrument_id)
+                target_pct_by_id[target.instrument_id] = weight
+                total_pct += weight
+                industry_pct[target.industry_code] = (
+                    industry_pct.get(target.industry_code, Decimal(0)) + weight)
+            # Unsellable lots remain risk even when absent from requested targets.
+            sellable = self._sellable(lots, trading_day)
+            projected = dict(target_pct_by_id)
+            for iid, quantity in held_qty.items():
+                locked = quantity - sellable.get(iid, 0)
+                if locked > 0 and iid in bars and equity > 0:
+                    locked_pct = Decimal(locked * bars[iid].close_cents) / Decimal(equity) * 100
+                    previous = projected.get(iid, Decimal(0))
+                    extra = max(Decimal(0), locked_pct - previous)
+                    industry = self._industry_of(candidates, iid)
+                    industry_pct[industry] = industry_pct.get(industry, Decimal(0)) + extra
+                    total_pct += extra
+                    projected[iid] = max(previous, locked_pct)
+            if (len(projected) > self.params.max_holdings
+                    or total_pct > self.params.max_total_equity_pct
+                    or any(w > self.params.max_single_name_pct for w in projected.values())
+                    or any(w > self.params.max_single_industry_pct for w in industry_pct.values())):
+                raise PlanError(
+                    "RULE_VERSION_MISSING", "explicit targets exceed portfolio risk limits",
+                    portfolio_id, "reduce targets, including unsellable existing exposure",
+                )
+            construction = type(construction)(
+                targets=list(target_weights), cash_weight_pct=Decimal(100) - total_pct,
+                excluded=[*liquidity_excluded, *listing_excluded],
+                notes=[*listing_notes, "explicit targets validated under the frozen portfolio constraints"],
+            )
+
         orders = weights_to_orders(
             targets=construction.targets, params=self.params,
             price_by_instrument={i: b.close_cents for i, b in bars.items()},
@@ -1121,6 +1233,16 @@ class PlanService:
         )
         for order in orders:
             order["reference_price_day"] = bars[order["instrument_id"]].trading_day.isoformat()
+        if buy_blocked_instruments:
+            blocked = [order for order in orders if order["side"] == "BUY"
+                       and order["instrument_id"] in buy_blocked_instruments]
+            orders = [order for order in orders if order not in blocked]
+            construction.excluded.extend({
+                "instrument_id": order["instrument_id"], "reason": "E1_BUY_PAUSED",
+                "quantity": order["quantity"],
+                "detail": "verified event shadow pauses buys; S1 sell decisions are unchanged",
+            } for order in blocked)
+            construction.notes.append(f"E1 paused {len(blocked)} buy order(s); no event-driven sell")
 
         # 规则检查：每一条都给出结论与原因，不通过则不得冻结
         checks: list[dict] = []
@@ -1243,6 +1365,7 @@ class PlanService:
         真正的比对发生在冻结与执行——那时调用方必须与账本一致。
         """
 
+        self._assert_account_write_mode(portfolio_id)
         existing = self.con.execute(
             "SELECT portfolio_id FROM portfolio WHERE portfolio_id=?", (portfolio_id,)
         ).fetchone()
@@ -1330,6 +1453,8 @@ class PlanService:
         now: datetime | None = None,
     ) -> str:
         """Issue a one-time server token bound to this exact preview and account state."""
+
+        self._assert_account_write_mode(preview.portfolio_id, human_confirmation=True)
 
         now = now or datetime.now(timezone.utc)
         if not confirmer_is_human(subject):
@@ -1464,6 +1589,8 @@ class PlanService:
 
         冻结后计划主体不可变（由数据库触发器保证）。
         """
+
+        self._assert_account_write_mode(preview.portfolio_id, human_confirmation=True)
 
         # 冻结与执行各自再查一次：preview 到 freeze 之间调用方可能换了费率表，
         # 而"预览时合法、冻结点不合法"是必须被拒的状态。
@@ -1710,6 +1837,7 @@ class PlanService:
                     plan_id,
                     "execute the plan with the authenticated subject that froze it",
                 )
+        self._assert_account_write_mode(row["portfolio_id"])
         # 执行前再查一次费率表：这里的每一笔费用都会真的写进账本，
         # 用合成费率记出来的盈亏没有依据。
         if row["status"] != "FROZEN":
@@ -1735,7 +1863,7 @@ class PlanService:
                 raise PlanError(
                     "PIT_UNVERIFIED", "persisted decision cutoff is not before execution open",
                     plan_id, "freeze a new plan with a valid decision snapshot")
-            if not _is_execution_day_close(execution_cutoff, trading_day):
+            if not self._execution_snapshot_time_valid(snapshot_binding["execution_snapshot_id"], trading_day, execution_cutoff):
                 raise PlanError(
                     "PIT_UNVERIFIED", "persisted execution snapshot is not from execution-day close",
                     plan_id, "freeze a new plan with the execution-day EOD snapshot")
@@ -1759,6 +1887,7 @@ class PlanService:
         snapshot_id = snapshot_binding["decision_snapshot_id"]
         execution_snapshot_id = snapshot_binding["execution_snapshot_id"]
         portfolio_id = row["portfolio_id"]
+        self._assert_engineering_binding(portfolio_id, plan_id)
         portfolio = self.con.execute(
             "SELECT portfolio_id,status FROM portfolio WHERE portfolio_id=?",
             (portfolio_id,),
@@ -1832,7 +1961,9 @@ class PlanService:
         # simulator must preserve that no-fill outcome.  Missing/unpublished
         # execution snapshots are rejected above by ``_load_snapshot_binding``
         # and ``reader.ref`` rather than guessed from the decision snapshot.
-        adv = self._adv(execution_snapshot_id, trading_day, execution_as_of, ids)
+        adv = (self._adv(snapshot_id, trading_day, decision_cutoff, ids)
+               if self.delayed_engineering_calculation else
+               self._adv(execution_snapshot_id, trading_day, execution_as_of, ids))
         # 执行可能发生在进程重启或 current 指针前移之后。板块决定涨跌停与
         # 手数，必须从计划冻结的快照恢复，不能沿用 AppState 当前快照的映射。
         snapshot_listings = {
@@ -2229,7 +2360,7 @@ class PlanService:
                 if outcome.stage == "EX_AND_PAY_DATE":
                     # 同日除息与发放：不产生未结应收，直接记现金
                     self.con.execute(
-                        "INSERT INTO cash_entry (entry_id,portfolio_id,entry_type,"
+                        "INSERT OR IGNORE INTO cash_entry (entry_id,portfolio_id,entry_type,"
                         "amount_cents,trading_day,occurred_at,related_instrument_id) "
                         "VALUES (?,?,'DIVIDEND_RECEIVABLE_SETTLED',?,?,?,?)",
                         (f"cash-div-{portfolio_id}-{action.action_id}", portfolio_id,
@@ -2288,6 +2419,8 @@ class PlanService:
     ) -> dict:
         """日终估值并落库。不变量失败则 published=0，净值不得发布（§12.8）。"""
 
+        self._assert_account_write_mode(portfolio_id)
+
         from .construction import compute_valuation, value_positions
 
         # The requested snapshot is the only market-data source for this
@@ -2301,6 +2434,7 @@ class PlanService:
             portfolio_id=portfolio_id, trading_day=trading_day,
             snapshot_id=snapshot_id, execution_plan_id=execution_plan_id,
         )
+        self._assert_engineering_binding(portfolio_id, resolved_execution_plan_id)
 
         # 估值会发布净值和损益；领域入口本身必须执行费率闸门，避免非 API
         # 调用方用合成费率在真实快照上生成一份看似正式的结果。

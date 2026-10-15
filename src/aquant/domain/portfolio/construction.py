@@ -44,6 +44,9 @@ class ConstructionParams:
     max_holdings: int = 20
     max_total_equity_pct: Decimal = Decimal("80")
     max_single_name_pct: Decimal = Decimal("10")
+    # An experiment can distinguish its initial allocation from the risk cap.
+    # None preserves previously frozen experiment parameter behavior.
+    initial_target_pct: Decimal | None = None
     max_single_industry_pct: Decimal = Decimal("30")
     exclude_listing_days: int = 120
     #: 流动性下限（按成交额，单位分）。
@@ -58,6 +61,9 @@ class ConstructionParams:
     retention_buffer_top_n: int = 30
 
     def __post_init__(self) -> None:
+        if self.initial_target_pct is not None and not 0 < self.initial_target_pct <= 100:
+            raise SimError("RULE_VERSION_MISSING", "initial target weight must be in (0, 100]",
+                           "params", "set a positive experiment allocation percentage")
         if self.max_single_name_pct > self.max_single_industry_pct:
             raise SimError(
                 "RULE_VERSION_MISSING",
@@ -207,7 +213,9 @@ def construct_targets(
                              "reason": "MAX_TOTAL_EQUITY_REACHED"})
             continue
 
-        target_pct = min(params.max_single_name_pct, params.max_total_equity_pct)
+        target_pct = min(params.max_single_name_pct, params.max_total_equity_pct,
+                         params.initial_target_pct if params.initial_target_pct is not None
+                         else params.max_single_name_pct)
 
         ind_used = industry_used.get(cand.industry_code, Decimal(0))
         ind_headroom = params.max_single_industry_pct - ind_used

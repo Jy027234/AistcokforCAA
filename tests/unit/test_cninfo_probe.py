@@ -234,3 +234,63 @@ def test_probe_paginates_when_provider_uses_string_has_more() -> None:
     assert result.has_more is False
     assert [item.announcement_id for item in result.announcements] == ["a2", "a1"]
     assert result.announcements[0].is_correction is True
+
+
+@pytest.mark.parametrize("aliases, provided_org, raw_org, accepted", [
+    (("832982",), "gfbj0832982", "gfbj0832982", True),
+    ((), "gfbj0832982", "gfbj0832982", False),
+    (("832981",), "gfbj0832982", "gfbj0832982", False),
+    (("832982",), None, "gfbj0832982", False),
+    (("832982",), "gfbj0832982", None, False),
+    (("832982",), "gfbj0832982", "gfbj0832981", False),
+    (("832982",), "gfbj0832982", " gfbj0832982 ", False),
+    (("832982",), "", "", False),
+])
+def test_listing_alias_requires_explicit_code_and_exact_organization(
+        aliases, provided_org, raw_org, accepted):
+    payload = {
+        "announcements": [{
+            "announcementId": "old-code-report", "secCode": "832982",
+            "orgId": raw_org, "announcementTitle": "2025年半年度报告",
+            "announcementTime": 1755705600000,
+            "adjunctUrl": "finalpage/2025-08-21/report.PDF",
+        }], "totalAnnouncement": 1, "hasMore": False,
+    }
+    raw = json.dumps(payload, ensure_ascii=False).encode()
+    rows, skipped, total, more = parse_listing_payload(
+        raw, stock_code="920982", period=parse_report_period("2025-06-30"),
+        security_aliases=aliases, organization_id=provided_org)
+    assert total == 1 and more is False
+    assert bool(rows) is accepted
+    assert skipped == ({} if accepted else {"different_security": 1})
+    if accepted:
+        assert rows[0].sec_code == "832982"
+        assert rows[0].report_period == "2025-06-30"
+        assert rows[0].announcement_id == "old-code-report"
+    assert raw == json.dumps(payload, ensure_ascii=False).encode()
+
+
+def test_listing_exact_code_does_not_require_organization_match():
+    rows, skipped, _, _ = parse_listing_payload({
+        "announcements": [{
+            "announcementId": "exact", "secCode": "920982", "orgId": "different",
+            "announcementTitle": "2025年半年度报告",
+            "announcementTime": 1755705600000,
+        }],
+    }, stock_code="920982", period=parse_report_period("2025-06-30"),
+        organization_id="gfbj0832982")
+    assert [row.sec_code for row in rows] == ["920982"]
+    assert skipped == {}
+
+
+def test_listing_alias_does_not_bypass_report_period_filter():
+    rows, skipped, _, _ = parse_listing_payload({
+        "announcements": [{
+            "announcementId": "other-period", "secCode": "832982",
+            "orgId": "gfbj0832982", "announcementTitle": "2024年半年度报告",
+            "announcementTime": 1755705600000,
+        }],
+    }, stock_code="920982", period=parse_report_period("2025-06-30"),
+        security_aliases=("832982",), organization_id="gfbj0832982")
+    assert rows == ()
+    assert skipped == {"different_report_period": 1}

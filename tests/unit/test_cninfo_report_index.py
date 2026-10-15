@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import json
 import sqlite3
 import urllib.parse
@@ -11,6 +12,7 @@ from datetime import datetime, timezone
 import pytest
 
 from aquant.adapters.providers import cninfo
+from aquant.adapters.providers.cninfo_probe import parse_report_period, title_matches_period
 from aquant.adapters.providers.fetch_guard import FetchPolicy
 from aquant.adapters.providers.resilience import RateLimiter, RetryPolicy
 from aquant.domain.data.forward_archive import ForwardArchive
@@ -129,6 +131,30 @@ def test_archived_index_exhausts_pages_and_binds_matches_to_receipts(harness) ->
         assert page.request_body_hash in receipt["detail"]
         assert receipt["content_hash"] == page.content_hash
     assert [request[1]["pageNum"] for request in opener.requests] == [["1"], ["2"]]
+
+
+@pytest.mark.parametrize("title", ["2026年度半年报", "2026年度半年报（修订版）"])
+def test_cninfo_semiannual_title_alias_is_period_matched(title: str) -> None:
+    assert title_matches_period(title, parse_report_period("2026-06-30"))
+
+
+@pytest.mark.parametrize("title", [
+    "2026年度半年报业绩预告",
+    "2026年度半年报摘要",
+    "2026年度半年报英文版",
+    "2026年度半年报提示性公告",
+])
+def test_cninfo_semiannual_alias_rejects_non_report_titles(title: str) -> None:
+    assert not title_matches_period(title, parse_report_period("2026-06-30"))
+
+
+@pytest.mark.parametrize(("title", "period"), [
+    ("2025年年度报告", "2025-12-31"),
+    ("2026年第一季度报告", "2026-03-31"),
+    ("2026年第三季度报告", "2026-09-30"),
+])
+def test_cninfo_period_match_keeps_fy_and_other_quarters(title: str, period: str) -> None:
+    assert title_matches_period(title, parse_report_period(period))
 
 
 def test_max_pages_truncation_does_not_expose_candidates(harness) -> None:  # noqa: ANN001
@@ -291,3 +317,57 @@ def test_cross_category_missing_announcement_id_fails_closed(harness) -> None:  
 
     assert not result.complete and result.termination == "identity_incomplete"
     assert result.announcements == result.candidates == ()
+
+
+@pytest.mark.parametrize("supplied_org", [None, "gfbj0832982"])
+def test_report_index_accepts_verified_alias_and_keeps_original_evidence(
+        harness, supplied_org):
+    client, archive, install = harness
+    announcement = _announcement(
+        "old-code-report", code="832982", title="2025年半年度报告")
+    announcement["orgId"] = "gfbj0832982"
+    page = {"announcements": [announcement], "totalAnnouncement": 1,
+            "hasMore": False}
+    opener = install([page], code="920982", org_id="gfbj0832982")
+    result = client.report_index(
+        stock_code="920982", report_period="2025-06-30",
+        organization_id=supplied_org, security_aliases=("832982",))
+    assert result.complete and result.error is None
+    assert result.organization_id == "gfbj0832982"
+    assert result.skipped == {}
+    assert len(result.matches) == 1
+    hit = result.matches[0]
+    assert hit.announcement.sec_code == "832982"
+    assert result.stock_code == "920982"
+    raw = json.dumps(page, ensure_ascii=False).encode("utf-8")
+    assert archive.load_bytes(hit.page_content_hash) == raw
+    assert hit.page_content_hash == "sha256:" + hashlib.sha256(raw).hexdigest()
+    assert result.pages[0].content_hash == hit.page_content_hash
+    assert archive.verify(hit.page_content_hash)
+    assert opener.requests[0][1]["stock"] == ["920982,gfbj0832982"]
+    if supplied_org is not None:
+        assert result.org_lookup_receipt_id is None
+    else:
+        assert archive.verify(result.org_lookup_content_hash)
+
+
+@pytest.mark.parametrize("aliases, raw_org", [
+    ((), "gfbj0832982"),
+    (("832982",), "gfbj0832981"),
+    (("832982",), None),
+])
+def test_report_index_refuses_unverified_or_different_org_alias(
+        harness, aliases, raw_org):
+    client, archive, install = harness
+    announcement = _announcement(
+        "old-code-report", code="832982", title="2025年半年度报告")
+    announcement["orgId"] = raw_org
+    install([{"announcements": [announcement], "totalAnnouncement": 1,
+              "hasMore": False}], code="920982", org_id="gfbj0832982")
+    result = client.report_index(
+        stock_code="920982", report_period="2025-06-30",
+        organization_id="gfbj0832982", security_aliases=aliases)
+    assert result.complete
+    assert result.matches == result.announcements == ()
+    assert result.skipped == {"different_security": 1}
+    assert archive.verify(result.pages[0].content_hash)

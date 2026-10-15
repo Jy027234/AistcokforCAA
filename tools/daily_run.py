@@ -299,6 +299,11 @@ def run_step(args: list[str], *, label: str) -> dict:
 
 
 def main() -> int:
+    if os.environ.get("AQUANT_DAILY_MODE") == "RESEARCH_SIMULATION":
+        # The latest research and the simulation inputs must advance together.
+        # Keep the original price-only route for explicitly configured deployments.
+        from daily_research_run import main as research_main
+        return research_main()
     ap = argparse.ArgumentParser()
     ap.add_argument("--trading-day", default=None,
                     help="要发布的交易日（YYYY-MM-DD）；默认今天")

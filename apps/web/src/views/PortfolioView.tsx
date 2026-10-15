@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { WorkspaceData } from "../lib/types";
 import type {
   CandidateResponseRow, PlanTimingSelection, PreviewResponse, PublishedSnapshot,
@@ -5,6 +6,13 @@ import type {
 import { Badge, Callout, Card, Empty, Section } from "../components/ui";
 import { DraftPanel } from "../components/DraftPanel";
 import { LedgerPanel } from "../components/LedgerPanel";
+import { ResearchSimulationPanel } from "../components/ResearchSimulationPanel";
+import { NoChangeDecision } from "../components/NoChangeDecision";
+import { AccountOverview } from "../components/AccountOverview";
+import type { ResearchSimulationDraft } from "../lib/api";
+import type { ResearchSelection } from "../lib/workflow";
+
+export type PortfolioMode = "research" | "baseline" | "maintain";
 
 /** 组合：模型、事件影子、用户组合；草稿、模拟订单、持仓、账本（§5.2）。
  *  交互原则：自选与模拟持仓在视觉与权限上分离。
@@ -16,6 +24,10 @@ export function PortfolioView({
   data, onConfirm, onRequestPreview, livePreview, apiUp, confirming, confirmResult,
   frozenPlanId, persistedPlanStatus, snapshots, timing, onTimingChange,
   planCandidates, selectedInstrumentIds, onPlanSelectionChange,
+  mode = "research", onModeChange, selectionRequest, active = true, onDraftsChange,
+  onOpenResearch, onDecisionSaved, onOpenReview,
+  pendingResearchPlan = false, onPlanChanged,
+  accountRefreshKey = 0,
 }: {
   data: WorkspaceData;
   onConfirm: () => void;
@@ -33,7 +45,14 @@ export function PortfolioView({
   planCandidates: CandidateResponseRow[];
   selectedInstrumentIds: string[] | null;
   onPlanSelectionChange: (ids: string[] | null) => void;
+  mode?: PortfolioMode; onModeChange?: (mode: PortfolioMode) => void;
+  selectionRequest?: ResearchSelection | null; active?: boolean;
+  onDraftsChange?: (drafts: ResearchSimulationDraft[]) => void;
+  onOpenResearch?: (instrumentId: string) => void; onDecisionSaved?: () => void; onOpenReview?: () => void;
+  pendingResearchPlan?: boolean; onPlanChanged?: () => void;
+  accountRefreshKey?: number;
 }) {
+  const [accountAvailable, setAccountAvailable] = useState<boolean | null>(null);
   const source = data.dataSource === "api" ? "api" : "fixture";
   const production = data.dataSource === "api" && data.status.dataMode !== "SYNTHETIC";
   const productionTimingUnavailable = production && timing === null;
@@ -58,13 +77,15 @@ export function PortfolioView({
       : null;
   return (
     <>
+      <div className="page-intro"><h1>模拟组合</h1><p>决定维持还是调整；每份方案依次保存选择、等待行情、检查确认，再查看模拟结果。</p></div>
       <Section
-        title="组合"
+        title="我的模拟账户"
         hint="全部为模拟账户；自选与模拟持仓分离"
         dataSource={source}
         actions={<Badge tone="accent">模拟</Badge>}
       >
-        <div className="grid-3">
+        {source === "api" ? <AccountOverview portfolioId={data.draft.portfolioId} active={active}
+          refreshKey={accountRefreshKey} onOpenResearch={onOpenResearch} onAvailabilityChange={setAccountAvailable} /> : <div className="grid-3">
           {data.portfolios.map((p) => (
             <Card key={p.portfolioId}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
@@ -80,9 +101,31 @@ export function PortfolioView({
               <p className="note" style={{ marginTop: 8 }}>{p.note}</p>
             </Card>
           ))}
-        </div>
+        </div>}
       </Section>
 
+      <Section title="这次如何决策" dataSource="static" noNumericValue>
+        <Card><p>沿用研究中的股票选择，采用规则基线，或明确记录维持不动。</p>
+          <div className="task-actions">
+            <button className="btn" aria-pressed={mode === "research"} onClick={() => onModeChange?.("research")}>自行选择研究方案</button>
+            <button className="btn" aria-pressed={mode === "baseline"} onClick={() => onModeChange?.("baseline")}>采用或调整规则方案</button>
+            <button className="btn" aria-pressed={mode === "maintain"} onClick={() => onModeChange?.("maintain")}>维持当前组合</button>
+          </div>
+        </Card>
+      </Section>
+      {source === "api" && <div hidden={mode !== "research"}>
+        <ResearchSimulationPanel portfolioId={data.draft.portfolioId} selectionRequest={selectionRequest}
+          active={active && mode === "research"} onDraftsChange={onDraftsChange} onOpenResearch={onOpenResearch} />
+      </div>}
+      {source !== "api" && mode === "research" && <Card><Empty title="演示研究保持只读">可切换到规则方案查看示例预览；真实模拟需要已核验资料与工作台服务。</Empty></Card>}
+      <div hidden={mode !== "maintain"}>
+        <NoChangeDecision portfolioId={data.draft.portfolioId} snapshotId={livePreview?.decisionSnapshotId ?? data.status.snapshotId}
+          preview={livePreview} enabled={apiUp === true && source === "api" && accountAvailable === true}
+          disabledReason={accountAvailable === false ? "当前尚未创建模拟账户，请先形成并核验第一份模拟方案。" : accountAvailable === null ? "账户状态尚未核验，请等待账户读取或重试。" : undefined}
+          researchAsOf={livePreview?.decisionCutoffAt ?? data.status.asOfTime}
+          pendingFrozen={persistedPlanStatus === "FROZEN" || pendingResearchPlan} onSaved={onDecisionSaved} onOpenReview={onOpenReview} />
+      </div>
+      <div hidden={mode !== "baseline"}>
       <Section
         title="草稿与确认"
         hint={apiUp === null ? "正在检测服务…" : undefined}
@@ -94,7 +137,9 @@ export function PortfolioView({
         }
       >
         {production && (
-          <Card title="生产时点绑定">
+          <Card title="本次方案使用的日期">
+            <p>依据 {timing?.decisionCutoffAt?.slice(0, 10) ?? "待合格研究资料"} 的研究信息，模拟 {timing?.tradingDay ?? "待执行行情"} 的交易日。系统校验资料发布时间及先后顺序。</p>
+            <details className="secondary-section"><summary>查看或更换资料版本（高级）</summary>
             <Callout tone="info" title="候选与成交使用不同快照">
               决策快照决定候选与参考价，执行快照只提供执行日收盘行情。
               截止时间和交易日都从已发布快照读取，不能手工改写；决策快照还必须在
@@ -138,13 +183,14 @@ export function PortfolioView({
                 </label>
               </div>
             )}
+            </details>
           </Card>
         )}
         <Card title="候选选择">
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
             <button className={"btn btn-sm " + (!manualSelection ? "btn-primary" : "")}
               onClick={() => onPlanSelectionChange(null)}>
-              接受模型方案
+              采用规则基线
             </button>
             <button className={"btn btn-sm " + (manualSelection ? "btn-primary" : "")}
               onClick={() => onPlanSelectionChange([])} disabled={apiUp !== true}>
@@ -221,23 +267,18 @@ export function PortfolioView({
           </Card>
         ) : (
           <LedgerPanel
+            key={`${frozenPlanId}:${timing?.executionSnapshotId ?? data.status.snapshotId}:${timing?.tradingDay ?? data.draft.tradingDay}`}
             portfolioId={data.draft.portfolioId}
             snapshotId={timing?.executionSnapshotId ?? data.status.snapshotId}
             tradingDay={timing?.tradingDay ?? data.draft.tradingDay}
             planId={frozenPlanId}
             frozen={frozenPlanId !== null}
             persistedPlanStatus={persistedPlanStatus}
+            onChanged={onPlanChanged}
           />
         )}
       </Section>
-
-      <Section title="自选" dataSource={source}>
-        <Card>
-          <Empty title="自选与模拟持仓已分离">
-            自选列表在研究页维护，视觉与权限上与模拟持仓分开：自选变化不被视为交易。
-          </Empty>
-        </Card>
-      </Section>
+      </div>
     </>
   );
 }

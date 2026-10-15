@@ -1,14 +1,38 @@
 import type { WorkspaceData } from "../lib/types";
 import { Badge, Callout, Card, Empty, Section } from "../components/ui";
 import { decisionTypeLabel, formatDate } from "../lib/format";
+import { ExperimentsApiView } from "../components/ExperimentHistory";
 
-/** 实验：历史回放、实验登记、对照结果、人工决策复盘（§5.2）。
- *  交互原则：所有结果显示版本、样本期、数据级别和不足。
+/** 复盘：先看个人原判断与模拟进度，深入时查看实验与工程对照。
+ * 所有结果保留版本、样本期、数据级别和限制。
  */
-export function ExperimentsView({ data }: { data: WorkspaceData }) {
-  const source = data.dataSource === "api" ? "api" : "fixture";
+export function ExperimentsView({ data, onOpenPortfolio }: { data: WorkspaceData; onOpenPortfolio?: () => void }) {
+  if (data.dataSource === "api") return <ExperimentsApiView onOpenPortfolio={onOpenPortfolio} />;
+  const source = "fixture";
   return (
     <>
+      <Section title="回看我的判断" hint="先看当时依据与选择，再核验模拟结果" dataSource="static" noNumericValue>
+        <Callout tone="warn" title="示例复盘">以下个人判断来自随前端分发的示例记录，用于说明复盘方式。真实决策、草稿和执行结果应读取已保存的记录。</Callout>
+      </Section>
+      <Section title="人工决策复盘" hint="保留原判断，不用新解释覆盖旧理由" dataSource={source}>
+        {data.decisionLog.length === 0 ? (
+          <Card><Empty title="尚无决策记录">保存研究选择并在模拟组合确认后，可以回看当时的理由与方案。
+            {onOpenPortfolio && <div style={{ marginTop: 12 }}><button className="btn" onClick={onOpenPortfolio}>前往模拟组合</button></div>}</Empty></Card>
+        ) : data.decisionLog.map(d => (
+          <Card key={d.decisionId}>
+            <h3>{formatDate(d.date)} · {decisionTypeLabel(d.type)} <Badge tone="warn">示例记录</Badge></h3>
+            <div className="decision-journey">
+              <div className="decision-journey-step"><h4>当时的规则方案</h4><p>{d.modelProposed}</p></div>
+              <div className="decision-journey-step"><h4>我的选择与理由</h4><p>{d.humanFinal}</p><p>{d.reason}</p>
+                <Badge tone={d.externalInfoUsed ? "warn" : "neutral"}>{d.externalInfoUsed ? "声明使用外部信息" : "声明未使用外部信息"}</Badge></div>
+              <div className="decision-journey-step"><h4>结果证据</h4><p className="note">该示例未提供对应的执行账本与收益记录。</p></div>
+            </div>
+            <p className="note mono">原记录 ID：{d.decisionId}</p>
+          </Card>
+        ))}
+      </Section>
+      <Section title="对照与工程验证" hint="深入查看实验登记与规则对照" dataSource="static" noNumericValue>
+        <details className="secondary-details"><summary>展开对照与工程验证</summary>
       <Section title="实验登记" hint="先登记，后看结果" dataSource={source}>
         {data.experiments.length === 0 ? (
           <Card><Empty title="尚无实验登记" /></Card>
@@ -48,40 +72,7 @@ export function ExperimentsView({ data }: { data: WorkspaceData }) {
         </Card>
       </Section>
 
-      <Section title="人工决策复盘" hint="保留原判断，不用新解释覆盖旧理由"
-        dataSource={source}>
-        {data.decisionLog.length === 0 ? (
-          <Card><Empty title="尚无决策记录" /></Card>
-        ) : (
-          <Card padded={false}>
-            <div className="table-wrap">
-              <table className="data">
-                <thead>
-                  <tr>
-                    <th>日期</th><th>决定</th><th>理由</th>
-                    <th>模型原方案</th><th>人工最终</th><th>外部信息</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.decisionLog.map((d) => (
-                    <tr key={d.decisionId}>
-                      <td className="mono">{formatDate(d.date)}</td>
-                      <td><Badge tone="neutral">{decisionTypeLabel(d.type)}</Badge></td>
-                      <td>{d.reason}</td>
-                      <td className="note">{d.modelProposed}</td>
-                      <td>{d.humanFinal}</td>
-                      <td>
-                        {d.externalInfoUsed
-                          ? <Badge tone="warn">使用了外部信息</Badge>
-                          : <span className="note">否</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        )}
+        </details>
       </Section>
     </>
   );

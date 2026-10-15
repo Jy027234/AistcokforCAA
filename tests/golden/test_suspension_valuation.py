@@ -62,7 +62,7 @@ def world(tmp_path):
 
 
 # 2026-09-10、09-11 是交易日，但快照里 SYN.A.600002 从 09-10 起就停牌
-SUSPENDED_DAY = date(2026, 9, 10)
+SUSPENDED_DAY = date(2026, 9, 11)
 LAST_VALID_DAY = date(2026, 9, 9)
 LAST_VALID_PRICE = 8850        # 与 examples 里最后一条行情一致
 SHARES = 1000

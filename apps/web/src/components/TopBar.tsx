@@ -9,13 +9,8 @@ export type Tab = "today" | "research" | "portfolio" | "workspace" | "experiment
 const TABS: { id: Tab; label: string }[] = [
   { id: "today", label: "今日" },
   { id: "research", label: "研究" },
-  { id: "portfolio", label: "组合" },
-  { id: "workspace", label: "工作区" },
-  { id: "experiments", label: "实验" },
-  // 设置放在最后：它不是研究工作流的一步，而是"这台机器怎么跑"。
-  // 单独一页而不是塞进工作区：调度一旦被误当成研究功能，
-  // "任务没跑"就会被当成"研究没结果"。
-  { id: "settings", label: "设置" },
+  { id: "portfolio", label: "模拟组合" },
+  { id: "experiments", label: "复盘" },
 ];
 
 /** 顶栏 + 四项顶层导航（主文档 §5.2、§5.4）。
@@ -41,13 +36,12 @@ export function TopBar({
         <span className="brand-sub">研究与模拟决策工作台</span>
       </div>
 
-      <nav className="tabs" role="tablist" aria-label="顶层导航">
+      <nav className="tabs" aria-label="主要任务">
         {TABS.map((t) => (
           <button
             key={t.id}
-            role="tab"
             className="tab"
-            aria-selected={tab === t.id}
+            aria-current={tab === t.id ? "page" : undefined}
             onClick={() => onTab(t.id)}
           >
             {t.label}
@@ -66,8 +60,16 @@ export function TopBar({
         )}
         <Badge tone="accent">{status.accountLabel}</Badge>
         <button className="btn btn-sm" onClick={onOpenStatus}>
-          {loading ? "刷新中…" : lastLoadedAt ? "已更新 " + lastLoadedAt : "运行状态"}
+          {loading ? "载入中…" : "数据状态"}
         </button>
+        <details className="utility-menu">
+          <summary className="btn btn-sm">数据与设置</summary>
+          <div className="utility-menu-items">
+            <button className="btn" aria-current={tab === "workspace" ? "page" : undefined} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); onTab("workspace"); }}>数据诊断与高级工具</button>
+            <button className="btn" aria-current={tab === "settings" ? "page" : undefined} onClick={event => { event.currentTarget.closest("details")?.removeAttribute("open"); onTab("settings"); }}>每日更新设置</button>
+            {lastLoadedAt && <span className="note">页面读取：{lastLoadedAt}</span>}
+          </div>
+        </details>
       </div>
     </header>
   );

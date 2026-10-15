@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:user-flow": "node tools/check_user_flow.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -16,7 +17,9 @@
   "devDependencies": {
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/react-test-renderer": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
+    "react-test-renderer": "^18.3.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.7"
   }

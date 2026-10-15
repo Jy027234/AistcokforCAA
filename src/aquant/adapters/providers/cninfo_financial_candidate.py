@@ -24,14 +24,33 @@ from .cninfo_financial_pdf import (
 
 
 _HEADING = re.compile(
-    r"^(?:\d+[.、])?(合并|母公司|公司)"
+    # 表名前面可以带期间前缀（实测 000333：``2024年度合并及公司利润表``），
+    # 不剥掉它就整份利润表定位不到。
+    r"^(?:\d{4}\s*年(?:\d{1,2}\s*月\s*\d{1,2}\s*日|上半年|半年度|中期|度)?)?"
+    # ``合并及公司资产负债表`` 是真实写法（实测 000333）：一张表里同时列示合并与
+    # 公司（母公司）口径，靠**列分组**区分。表名仍以 ``合并`` 开头，因此这里
+    # 允许 ``及公司`` 出现在报表名之前；口径的选取由列判定负责，不能因为
+    # 表名带"及公司"就把公司列当成合并列。
+    r"(?:\d+[.、])?(合并|母公司|公司)(?:及公司|及母公司)?"
     r"(资产负债表|利润表|现金流量表|所有者权益变动表|股东权益变动表)$"
 )
+#: 跨页续表标记。至少有两种真实写法：``合并资产负债表（续）`` 与
+#: ``合并资产负债表 - 续``（实测 002415）。不剥掉它就会被当成第二个表节，
+#: 从而把同一张表误判为"定位歧义"。必须在 fullmatch **之前**剥掉。
+_CONTINUATION_SUFFIX = re.compile(r"[-—－]\s*续\Z|[(（]\s*续\s*[)）]\Z")
 _URL = re.compile(
     r"https://static\.cninfo\.com\.cn/finalpage/\d{4}-\d{2}-\d{2}/(\d+)\.PDF\Z",
     re.IGNORECASE,
 )
-_UNIT = re.compile(r"单位\s*[:：]\s*(人民币)?(千元|万元|元)(?![\u4e00-\u9fff])")
+_UNIT = re.compile(
+    # ``单位：人民币元`` / ``金额单位：千元`` 之外还有 ``单位为人民币千元``
+    # （实测 000333：``(除特别注明外，金额单位为人民币千元)``）——没有冒号，
+    # 用"为"连接。只认"单位[:：]"会让该类报告整份无法定位表节。
+    # 两个捕获组（币种、单位）保持原样，调用方按 group(1)/group(2) 取值。
+    # ``(?![\u4e00-\u9fff])`` 保证不跨越到"日/月"之类汉字上（日期行因此不匹配）。
+    r"(?:单位\s*(?:为\s*)?[:：]?\s*|(?=人民币\s*(?:百万元|千元|万元|元)))(人民币)?\s*(百万元|千元|万元|元)"
+    r"(?:(?![\u4e00-\u9fff])|(?=币种\s*[:：]))"
+)
 _CURRENCY = re.compile(r"币种\s*[:：]\s*([A-Za-z\u4e00-\u9fff]+)")
 _NUMBER = re.compile(
     r"(?:-?(?:0|[1-9]\d{0,2}(?:,\d{3})*)(?:\.\d{1,2})?"
@@ -43,11 +62,14 @@ _TEXT_AMOUNT = re.compile(
 )
 _TEXT_HEADER = re.compile(
     r"\d{4}(?:年半年度|年度)|本期发生额|上年同期发生额|本年发生额|上年发生额"
+    # 无边框年报的资产负债表用具体日期做列头（``2024年12月31日 2024年1月1日``），
+    # 不补这一支就会退化成"borderless text header is ambiguous"。
+    r"|\d{4}年\d{1,2}月\d{1,2}日"
 )
 _NOTE_SUFFIX = re.compile(
     r"(?:[一二三四五六七八九十]+[、.]|\([一二三四五六七八九十]+\))\d+(?:\(\d+\))?\s*\Z"
 )
-_UNIT_MULTIPLIER = {"元": Decimal(1), "千元": Decimal(1000), "万元": Decimal(10000)}
+_UNIT_MULTIPLIER = {"元": Decimal(1), "千元": Decimal(1000), "万元": Decimal(10000), "百万元": Decimal(1000000)}
 _NOTE = re.compile(r"^(?:[一二三四五六七八九十]+[、.]|\([一二三四五六七八九十]+\))\d+(?:\(\d+\))?$", re.ASCII)
 _FIELD_STATEMENT = {
     "parent_equity": "资产负债表",
@@ -79,6 +101,11 @@ def _compact(value: str) -> str:
     return re.sub(r"\s+", "", value).replace("（", "(").replace("）", ")")
 
 
+#: 续表/母公司表节的等价角色名。年报写"公司资产负债表"，与"母公司资产负债表"
+#: 是同一张表；不归一化就会把母公司表节当成缺失，从而无法施加口径上界。
+_ROLE_ALIASES = {"公司": "母公司"}
+
+
 @dataclass(frozen=True, slots=True)
 class _Heading:
     role: str
@@ -87,6 +114,11 @@ class _Heading:
     top: float
     bottom: float
     unit: str | None
+    continuation: bool = False
+    #: 该表名是否写成了"合并及公司…"这种**一张表同时列示合并与公司口径**的形式。
+    #: 这种表的行有四个金额列，而本抽取器按"两列金额"解析，会把公司列当成合并列，
+    #: 因此必须让调用方知道并拒绝（宁可拒绝，也不要静默取错口径）。
+    combined: bool = False
 
 
 def _page_headings(page: Any, page_index: int) -> list[_Heading]:
@@ -94,8 +126,20 @@ def _page_headings(page: Any, page_index: int) -> list[_Heading]:
     lines = text.splitlines()
     result = []
     for index, line in enumerate(lines):
-        match = _HEADING.fullmatch(_compact(line))
+        compact_line = _compact(line)
+        continuation = bool(_CONTINUATION_SUFFIX.search(compact_line))
+        if continuation:
+            compact_line = _CONTINUATION_SUFFIX.sub("", compact_line)
+        match = _HEADING.fullmatch(compact_line)
         if match is None:
+            continue
+        # Accounting-policy notes label historical adjustment tables with the
+        # same statement names. Their explicit three adjustment columns are
+        # not a current/prior statement, and narrative mentions on that page
+        # must not make the actual current statements elsewhere ambiguous.
+        if any(_compact(following) in (
+                "调整前调整金额调整后", "项目调整前调整金额调整后")
+               for following in lines[index + 1:index + 4]):
             continue
         # A continuation heading is not a new statement. The precise line
         # match also avoids contents pages and narrative references.
@@ -114,8 +158,10 @@ def _page_headings(page: Any, page_index: int) -> list[_Heading]:
             raise CninfoFinancialPdfError("statement has conflicting amount units")
         unit = units[0] if units else None
         result.append(_Heading(
-            match.group(1), match.group(2), page_index,
+            _ROLE_ALIASES.get(match.group(1), match.group(1)), match.group(2), page_index,
             float(occurrences[0]["top"]), float(occurrences[0]["bottom"]), unit,
+            continuation,
+            "及公司" in compact_line or "及母公司" in compact_line,
         ))
     return result
 
@@ -138,9 +184,9 @@ def _expected_header(statement: str, period: date, labels: list[str]) -> tuple[s
             return "期末余额", "期初余额"
     else:
         current = next((label for label in header if str(period.year) in label and
-                        ("半年度" in label if period.month == 6 else "年度" in label)), None)
+                        (any(word in label for word in ("半年度", "上半年")) if period.month == 6 else "年度" in label)), None)
         prior = next((label for label in header if str(period.year - 1) in label and
-                      ("半年度" in label if period.month == 6 else "年度" in label)), None)
+                      (any(word in label for word in ("半年度", "上半年")) if period.month == 6 else "年度" in label)), None)
         if current and prior and header.index(current) < header.index(prior):
             return current, prior
         if ("本期发生额" in header and "上年同期发生额" in header and
@@ -160,6 +206,12 @@ def _field_matches(field: str, label: str) -> bool:
     if field == "parent_equity":
         return bool(re.match(r"^归属于母公司(?:所有者|股东)(?:权益|股东权益)", clean)) and "合计" in clean
     if field == "revenue":
+        # 三种真实写法：``营业收入``、``其中：营业收入``（营业总收入下的明细行）
+        # 与 ``一、营业收入``（直接以营业收入为收入首行的利润表，实测 002415）。
+        # 编号已由调用方归一化；全角冒号形式也保留，因为旧协议直接以未归一化的
+        # 行名调用本函数。
+        # ``营业总收入``仍然必须被拒绝：它与营业收入在有利息收入的公司里
+        # 并不相等，混用会改变 F09 的经济含义。
         return clean in ("营业收入", "其中:营业收入", "其中：营业收入")
     if field == "net_profit_consolidated":
         return clean.startswith("净利润") and not any(
@@ -168,7 +220,7 @@ def _field_matches(field: str, label: str) -> bool:
     if field == "net_profit_attributable":
         return bool(re.match(r"^归属于母公司(?:股东|所有者)的净利润", clean))
     if field == "operating_cashflow":
-        return bool(re.match(r"^经营活动产生(?:/\(使用\))?的现金流量净额", clean))
+        return bool(re.match(r"^经营活动(?:(?:产生|使用)(?:/\((?:使用|产生)\))?|\((?:使用|产生)\)/(?:产生|使用))的现金流量净额", clean))
     return False
 
 

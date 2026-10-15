@@ -19,17 +19,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import shutil
 import sqlite3
 import threading
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
@@ -45,12 +48,29 @@ from aquant.application.research_cards import (
 )
 from aquant.domain.ai.model import TextModelProvider  # noqa: E402
 from aquant.domain.evidence.store import evidence_for  # noqa: E402
+from aquant.domain.experiments.comparison import ComparisonError, ComparisonStore  # noqa: E402
+from aquant.operations.engineering_simulation import list_engineering_runs  # noqa: E402
+from aquant.operations.forward_comparison import ForwardComparisonStore  # noqa: E402
+from aquant.operations.simulation_attribution import AttributionStore  # noqa: E402
+from aquant.operations.financial_coverage import build_financial_coverage_report  # noqa: E402
+from aquant.operations.s2_readiness import load_s2_target_period_map  # noqa: E402
 from aquant.operations.freshness import freshness  # noqa: E402
 from aquant.operations.research_jobs import (  # noqa: E402
     run_research_job, submit_research_job,
 )
 from aquant.operations.s2_candidate_preview import (  # noqa: E402
     S2CandidatePreviewError, load_s2_candidate_preview,
+)
+from aquant.operations.research_candidates import (  # noqa: E402
+    ResearchCandidateError, load_research_candidates,
+)
+from aquant.operations.research_scan import load_research_scan  # noqa: E402
+from aquant.operations.research_simulation import (  # noqa: E402
+    LABEL as RESEARCH_SIMULATION_LABEL, assert_draft_binding, assert_execution_eligibility,
+    assert_user_selection_timing,
+    _verified_status as verified_simulation_status,
+    load_simulation_research, project_pending_draft, research_draft_origin, research_drafts,
+    save_research_draft, simulation_context,
 )
 from aquant.application.workspace_view import build_data_status, build_research_card
 from aquant.domain.data.db import apply_migrations, connect
@@ -344,11 +364,10 @@ class AppState:
         self.snapshot_id = active_snapshot(self.data_dir, con)
         self.fees = resolve_fee_table(self.snapshot_id)
         self.fee_provenance = fee_provenance()
-        # 组合参数与研究配置保持一致（单票 10% / 行业 30%）。持仓上限取 4：
-        # 研究池有 24 只（其中 18 只沪深主板可模拟），因此上限确实是紧的——
-        # 池子只够填满上限时，"上限"就测不出任何东西。
+        # 原始设计 §10.3/§11.2：最多 20 个持仓，初始目标 4%；
+        # 单票 10% 与行业 30% 是风险上限，不是新建目标仓位。
         self.params = ConstructionParams(
-            max_holdings=4, max_single_name_pct=Decimal("10"),
+            max_holdings=20, initial_target_pct=Decimal("4"), max_single_name_pct=Decimal("10"),
             max_single_industry_pct=Decimal("30"),
             # 与研究配置一致：近 20 日均成交额 >= 5,000 万元。
             # 该阈值此前因免费源**没有成交额**而保持 None（不筛）——
@@ -640,6 +659,36 @@ class PreviewRequest(BaseModel):
 class FreezeRequest(BaseModel):
     plan_id: str = Field(min_length=1, max_length=64)
     confirmation_token: str = Field(min_length=8, max_length=512)
+
+
+class ResearchSimulationDraftRequest(BaseModel):
+    portfolioId: str = Field(min_length=1, max_length=64)
+    researchSnapshotId: str = Field(min_length=1, max_length=128)
+    researchContentHash: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    decisionSnapshotId: str = Field(min_length=1, max_length=128)
+    decisionCutoffAt: datetime
+    tradingDay: date
+    selectedInstrumentIds: list[str] = Field(min_length=1, max_length=20)
+    selectionReason: str = Field(min_length=1, max_length=2000)
+    excludedReasons: dict[str, str] = Field(default_factory=dict, max_length=100)
+    initialCashCents: int | None = Field(default=None, ge=1)
+    executionSnapshotId: str | None = Field(default=None, min_length=1, max_length=128)
+    source: str = Field(default="USER_SELECTION", pattern="^(USER_SELECTION|ENGINEERING_TRIAL)$")
+
+    @model_validator(mode="after")
+    def selection_has_real_reasons(self) -> "ResearchSimulationDraftRequest":
+        if not self.selectionReason.strip():
+            raise ValueError("selectionReason must explain the selection")
+        if any(not reason.strip() or len(reason) > 1000 for reason in self.excludedReasons.values()):
+            raise ValueError("excludedReasons must contain nonblank reasons of at most 1000 characters")
+        if len(self.selectedInstrumentIds) != len(set(self.selectedInstrumentIds)):
+            raise ValueError("selectedInstrumentIds contains duplicates")
+        return self
+
+
+class ResearchSimulationSavedPreviewRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    executionSnapshotId: str = Field(min_length=1, max_length=128)
 
 
 class StrategyVersionRequest(BaseModel):
@@ -1250,8 +1299,15 @@ def _s1_candidates(state: "AppState", snapshot_id: str
     closes: dict[str, list[int]] = {}
     industry: dict[str, str] = {}
     boards: dict[str, str] = {}
+    simulatable: dict[str, bool] = {}
     missing_adjusted: list[str] = []
-    for inst in state.reader.instruments(snapshot_id, as_of=ref.as_of_time):
+    instruments = state.reader.instruments(snapshot_id, as_of=ref.as_of_time)
+    has_status_evidence = any("simulation_eligibility" in inst for inst in instruments)
+    # Current snapshots may be observed later than their price date. Check the
+    # actual last price session (e.g. 10/9), not the observation date (e.g. 10/11).
+    price_day = (max((row.trading_day for row in state.reader.daily_quotes(
+        snapshot_id, as_of=ref.as_of_time)), default=None) if has_status_evidence else None)
+    for inst in instruments:
         iid = inst.get("instrument_id")
         code = inst.get("industry_code")
         # 没有权威行业分类就不参与横截面排名：S1 的排名是"同行业可比"，
@@ -1275,6 +1331,9 @@ def _s1_candidates(state: "AppState", snapshot_id: str
         closes[iid] = prices
         industry[iid] = code
         boards[iid] = (inst.get("board") or "").upper()
+        simulatable[iid] = (_is_simulatable(boards[iid]) and (
+            not has_status_evidence or (price_day is not None and
+             verified_simulation_status(inst, price_day, ref.as_of_time))))
 
     if missing_adjusted:
         sample = ", ".join(missing_adjusted[:5])
@@ -1304,7 +1363,7 @@ def _s1_candidates(state: "AppState", snapshot_id: str
         RankedCandidate(
             instrument_id=sig.instrument_id, industry_code=sig.industry_code,
             signal_rank=sig.signal_rank,
-            simulatable=_is_simulatable(boards.get(sig.instrument_id)),
+            simulatable=simulatable[sig.instrument_id],
             f01_rank=sig.f01_rank, f02_rank=sig.f02_rank,
             low_vol_rank=sig.low_vol_rank,
         )
@@ -1312,6 +1371,8 @@ def _s1_candidates(state: "AppState", snapshot_id: str
     ]
     note = (f"S1 在快照内 {len(closes)} 只证券上计算；"
             f"其中可模拟（沪深主板）{sum(1 for s in ranked if s.simulatable)} 只")
+    if has_status_evidence:
+        note += "；新证据快照还须通过当前行情日非ST、非停牌状态核验"
     return ranked, note
 
 
@@ -1337,6 +1398,35 @@ def create_app(state: AppState | None = None) -> FastAPI:
     # 身份接线在进程启动时冻结，避免请求过程中改变环境变量而导致同一
     # 个 API 实例的 assurance 语义漂移。
     app.state.aquant_identity = _identity_config()
+
+    class SharedDatabaseRequests:
+        """Keep each API request's use of the shared SQLite state exclusive.
+
+        FastAPI runs synchronous routes in different worker threads. The write
+        transaction lock does not protect concurrent reads on this connection.
+        An async request lock also keeps request state and transaction sequences
+        together without blocking the event loop while another request waits.
+        """
+
+        def __init__(self, app):
+            self.app = app
+            self.lock = asyncio.Lock()
+
+        async def __call__(self, scope, receive, send):
+            # Financial proof replay has its own read-only connections and
+            # immutable snapshot binding. It must not hold the application's
+            # shared-connection lock while parsing archived reports.
+            isolated_financial_read = (scope["type"] == "http" and
+                scope.get("method") == "GET" and
+                scope["path"] == "/api/v1/research/financial-coverage")
+            if (scope["type"] != "http" or not scope["path"].startswith("/api/") or
+                    isolated_financial_read):
+                await self.app(scope, receive, send)
+                return
+            async with self.lock:
+                await self.app(scope, receive, send)
+
+    app.add_middleware(SharedDatabaseRequests)
 
     cors_origins = _cors_origins_from_env()
     if cors_origins:
@@ -1613,6 +1703,312 @@ def create_app(state: AppState | None = None) -> FastAPI:
 
         return {"cards": research_cards(s.con, instrument_id=instrument_id,
                                         snapshot_id=snapshot_id, limit=limit)}
+
+    @app.get("/api/v1/research/candidates")
+    def research_candidates(request: Request, limit: int = Query(default=20, ge=1, le=100),
+                            offset: int = Query(default=0, ge=0), q: str = Query(default="", max_length=80),
+                            board: str = Query(default="", max_length=16),
+                            industry: str = Query(default="", max_length=80),
+                            view: str = Query(default="candidates", pattern="^(candidates|all|financial)$")) -> dict:
+        """Frozen research dataset, independent of the S1 plan candidate set."""
+        identity = getattr(request.app.state, "aquant_identity", _identity_config())
+        if not identity.local_only:
+            raise HTTPException(status_code=403, detail={"code": "LOCAL_ONLY",
+                "message": "研究候选仅供本机研究", "repairAction": "使用本机试运行身份模式"})
+        path = Path(os.environ.get("AQUANT_RESEARCH_CANDIDATES_FILE",
+            ROOT / "data/s2-structured/research-candidates.json"))
+        try:
+            import json
+            if json.loads(path.read_text(encoding="utf-8")).get("schema") == "aquant.research-candidates.v2":
+                return load_research_scan(path, limit=limit, offset=offset, q=q,
+                                          board=board, industry=industry, view=view)
+            return load_research_candidates(path, limit=limit)
+        except (ResearchCandidateError, OSError, ValueError, ArithmeticError, KeyError, TypeError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "RESEARCH_CANDIDATES_NOT_READY",
+                "message": str(exc), "retryable": False,
+                "repairAction": "从已验证的因子试运行重新生成研究候选产物"}) from exc
+
+    def local_research_simulation_path(request: Request) -> Path:
+        identity = getattr(request.app.state, "aquant_identity", _identity_config())
+        if not identity.local_only or identity.config_error:
+            raise HTTPException(status_code=403, detail={"code": "LOCAL_ONLY",
+                "message": "研究候选人工模拟仅供已声明的本机试运行。"})
+        return Path(os.environ.get("AQUANT_RESEARCH_CANDIDATES_FILE",
+                                  ROOT / "data/s2-structured/research-candidates.json"))
+
+    def research_simulation_inputs(request: Request, s: AppState, decision_id: str | None = None,
+                                   research_path: Path | None = None, context_limit: int = 100):
+        current_path = local_research_simulation_path(request)
+        path = research_path or current_path
+        try:
+            packet, binding = load_simulation_research(path)
+            context, eligible, indexed = simulation_context(
+                packet, binding, reader=s.reader, snapshot_id=decision_id or s.current_snapshot(),
+                params=s.params, limit=context_limit)
+            if context["nextTradingDay"]:
+                try:
+                    s.service._assert_fee_table_allowed(context["decisionSnapshotId"],
+                        date.fromisoformat(context["nextTradingDay"]))
+                except (PlanError, FeeError) as exc:
+                    context["blockingIssues"].append({"code": exc.code,
+                        "message": exc.message, "repairAction": exc.repair_action})
+            return path, packet, context, eligible, indexed
+        except (ResearchCandidateError, OSError, ValueError, ArithmeticError, KeyError, TypeError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "RESEARCH_SIMULATION_NOT_READY",
+                "message": str(exc), "repairAction": "核验冻结研究产物及正式快照输入后重试。"}) from exc
+
+    @app.get("/api/v1/research/simulation/context")
+    def research_simulation_context_route(request: Request,
+            limit: int = Query(default=100, ge=1, le=5000), s: AppState = Depends(svc)) -> dict:
+        _, _, context, _, _ = research_simulation_inputs(request, s, context_limit=limit)
+        return context
+
+    @app.get("/api/v1/research/simulation/drafts")
+    def research_simulation_drafts_route(request: Request,
+            portfolioId: str | None = Query(default=None, max_length=64),
+            limit: int = Query(default=20, ge=1, le=100),
+            subject: str = Depends(current_subject), s: AppState = Depends(svc)) -> dict:
+        local_research_simulation_path(request)
+        rows = research_drafts(s.con, subject=subject, portfolio_id=portfolioId, limit=limit)
+        return {"drafts": rows, "count": len(rows),
+                "note": "已保存草稿可在刷新后查看；确认前必须针对当前账户重新预览。"}
+
+    @app.post("/api/v1/research/simulation/draft")
+    def research_simulation_draft_route(body: ResearchSimulationDraftRequest, request: Request,
+            subject: str = Depends(current_subject), s: AppState = Depends(svc)) -> dict:
+        return make_research_simulation_preview(body, request, subject, s)
+
+    @app.post("/api/v1/research/simulation/drafts/{draft_id}/preview")
+    def research_simulation_saved_preview_route(draft_id: str,
+            body: ResearchSimulationSavedPreviewRequest, request: Request,
+            subject: str = Depends(current_subject), s: AppState = Depends(svc)) -> dict:
+        local_research_simulation_path(request)
+        try:
+            saved, origin = research_draft_origin(s.con, data_dir=s.data_dir,
+                                                 subject=subject, draft_id=draft_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail={"code": "RESEARCH_DRAFT_NOT_FOUND",
+                "message": "该主体没有可复核的研究模拟草稿。"}) from exc
+        except (ResearchCandidateError, OSError, ValueError, TypeError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "RESEARCH_ORIGIN_NOT_READY",
+                "message": str(exc), "repairAction": "恢复该草稿已冻结的研究原文与哈希；不能用最新研究替代。"}) from exc
+        # Selection, dates and cash settings come only from the saved draft.
+        # A later ledger is still read afresh by the ordinary preview path.
+        selection = saved["selection"]
+        selected = ResearchSimulationDraftRequest(
+            portfolioId=saved["portfolioId"], researchSnapshotId=saved["researchSnapshotId"],
+            researchContentHash=saved["researchContentHash"], decisionSnapshotId=saved["decisionSnapshotId"],
+            decisionCutoffAt=saved["decisionCutoffAt"], tradingDay=saved["tradingDay"],
+            selectedInstrumentIds=selection["selectedInstrumentIds"], selectionReason=selection["selectionReason"],
+            excludedReasons=selection["excludedReasons"], source=saved["source"],
+            initialCashCents=(saved["initialCashCents"]
+                if saved["cashBasis"] == "NEW_SIMULATION_ACCOUNT_SETTING" else None),
+            executionSnapshotId=body.executionSnapshotId)
+        return make_research_simulation_preview(selected, request, subject, s,
+                                               research_path=origin, saved_draft=saved)
+
+    def make_research_simulation_preview(body: ResearchSimulationDraftRequest, request: Request,
+            subject: str, s: AppState, *, research_path: Path | None = None,
+            saved_draft: dict | None = None) -> dict:
+        assert_user_selection_timing(source=body.source, trading_day=body.tradingDay,
+                                     saved_at=saved_draft["createdAt"] if saved_draft is not None else None)
+        path, packet, context, eligible, indexed = research_simulation_inputs(
+            request, s, body.decisionSnapshotId, research_path)
+        assert_draft_binding(context, research_snapshot_id=body.researchSnapshotId,
+                             research_content_hash=body.researchContentHash,
+                             decision_cutoff_at=body.decisionCutoffAt, trading_day=body.tradingDay)
+        ranked = {row["instrumentId"]: row for row in packet["candidates"] if row.get("status") == "RANKED"}
+        chosen_ids = set(body.selectedInstrumentIds)
+        if not chosen_ids <= ranked.keys():
+            raise conflict("manual selection contains instruments outside this research ranking",
+                           repair="refresh the research and choose an explicitly ranked instrument")
+        if not body.excludedReasons.keys() <= ranked.keys() or chosen_ids & body.excludedReasons.keys():
+            raise conflict("excludedReasons must refer to unselected instruments in the original research ranking",
+                           repair="record exclusions against the bound original research only")
+        by_id = {c.instrument_id: c for c in eligible}
+        selected_candidates = [by_id[iid] for iid in body.selectedInstrumentIds if iid in by_id]
+        # Return specific blocked selections, including cards beyond the context's first page.
+        if len(selected_candidates) != len(chosen_ids):
+            full_context, _, _ = simulation_context(packet, context,
+                reader=indexed, snapshot_id=body.decisionSnapshotId, params=s.params,
+                limit=len(ranked))
+            qualifications = [row for row in full_context["candidates"] if row["instrumentId"] in chosen_ids]
+        else:
+            qualifications = [{"instrumentId": iid, "eligible": True, "blockingIssues": []}
+                              for iid in body.selectedInstrumentIds]
+        blocked = [*context["blockingIssues"], *[
+            {**issue, "instrumentId": row["instrumentId"]}
+            for row in qualifications for issue in row["blockingIssues"]]]
+        existing = s.con.execute("SELECT portfolio_id FROM portfolio WHERE portfolio_id=?",
+                                 (body.portfolioId,)).fetchone()
+        if existing and body.initialCashCents is not None:
+            initial = s.con.execute("SELECT amount_cents FROM cash_entry WHERE portfolio_id=? "
+                                    "AND entry_type='INITIAL_DEPOSIT' ORDER BY occurred_at LIMIT 1",
+                                    (body.portfolioId,)).fetchone()
+            if initial is None or int(initial["amount_cents"]) != body.initialCashCents:
+                raise conflict("initialCashCents cannot change an existing simulation account",
+                               repair="omit initialCashCents to use the ledger, or choose a new account")
+        cash = s.service._ledger_cash(body.portfolioId) if existing else (body.initialCashCents or s.params.initial_capital_cents)
+        lots = s.service._load_lots(body.portfolioId) if existing else []
+        listings = _listings_for(s, body.decisionSnapshotId)
+        service = PlanService(s.con, indexed, s.fees, BOARD_RULES, listings, s.params)
+        projection = proposed = None
+        if not blocked:
+            projection = project_pending_draft(service, portfolio_id=body.portfolioId,
+                snapshot_id=body.decisionSnapshotId, trading_day=body.tradingDay,
+                candidates=selected_candidates, cash_cents=cash, lots=lots)
+            proposed = project_pending_draft(service, portfolio_id=body.portfolioId,
+                snapshot_id=body.decisionSnapshotId, trading_day=body.tradingDay,
+                candidates=eligible, cash_cents=cash, lots=lots)
+        origin = {k: context[k] for k in ("researchSnapshotId", "researchContentHash",
+                   "researchObservedAt", "researchAvailableAt", "researchDataAsOf")}
+        if saved_draft is not None:
+            origin["sourceDraftId"] = saved_draft["draftId"]
+        selection = {"selectedInstrumentIds": body.selectedInstrumentIds,
+                     "selectionReason": body.selectionReason, "excludedReasons": body.excludedReasons,
+                     "source": body.source}
+        result = {"schema": "aquant.research-simulation-draft.v1", "label": RESEARCH_SIMULATION_LABEL,
+            "formalStrategy": False, **origin, "portfolioId": body.portfolioId,
+            "decisionSnapshotId": body.decisionSnapshotId,
+            "decisionCutoffAt": body.decisionCutoffAt.isoformat(), "tradingDay": body.tradingDay.isoformat(),
+            "executionSnapshotId": body.executionSnapshotId,
+            "source": body.source, "selection": selection, "qualifications": qualifications,
+            "selectedInstrumentIds": body.selectedInstrumentIds, "selectionReason": body.selectionReason,
+            "initialCashCents": cash, "cashBasis": "LEDGER" if existing else "NEW_SIMULATION_ACCOUNT_SETTING",
+            "projection": projection, "researchProposed": proposed,
+            "originalRanking": [{"instrumentId": row["instrumentId"], "position": row["position"],
+                                  "signalRank": row["signalRank"]} for row in ranked.values()],
+            "blockingIssues": blocked, "planId": None, "confirmationAvailable": False,
+            "frozen": False, "fillCount": 0,
+            "status": "BLOCKED" if blocked else "WAITING_EXECUTION_SNAPSHOT",
+            "note": "草稿按决策参考收盘价估算；没有冻结、订单入账或成交。下一交易日执行行情尚未到达时明确等待。"}
+        pv = None
+        if body.executionSnapshotId and not blocked:
+            # This branch uses the ordinary production two-snapshot and fee guards.
+            assert_execution_eligibility(indexed, decision_snapshot_id=body.decisionSnapshotId,
+                execution_snapshot_id=body.executionSnapshotId, trading_day=body.tradingDay,
+                instrument_ids=sorted({o["instrument_id"] for o in projection["orders"]}))
+            pv = service.preview(portfolio_id=body.portfolioId, snapshot_id=body.decisionSnapshotId,
+                trading_day=body.tradingDay, as_of=body.decisionCutoffAt, candidates=selected_candidates,
+                cash_available_cents=cash, lots=lots, confirm_subject="server:preview",
+                decision_snapshot_id=body.decisionSnapshotId, decision_cutoff_at=body.decisionCutoffAt,
+                execution_snapshot_id=body.executionSnapshotId)
+            # The ordinary confirmation hashes notes too, so origin and selection
+            # are bound to that exact preview rather than mutable side metadata.
+            pv.notes.append("research_simulation_origin=" + json.dumps(
+                {**origin, **selection}, ensure_ascii=False, sort_keys=True, separators=(",", ":")))
+            result.update(status="READY_FOR_REVIEW", preview=pv.as_dict(), planId=pv.plan_id,
+                          confirmationAvailable=body.source == "USER_SELECTION")
+        if saved_draft is not None:
+            # A live preview never updates the immutable saved selection. After
+            # API restart GET explicitly requires another preview before tokens.
+            document = dict(result, draftId=saved_draft["draftId"], sourceDraftId=saved_draft["draftId"],
+                createdAt=saved_draft["createdAt"], researchOriginPath=str(path.resolve()),
+                originalInitialCashCents=saved_draft["initialCashCents"], requiresRepreview=False)
+        else:
+            document = save_research_draft(s.con, data_dir=s.data_dir, research_path=path,
+                                          subject=subject, payload=result)
+        if pv is not None:
+            # Persist the real choice timestamp before account writes. A request
+            # that crosses the opening boundary while being checked cannot leave
+            # a confirmable preview or an account after its save is refused.
+            s.service._ensure_account(body.portfolioId, initial_cash_cents=cash, initial_lots=[],
+                                      now=datetime.now(timezone.utc), enforce_match=False)
+            if body.source == "USER_SELECTION":
+                s.previews[pv.plan_id] = pv
+                s.preview_decisions[pv.plan_id] = {
+                    "decision_type": "MODIFY_MODEL", "reason_category": "MANUAL_RESEARCH_SELECTION",
+                    "reason_note": body.selectionReason,
+                    "model_proposed": {"research_origin": origin, "proposal": proposed,
+                        "original_ranking": result["originalRanking"], "formal_strategy": False},
+                    "human_final": {"research_origin": origin, "selection": selection, "proposal": pv.as_dict()},
+                    "rule_check": {"all_passed": all(c["passed"] for c in pv.rule_checks),
+                                   "checks": pv.rule_checks, "research_origin": origin},
+                }
+        return document
+
+    @app.get("/api/v1/comparisons")
+    def comparison_results_route(s: AppState = Depends(svc)) -> dict:
+        try:
+            rows = ComparisonStore(s.data_dir / "comparisons").list_results()
+            return {"results": rows, "count": len(rows),
+                    "note": "human_origin=ENGINEERING_REPLAY 表示工程回放选择，不代表用户已确认判断。"}
+        except (OSError, ValueError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "COMPARISON_RESULTS_NOT_READY",
+                "message": str(exc), "repairAction": "核验已保存的不可变对照结果文件。"}) from exc
+
+    @app.get("/api/v1/research/financial-coverage")
+    def financial_coverage_route(subject: str = Depends(current_subject),
+                                 s: AppState = Depends(svc)) -> dict:
+        try:
+            # This route is isolated from SharedDatabaseRequests. Never touch
+            # s.con, s.reader or the mutable service/fee/listing state here.
+            with closing(connect(s.data_dir / "meta.sqlite", read_only=True)) as con:
+                snapshot_id = active_snapshot(s.data_dir, con)
+                SnapshotStore(con, s.root).require_published(snapshot_id)
+            research_path = Path(os.environ.get("AQUANT_RESEARCH_CANDIDATES_FILE",
+                ROOT / "data/s2-structured/research-candidates.json"))
+            packet, _binding = load_simulation_research(research_path)
+            reconstructed = next((Path(source["path"]) for source in packet.get("provenance", [])
+                                  if source["role"] == "facts_db"), None)
+            series = ForwardComparisonStore(s.data_dir / "forward-comparison").list_series(subject=subject)
+            priorities = {target["instrument_id"] for item in series for target in item["modelTargets"]}
+            live_path = Path(os.environ.get("AQUANT_LIVE_FINANCIAL_FACTS_DB",
+                ROOT / "data/s2-pdf-review/s2-machine-verified-facts.sqlite"))
+            target_map_path = os.environ.get("AQUANT_S2_TARGET_PERIOD_MAP")
+            target_map = load_s2_target_period_map(target_map_path) if target_map_path else {}
+            return build_financial_coverage_report(snapshot_dir=s.data_dir,
+                snapshot_id=snapshot_id, live_facts_db=live_path,
+                reconstructed_facts_db=reconstructed, priority_instrument_ids=priorities,
+                latest_period_ends=target_map.get("latest_period_ends"),
+                target_period_records=target_map.get("records", []),
+                **({"target_period_basis": target_map["target_period_basis"]} if target_map else {}),
+                market_caps_archive_root=Path(os.environ.get("AQUANT_FORWARD_ARCHIVE_ROOT",
+                    ROOT / "deploy/agentctl-q0/forward-archive")))
+        except (OSError, ValueError, sqlite3.Error, SnapshotError, ResearchCandidateError, ComparisonError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "FINANCIAL_COVERAGE_NOT_READY",
+                "message": str(exc), "repairAction": "核验当前快照及财务原文准入，不将缺项按零值补齐。"}) from exc
+
+    @app.get("/api/v1/engineering/simulation/attributions")
+    def engineering_attributions_route(subject: str = Depends(current_subject),
+                                        s: AppState = Depends(svc)) -> dict:
+        try:
+            rows = AttributionStore(s.data_dir / "simulation-attribution").list_reports(subject=subject)
+            return {"reports": rows, "count": len(rows),
+                    "note": "逐券、行业、费用与现金的会计复盘；因果选股及择时尚不足以归因。"}
+        except (OSError, ValueError, ComparisonError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "ATTRIBUTIONS_NOT_READY",
+                "message": str(exc), "repairAction": "核验实际账本、原始方案和独立归因文件。"}) from exc
+
+    @app.get("/api/v1/engineering/simulation/runs")
+    def engineering_simulation_runs_route(subject: str = Depends(current_subject),
+                                           s: AppState = Depends(svc)) -> dict:
+        try:
+            rows = [r for r in list_engineering_runs(s.data_dir) if r.get("subjectId") == subject]
+            return {"runs": rows, "count": len(rows),
+                    "note": "独立工程账户的实际模拟账本；不代表用户确认或券商成交。"}
+        except (OSError, ValueError, PlanError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "ENGINEERING_RESULTS_NOT_READY",
+                "message": str(exc), "repairAction": "核验已保存工程结果及其账本来源。"}) from exc
+
+    @app.get("/api/v1/comparisons/forward")
+    def forward_comparison_results_route(subject: str = Depends(current_subject),
+                                          s: AppState = Depends(svc)) -> dict:
+        try:
+            rows = ForwardComparisonStore(s.data_dir / "forward-comparison").list_series(subject=subject)
+            return {"series": rows, "count": len(rows),
+                    "note": "真实登记时刻后的工程前向对照；无已确认人工选择时 H 未开放。"}
+        except (OSError, ValueError, ComparisonError) as exc:
+            raise HTTPException(status_code=503, detail={"code": "FORWARD_RESULTS_NOT_READY",
+                "message": str(exc), "repairAction": "核验前向登记与逐日不可变观测文件。"}) from exc
+
+    @app.get("/api/v1/comparisons/{run_id}")
+    def comparison_result_route(run_id: str, s: AppState = Depends(svc)) -> dict:
+        try:
+            return ComparisonStore(s.data_dir / "comparisons").read(run_id)
+        except (OSError, ValueError, ComparisonError) as exc:
+            raise HTTPException(status_code=404, detail={"code": "COMPARISON_RESULT_NOT_FOUND",
+                "message": str(exc), "repairAction": "选择已保存的有效对照运行编号。"}) from exc
 
     @app.get("/api/v1/research/s2/diagnostic-preview")
     def s2_diagnostic_preview(request: Request) -> dict:
@@ -2228,6 +2624,16 @@ def create_app(state: AppState | None = None) -> FastAPI:
         model_preview = plan_service.preview(candidates=all_candidates, **preview_args)
         pv = (model_preview if selected_ids is None else
               plan_service.preview(candidates=chosen_candidates, **preview_args))
+        execution_id = pv.execution_snapshot_id or decision_id
+        execution_ref = s.reader.ref(execution_id)
+        execution_instruments = s.reader.instruments(execution_id, as_of=execution_ref.as_of_time)
+        if any("simulation_eligibility" in inst for inst in execution_instruments):
+            # Retained positions may now be ST or suspended. Every proposed
+            # order, including SELL, must have actual execution-day normal
+            # status before normal MAIN rules can authorize confirmation.
+            assert_execution_eligibility(s.reader, decision_snapshot_id=decision_id,
+                execution_snapshot_id=execution_id, trading_day=body.trading_day,
+                instrument_ids=sorted({order["instrument_id"] for order in pv.orders}))
         # 服务端保留本次预览：令牌签发与冻结都必须针对同一个预览，
         # 否则"绑定预览哈希"就无从谈起。
         s.previews[pv.plan_id] = pv
@@ -2376,10 +2782,14 @@ def create_app(state: AppState | None = None) -> FastAPI:
             current_lots=s.service._load_lots(pv.portfolio_id),
             current_cash_cents=s.service._ledger_cash(pv.portfolio_id),
         )
+        # The domain may return an already frozen plan for the same version and
+        # account, even though this live re-preview has a fresh preview ID.
+        # Decision references must follow the persisted ID, never that new ID.
+        frozen_plan_id = result["plan_id"]
         existing_decision = s.con.execute(
-            "SELECT decision_id FROM decision_log WHERE plan_id=? LIMIT 1", (plan_id,),
+            "SELECT decision_id FROM decision_log WHERE plan_id=? LIMIT 1", (frozen_plan_id,),
         ).fetchone()
-        if existing_decision is None:
+        if existing_decision is None and not result.get("idempotent_replay"):
             context = s.preview_decisions.get(plan_id) or {
                 "decision_type": "ACCEPT_MODEL",
                 "model_proposed": {"orders": pv.as_dict()["orders"]},
@@ -2389,20 +2799,23 @@ def create_app(state: AppState | None = None) -> FastAPI:
             }
             decision = record_decision(
                 s.con,
-                decision_id="dec-" + plan_id,
+                decision_id="dec-" + frozen_plan_id,
                 portfolio_id=pv.portfolio_id,
                 snapshot_id=pv.snapshot_id,
-                plan_id=plan_id,
+                plan_id=frozen_plan_id,
                 decision_type=context["decision_type"],
                 model_proposed=context["model_proposed"],
                 human_final=context["human_final"],
                 reason_category=context["reason_category"],
-                reason_note="计划经用户显式确认并冻结",
+                reason_note=context.get("reason_note", "计划经用户显式确认并冻结"),
                 rule_check=context["rule_check"],
             )
-        else:
+        elif existing_decision is not None:
             decision = {"decision_id": existing_decision["decision_id"],
                         "note": "decision already recorded for this frozen plan"}
+        else:
+            decision = {"decision_id": None,
+                        "note": "the existing frozen plan has no original decision record; a repeat preview cannot invent one"}
         result["decision"] = decision
         return result
 

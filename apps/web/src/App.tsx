@@ -12,10 +12,12 @@ import { ErrorState, Loading } from "./components/ui";
 import { EvidenceDrawer } from "./components/ResearchCard";
 import { TodayView } from "./views/TodayView";
 import { ResearchView } from "./views/ResearchView";
-import { PortfolioView } from "./views/PortfolioView";
+import { PortfolioView, type PortfolioMode } from "./views/PortfolioView";
 import { ExperimentsView } from "./views/ExperimentsView";
 import { WorkspaceView } from "./views/WorkspaceView";
 import { SettingsView } from "./views/SettingsView";
+import type { ResearchSimulationDraft } from "./lib/api";
+import { restoreResearchDrafts, type ResearchSelection } from "./lib/workflow";
 
 const WS_URL = "/workspace.json";
 const TAB_IDS: Tab[] = ["today", "research", "portfolio", "workspace",
@@ -169,6 +171,14 @@ export default function App() {
     { kind: "error"; message: string }
   >({ kind: "loading" });
   const [tab, setTabState] = useState<Tab>(tabFromHash);
+  const [visitedTabs, setVisitedTabs] = useState<Tab[]>(() => [tabFromHash()]);
+  const [portfolioMode, setPortfolioMode] = useState<PortfolioMode>("research");
+  const [researchSelection, setResearchSelection] = useState<ResearchSelection | null>(null);
+  const [focusedInstrumentId, setFocusedInstrumentId] = useState<string | null>(null);
+  const [researchDrafts, setResearchDrafts] = useState<ResearchSimulationDraft[]>([]);
+  const [draftReadError, setDraftReadError] = useState<string | null>(null);
+  const [watchIds, setWatchIds] = useState<string[]>([]);
+  const [reviewRevision, setReviewRevision] = useState(0);
   const [statusOpen, setStatusOpen] = useState(false);
   const [evidenceFor, setEvidenceFor] = useState<string | null>(null);
   const [selectedCard, setSelectedCard] = useState<string | null>(null);
@@ -188,16 +198,27 @@ export default function App() {
 
   const setTab = useCallback((next: Tab) => {
     setTabState(next);
+    setVisitedTabs(previous => previous.includes(next) ? previous : [...previous, next]);
     if (window.location.hash !== "#" + next) {
-      window.history.replaceState(null, "", "#" + next);
+      window.history.pushState(null, "", "#" + next);
     }
   }, []);
 
   useEffect(() => {
-    const onHash = () => setTabState(tabFromHash());
+    const onHash = () => {
+      const next = tabFromHash(); setTabState(next);
+      setVisitedTabs(previous => previous.includes(next) ? previous : [...previous, next]);
+    };
     window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
+    window.addEventListener("popstate", onHash);
+    return () => { window.removeEventListener("hashchange", onHash); window.removeEventListener("popstate", onHash); };
   }, []);
+
+  useEffect(() => {
+    // Each task starts at its heading; retained controls keep their values.
+    window.scrollTo?.(0, 0);
+    if (typeof document !== "undefined") document.querySelector<HTMLElement>("main")?.focus({ preventScroll: true });
+  }, [tab]);
 
   const explain = useCallback((err: unknown): string => {
     if (err instanceof AquantApiError) {
@@ -275,6 +296,38 @@ export default function App() {
 
   const data = state.kind === "ready" ? state.data : null;
   const displayStatus = data?.status ?? fallbackStatus();
+
+  useEffect(() => {
+    if (apiUp !== true || !data) return;
+    let active = true;
+    void Promise.all([api.researchSimulationDrafts(), api.plans(data.draft.portfolioId), api.decisions(data.draft.portfolioId)]).then(([response, plans, decisions]) => {
+      if (active) {
+        const restored = restoreResearchDrafts(response.drafts.filter(item => item.portfolioId === data.draft.portfolioId), plans.plans, decisions.decisions);
+        setResearchDrafts(previous => restored.map(item => {
+          const reviewed = previous.find(old => old.draftId === item.draftId && old.status === "READY_FOR_REVIEW" &&
+            old.researchSnapshotId === item.researchSnapshotId && old.decisionSnapshotId === item.decisionSnapshotId && old.tradingDay === item.tradingDay);
+          return item.status === "WAITING_EXECUTION_SNAPSHOT" && reviewed ? reviewed : item;
+        }));
+        setDraftReadError(null);
+      }
+    }).catch(error => { if (active) setDraftReadError(explain(error)); });
+    void api.watchlist().then(response => { if (active) setWatchIds(response.items.map(item => item.instrument_id)); })
+      .catch(() => { if (active) setWatchIds([]); });
+    return () => { active = false; };
+  }, [apiUp, data?.status.snapshotId, data?.draft.portfolioId, reviewRevision, explain]);
+
+  const onPrepareResearchSimulation = useCallback((instrumentId: string, researchSnapshotId: string | null) => {
+    setResearchSelection(previous => ({ requestId: (previous?.requestId ?? 0) + 1, instrumentId, researchSnapshotId }));
+    setPortfolioMode("research"); setTab("portfolio");
+  }, [setTab]);
+
+  const onFocusResearch = useCallback((instrumentId: string) => {
+    setFocusedInstrumentId(instrumentId); setTab("research");
+  }, [setTab]);
+
+  const onDraftsChange = useCallback((drafts: ResearchSimulationDraft[]) => {
+    setResearchDrafts(drafts); setDraftReadError(null); setReviewRevision(previous => previous + 1);
+  }, []);
 
   useEffect(() => {
     const currentSnapshotId = data?.status.snapshotId;
@@ -372,9 +425,10 @@ export default function App() {
       }
       const issued = await api.requestConfirmation(pv.planId);
       const frozen = await api.freeze(pv.planId, issued.confirmationToken);
-      setFrozenPlanId(pv.planId);
+      const persistedId = typeof frozen.plan_id === "string" ? frozen.plan_id : pv.planId;
+      setFrozenPlanId(persistedId);
       setPersistedPlanStatus("FROZEN");
-      setConfirmResult({ ok: true, message: "已冻结（服务端复核通过）。计划 ID " + pv.planId +
+      setConfirmResult({ ok: true, message: "已冻结（服务端复核通过）。计划 ID " + persistedId +
         "，冻结时间 " + String(frozen.frozen_at ?? "") +
         "。冻结后不可修改；可在下方「账本」区执行本交易日。" });
     } catch (err) { setConfirmResult({ ok: false, message: explain(err) }); }
@@ -429,9 +483,17 @@ export default function App() {
 
   const onAction = useCallback((actionId: string, cardId: string) => {
     if (actionId === "draft.create") {
-      setTab("portfolio"); setNotice("已切换到组合页查看模拟草稿。草稿需在界面中确认后才会冻结。");
+      const card = data?.researchCards.find(item => item.instrumentId === cardId);
+      const decisionSnapshotId = timing?.decisionSnapshotId ?? data?.status.snapshotId;
+      if (!card || card.snapshotId !== decisionSnapshotId) {
+        setNotice("本研究卡与规则方案的决策资料版本不同。请在模拟组合查看该方案的原决策候选；当前研究依据不会被静默替换。"); return;
+      }
+      const candidate = planCandidates.find(item => item.instrumentId === cardId && item.simulatable);
+      if (!candidate) { setNotice("当前股票不在本次规则决策的可模拟范围。请查看当前资格与适用日期后再选择。"); return; }
+      onPlanSelectionChange([cardId]); setPortfolioMode("baseline"); setTab("portfolio");
+      setNotice("研究中的股票已带入规则方案。计算调整预览后，请检查资金、费用与规则；确认后才冻结。");
     } else if (actionId === "compare") {
-      setNotice(cardId + " 已加入比较（当前为会话内比较，不写入后端）。");
+      setNotice("当前是原快照研究卡。请在研究页主要名单中选择「加入比较」，查看同一研究版本的实际对比。");
     } else if (actionId === "watchlist.add") {
       setNotice(cardId + " 已更新自选状态（当前为会话内标记）。自选写入不产生订单。");
     } else if (actionId === "watchlist.saved") {
@@ -440,7 +502,14 @@ export default function App() {
       setNotice(cardId + " 已从服务端自选移除。自选变化不影响模拟持仓。");
     }
     window.setTimeout(() => setNotice(null), 5000);
-  }, [setTab]);
+  }, [setTab, planCandidates, onPlanSelectionChange, data, timing]);
+
+  const onOpenPortfolio = useCallback(() => {
+    const hasUserDraft = researchDrafts.some(item => item.source === "USER_SELECTION" &&
+      ["WAITING_EXECUTION_SNAPSHOT", "READY_FOR_REVIEW", "BLOCKED", "FROZEN"].includes(item.status));
+    setPortfolioMode(hasUserDraft ? "research" : frozenPlanId || livePreview ? "baseline" : "research");
+    setTab("portfolio");
+  }, [researchDrafts, frozenPlanId, livePreview, setTab]);
 
   return (
     <div className="app">
@@ -458,11 +527,11 @@ export default function App() {
         </div></div>
       )}
 
-      <main className="page">
+      <main className="page" tabIndex={-1}>
         {state.kind === "loading" && tab !== "settings" && <Loading />}
         {state.kind === "error" && tab !== "settings" && <ErrorState message={state.message} onRetry={load} />}
         {tab === "settings" && <SettingsView />}
-        {data && tab !== "settings" && (
+        {data && (
           <>
             {data.status.dataMode === "SYNTHETIC" && (
               <div className="section"><div className="callout callout-warn" role="note">
@@ -474,21 +543,44 @@ export default function App() {
             {notice && <div className="section"><div className="callout callout-info" role="status">
               <span className="icon" aria-hidden="true">i</span><div>{notice}</div>
             </div></div>}
-            {tab === "today" && <TodayView data={data} onOpenCard={onOpenResearch}
-              onOpenDraft={() => setTab("portfolio")} />}
-            {tab === "research" && <ResearchView data={data} selectedId={selectedCard}
+            {visitedTabs.includes("today") && <section hidden={tab !== "today"} aria-label="今日">
+              <TodayView data={data} onOpenCard={onOpenResearch}
+                onOpenDraft={onOpenPortfolio} onOpenResearch={() => setTab("research")}
+                livePreview={livePreview} persistedPlanStatus={persistedPlanStatus} researchDrafts={researchDrafts}
+                draftReadError={draftReadError} watchIds={watchIds} />
+            </section>}
+            {visitedTabs.includes("research") && <section hidden={tab !== "research"} aria-label="研究">
+              <ResearchView data={data} selectedId={selectedCard}
               onSelect={setSelectedCard} onOpenEvidence={setEvidenceFor} onAction={onAction}
-              onRequestResearch={onOpenResearch} loadingResearchId={researchLoadingId} />}
-            {tab === "portfolio" && <PortfolioView data={data} onConfirm={onConfirm}
+              onRequestResearch={onOpenResearch} loadingResearchId={researchLoadingId}
+              focusedInstrumentId={focusedInstrumentId} onPrepareSimulation={onPrepareResearchSimulation} />
+            </section>}
+            {visitedTabs.includes("portfolio") && <section hidden={tab !== "portfolio"} aria-label="模拟组合">
+              <PortfolioView data={data} onConfirm={onConfirm}
               onRequestPreview={onRequestPreview} livePreview={livePreview} apiUp={apiUp}
               confirming={confirming} confirmResult={confirmResult} frozenPlanId={frozenPlanId}
               persistedPlanStatus={persistedPlanStatus}
               snapshots={snapshots} timing={timing} onTimingChange={onTimingChange}
               planCandidates={planCandidates} selectedInstrumentIds={selectedInstrumentIds}
-              onPlanSelectionChange={onPlanSelectionChange} />}
+              onPlanSelectionChange={onPlanSelectionChange} mode={portfolioMode} onModeChange={setPortfolioMode}
+              selectionRequest={researchSelection} active={tab === "portfolio"} onDraftsChange={onDraftsChange}
+              onOpenResearch={onFocusResearch} onDecisionSaved={() => setReviewRevision(previous => previous + 1)}
+              pendingResearchPlan={researchDrafts.some(item => item.source === "USER_SELECTION" && item.status === "FROZEN")}
+              accountRefreshKey={reviewRevision}
+              onPlanChanged={() => {
+                setReviewRevision(previous => previous + 1);
+                void api.plans(data.draft.portfolioId).then(response => {
+                  const plan = response.plans.find(item => item.planId === frozenPlanId);
+                  if (plan) setPersistedPlanStatus(plan.status);
+                }).catch(error => setNotice(explain(error)));
+              }}
+              onOpenReview={() => setTab("experiments")} />
+            </section>}
             {tab === "workspace" && <WorkspaceView apiUp={apiUp}
               portfolioId={data.draft.portfolioId} tradingDay={data.draft.tradingDay} />}
-            {tab === "experiments" && <ExperimentsView data={data} />}
+            {visitedTabs.includes("experiments") && <section hidden={tab !== "experiments"} aria-label="复盘">
+              <ExperimentsView key={reviewRevision} data={data} onOpenPortfolio={onOpenPortfolio} />
+            </section>}
           </>
         )}
       </main>

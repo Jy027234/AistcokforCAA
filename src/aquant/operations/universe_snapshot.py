@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -181,6 +182,8 @@ def _build_document(
     check_market_caps: bool,
     checks: list[SnapshotCheck],
     market_caps_archive_root: Path | None = None,
+    financial_evidence_path: Path | None = None,
+    financial_cutoff: datetime | None = None,
 ) -> tuple[dict, list[dict], list[dict], list[str]]:
     bars_all = cache.get("bars") or {}
     if not isinstance(bars_all, dict) or not bars_all:
@@ -238,11 +241,17 @@ def _build_document(
                 "classification_version": pool.get("classification_version"),
             }],
         })
+        if info.get("simulation_eligibility") is not None:
+            instruments[-1]["simulation_eligibility"] = info["simulation_eligibility"]
         prev = info.get("prev_close_before_window")
         for bar in info.get("rows") or []:
             day = bar.get("trading_day")
             if day not in kept:
                 prev = bar.get("close_cents")
+                continue
+            if bar.get("tradestatus") == "0":
+                # A supplier can repeat the previous price on a halted day.
+                # No tradable quote is emitted; the simulator sees suspension.
                 continue
             quotes.append({
                 "instrument_id": iid,
@@ -254,7 +263,7 @@ def _build_document(
                 "adjusted_close_cents": bar.get("adjusted_close_cents"),
                 "volume_shares": bar.get("volume_shares"),
                 "amount_cents": bar.get("amount_cents"),
-                "prev_close_cents": prev,
+                "prev_close_cents": bar.get("prev_close_cents", prev),
             })
             prev = bar.get("close_cents")
 
@@ -328,7 +337,17 @@ def _build_document(
     }
     if financials_path.is_file():
         try:
-            fin_cache = _load_json(financials_path, label="财务缓存")
+            financial_provenance = None
+            if financial_evidence_path is not None:
+                from .simulation_financial_evidence import admit_simulation_financial_evidence
+                admitted_financials = admit_simulation_financial_evidence(
+                    financial_evidence_path, financials_path=financials_path,
+                    cutoff=financial_cutoff,
+                    expected_instrument_ids={i["instrument_id"] for i in instruments})
+                fin_cache = admitted_financials["cache"]
+                financial_provenance = admitted_financials["provenance"]
+            else:
+                fin_cache = _load_json(financials_path, label="财务缓存")
             # The collector writes an object here.  Treat a valid JSON value
             # with a malformed statements member like any other unusable
             # financial cache, rather than letting .items() abort snapshot
@@ -337,9 +356,9 @@ def _build_document(
             if not isinstance(raw_statements, dict):
                 raise UniverseSnapshotError(
                     f"财务缓存的 statements 必须是 JSON object：{financials_path}")
-        except UniverseSnapshotError as exc:
+        except (UniverseSnapshotError, ValueError, KeyError, OSError, sqlite3.Error) as exc:
             _mark(checks, "财务缓存存在", False,
-                  f"无法读取或解析财务缓存：{exc}")
+                  f"无法读取或解析财务缓存（含收据准入）：{exc}")
         else:
             pool_ids = {i["instrument_id"] for i in instruments}
             statements = {iid: periods for iid, periods in raw_statements.items()
@@ -350,6 +369,9 @@ def _build_document(
                 "source_id": "baostock",
                 "unit_notes": "netProfit 单位为元；totalShare 为股；均由 records.py 归一",
                 "statements": statements,
+                "evidence_status": ("VERIFIED_RECEIPT_BACKED_OPTIONAL" if financial_provenance
+                                    else "INHERITED_LEGACY_NOT_NEWLY_VERIFIED"),
+                "financial_evidence": financial_provenance,
             }
             _mark(checks, "财务数据覆盖池内标的 >= 90%",
                   len(statements) >= len(pool_ids) * 0.9,
@@ -381,9 +403,12 @@ def publish_universe_snapshot(
     financials_path: str | Path | None = None,
     actions_path: str | Path | None = None,
     market_caps_path: str | Path | None = None,
+    market_caps_archive_root: str | Path | None = None,
     check_market_caps: bool = False,
     strict_quality: bool = True,
     promote: bool = True,
+    simulation_evidence_path: str | Path | None = None,
+    financial_evidence_path: str | Path | None = None,
 ) -> UniverseSnapshotResult:
     """把 collector 缓存发布成不可变物理快照，并可选择切换当前指针。"""
 
@@ -408,15 +433,54 @@ def publish_universe_snapshot(
         raise UniverseSnapshotError(f"物理快照目录已存在，拒绝覆盖：{sid}")
 
     checks: list[SnapshotCheck] = []
+    publication_cutoff = datetime.now(timezone.utc)
     doc, instruments, quotes, days = _build_document(
         cache=cache, pool=pool, window_start=window_start,
         window_end=window_end, window=window,
         financials_path=financials_file, actions_path=actions_file,
         market_caps_path=market_caps_file, check_market_caps=check_market_caps,
         checks=checks,
-        market_caps_archive_root=(market_caps_file.parent / "forward-archive"
+        market_caps_archive_root=(Path(market_caps_archive_root) if market_caps_archive_root else
+                                  market_caps_file.parent / "forward-archive"
                                   if check_market_caps else None),
+        financial_evidence_path=Path(financial_evidence_path) if financial_evidence_path else None,
+        financial_cutoff=publication_cutoff,
     )
+    if simulation_evidence_path is not None:
+        from .simulation_evidence import admit_simulation_evidence, freeze_simulation_inputs
+        decision_cutoff = publication_cutoff
+        try:
+            admission = admit_simulation_evidence(Path(simulation_evidence_path),
+                cache_path=cache_file, pool_path=pool_file, cutoff=decision_cutoff)
+            admission["inputArchive"] = freeze_simulation_inputs(Path(simulation_evidence_path),
+                cache_path=cache_file, pool_path=pool_file, data_root=root)
+        except (ValueError, KeyError, OSError) as exc:
+            raise UniverseSnapshotError("模拟证据准入失败：" + str(exc)) from exc
+        if admission["marketDay"] != days[-1]:
+            raise UniverseSnapshotError("模拟状态日与快照行情末日不一致")
+        # A current observation of historical prices is usable from NOW.
+        # The actual market date remains on each quote and in the catalog.
+        doc["as_of_time"] = admission["decisionCutoffAt"]
+        doc["input_cutoff_at"] = admission["decisionCutoffAt"]
+        doc["published_at"] = datetime.now(timezone.utc).isoformat()
+        doc["trading_days"] = admission["calendar"]
+        doc["watermark"] = "REAL MARKET DATA; HISTORICAL PRICES OBSERVED NOW; NOT A FORMAL PIT BACKTEST"
+        doc["disclaimer"] = "行情日与实际可得时间分别保存；只有已公布的交易日历包含未来日期，不包含未来行情。"
+        for instrument in instruments:
+            instrument["simulation_input_provenance"] = {k: v for k, v in admission.items() if k != "calendar"}
+    if financial_evidence_path is not None and doc.get("financials", {}).get("financial_evidence"):
+        from .simulation_financial_evidence import freeze_financial_inputs
+        try:
+            doc["financials"]["financial_evidence"]["inputArchive"] = freeze_financial_inputs(
+                doc["financials"]["financial_evidence"], data_root=root)
+        except (ValueError, KeyError, OSError) as exc:
+            doc.pop("financials", None)
+            _mark(checks, "财务缓存存在", False, f"已核验财务输入冻结失败：{exc}")
+        else:
+            # A newly captured optional value cannot be projected into an older
+            # market-date cutoff. Current time remains distinct from quote day.
+            doc["as_of_time"] = publication_cutoff.isoformat()
+            doc["input_cutoff_at"] = publication_cutoff.isoformat()
     failed = [c for c in checks if not c.ok]
     # Financials and amount coverage are quality gates for the production command;
     # callers doing a controlled replay can explicitly request a degraded publish.

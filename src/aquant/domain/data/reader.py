@@ -121,9 +121,8 @@ class SnapshotReader:
         """读取一条已发布快照的只读目录摘要。
 
         与研究数据读取共用 ``SnapshotStore.published_snapshot``，因此这条
-        路径不会把 DRAFT、REJECTED 或 SUPERSEDED 变成目录项。交易日优先
-        来自快照自己的 trading_calendar；行情数据集存在而日历缺失时，
-        才从 daily_quotes 派生最后一个交易日。
+        路径不会把 DRAFT、REJECTED 或 SUPERSEDED 变成目录项。交易日
+        来自快照实际行情的最后一日；已发布的未来日历不是已观察行情。
         """
 
         snap = self.store.published_snapshot(snapshot_id)
@@ -241,16 +240,8 @@ class SnapshotReader:
                                dataset_names: set[str]) -> str | None:
         """取得快照最后一个交易日；无法可靠派生时返回 ``None``。"""
 
-        if "trading_calendar" in dataset_names:
-            days = self.trading_calendar(
-                snapshot_id, as_of=datetime.fromisoformat(as_of)
-            )
-            valid = [str(day) for day in days if _valid_iso_date(day)]
-            if valid:
-                return max(valid)
-
-        # 部分早期/专用快照只有行情数据。只在确认日历数据集不存在或为空
-        # 时回退，数据集存在但哈希错误仍由 reader 的正常校验抛出。
+        # A full-year calendar may include future dates. Only original quote
+        # rows establish an observed market day for execution selection.
         if "daily_quotes" in dataset_names:
             rows = self.daily_quotes(
                 snapshot_id, as_of=datetime.fromisoformat(as_of)

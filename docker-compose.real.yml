@@ -4,10 +4,30 @@
 # 只绑定到本机容器的 /data，避免容器继续读取独立命名卷中的合成快照。
 services:
   aquant:
+    environment: &research-runtime
+      AQUANT_IDENTITY_MODE: ${AQUANT_IDENTITY_MODE:-LOCAL_LOOPBACK_DEMO}
+      AQUANT_TRIAL_SUBJECT: ${AQUANT_TRIAL_SUBJECT:-user:demo}
+      AQUANT_COMMISSION_RATE: ${AQUANT_COMMISSION_RATE:-}
+      AQUANT_COMMISSION_MIN_CENTS: ${AQUANT_COMMISSION_MIN_CENTS:-}
+      AQUANT_COMMISSION_SOURCE: ${AQUANT_COMMISSION_SOURCE:-}
+      AQUANT_DAILY_MODE: RESEARCH_SIMULATION
+      AQUANT_RESET_DATA: "0"
+      AQUANT_RESEARCH_CANDIDATES_FILE: /app/data/s2-structured/research-candidates.json
+      AQUANT_LIVE_FINANCIAL_FACTS_DB: ${AQUANT_CONTAINER_LIVE_FINANCIAL_FACTS_DB:?请先运行 tools/docker_runtime_env.py}
+      AQUANT_SIMULATION_FINANCIAL_CACHE: ${AQUANT_CONTAINER_SIMULATION_FINANCIAL_CACHE:?请先运行 tools/docker_runtime_env.py}
+      AQUANT_SIMULATION_FINANCIAL_EVIDENCE: ${AQUANT_CONTAINER_SIMULATION_FINANCIAL_EVIDENCE:?请先运行 tools/docker_runtime_env.py}
+      AQUANT_S2_TARGET_PERIOD_MAP: ${AQUANT_CONTAINER_S2_TARGET_PERIOD_MAP:?请先运行 tools/docker_runtime_env.py}
+      AQUANT_ARTIFACT_PATH_MAP: ${AQUANT_ARTIFACT_PATH_MAP:?请先运行 tools/docker_runtime_env.py}
+      AQUANT_TRUSTED_PROXY_NETWORKS: ${AQUANT_TRUSTED_PROXY_NETWORKS:-}
     volumes:
       - type: bind
         source: ${AQUANT_HOST_DATA_DIR:?请在 real-trial.env 中设置 AQUANT_HOST_DATA_DIR}
         target: /data
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${AQUANT_HOST_ARTIFACT_DIR:?请先运行 tools/docker_runtime_env.py}
+        target: /app/data
         bind:
           create_host_path: false
       # API 状态页读取每日运行留痕；必须与 scheduler 共享这个目录，
@@ -18,7 +38,7 @@ services:
         bind:
           create_host_path: false
   scheduler:
-    image: aquant-lab:local
+    image: ${AQUANT_SCHEDULER_IMAGE:-aquant-lab:local}
     command:
       - python
       - tools/scheduler_worker.py
@@ -30,10 +50,10 @@ services:
       aquant:
         condition: service_healthy
     environment:
+      <<: *research-runtime
       AQUANT_DATA_DIR: /data
       # 本机透明代理把所有外部域名解析到 fake-IP 网段。仍保留主机名
       # 白名单、协议、端口、响应体积和逐跳重定向复校。
-      AQUANT_TRUSTED_PROXY_NETWORKS: ${AQUANT_TRUSTED_PROXY_NETWORKS:-}
     healthcheck:
       test:
         - CMD
@@ -51,8 +71,20 @@ services:
         bind:
           create_host_path: false
       - type: bind
+        source: ${AQUANT_HOST_ARTIFACT_DIR:?请先运行 tools/docker_runtime_env.py}
+        target: /app/data
+        bind:
+          create_host_path: false
+      - type: bind
         source: ${AQUANT_HOST_PIPELINE_DIR:?请在 real-trial.env 中设置 AQUANT_HOST_PIPELINE_DIR}
         target: /app/deploy/agentctl-q0
+        bind:
+          create_host_path: false
+      # 同日市值工具读取既有已授权网络配置；不把配置打入镜像。
+      - type: bind
+        source: ./real-trial.env
+        target: /app/real-trial.env
+        read_only: true
         bind:
           create_host_path: false
     restart: unless-stopped

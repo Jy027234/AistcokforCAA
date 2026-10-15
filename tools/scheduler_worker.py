@@ -61,7 +61,9 @@ DEFAULT_DATA_DIR = ROOT / "deploy" / "universe-snapshot"
 
 #: 单次运行的超时。**必须有**：采集卡住时 worker 不能跟着一起卡死——
 #: 那会让"下一次运行"永远等不到，而且没有任何东西会报错。
-RUN_TIMEOUT_SECONDS = 30 * 60
+# 14日实际采集约19分钟，15日复用原证据的完整恢复仍用1381.2秒
+# （其中正式财务冷读1041.3秒）。保留全部正常门禁，给整条日更一小时预算。
+RUN_TIMEOUT_SECONDS = 60 * 60
 # `tick` keeps the historical `_run_pipeline` call shape so callers/tests that
 # replace it remain compatible; the real subprocess still receives the exact
 # data root through this short-lived worker-local context.
@@ -102,7 +104,12 @@ def _preflight(interpreter: Path, data_dir: Path) -> list[str]:
         problems.append(f"解释器不存在：{interpreter}")
     if not (ROOT / "tools" / "daily_run.py").exists():
         problems.append(f"找不到流水线脚本：{ROOT / 'tools' / 'daily_run.py'}")
-    if not (ROOT / "deploy" / "agentctl-q0" / "universe-bars.json").exists():
+    if os.environ.get("AQUANT_DAILY_MODE") == "RESEARCH_SIMULATION":
+        for name in ("daily_research_run.py", "capture_research_quotes.py",
+                     "refresh_research_publication.py", "capture_research_simulation_evidence.py"):
+            if not (ROOT / "tools" / name).exists():
+                problems.append(f"缺少研究/模拟日更脚本：{name}")
+    elif not (ROOT / "deploy" / "agentctl-q0" / "universe-bars.json").exists():
         problems.append("缺少采集缓存 universe-bars.json（先跑 tools/collect_universe.py）")
     if not data_dir.exists():
         problems.append(f"数据目录不存在：{data_dir}")
@@ -119,10 +126,12 @@ def _run_pipeline(*, interpreter: Path, window_start: str, source: str,
             "--json-out", str(json_out)]
     if resolved_data_dir is not None:
         args[4:4] = ["--data-dir", str(resolved_data_dir)]
+    if os.environ.get("AQUANT_DAILY_MODE") == "RESEARCH_SIMULATION":
+        args.append("--skip-if-done")
     log("执行：" + " ".join(args))
     started = time.time()
     try:
-        proc = subprocess.run(args, cwd=ROOT, text=True, capture_output=True,
+        proc = subprocess.run(args, cwd=ROOT, text=True, encoding="utf-8", errors="replace", capture_output=True,
                               timeout=RUN_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
         return 1, f"超时（>{RUN_TIMEOUT_SECONDS}s）后被终止"

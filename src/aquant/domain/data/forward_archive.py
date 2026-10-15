@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ...artifact_paths import resolve_archive_member
 from ...domain.data.db import write_tx
 
 ARCHIVE_SCHEMA = """
@@ -190,7 +191,7 @@ class ForwardArchive:
         ).fetchone()
         if row is None:
             raise KeyError(f"unknown content hash {content_hash!r}")
-        return (self.root / row["stored_path"]).read_bytes()
+        return resolve_archive_member(self.root, row["stored_path"]).read_bytes()
 
     def verify(self, content_hash: str) -> bool:
         """重算哈希，确认归档内容未被替换。"""

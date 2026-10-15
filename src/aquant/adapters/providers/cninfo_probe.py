@@ -29,6 +29,8 @@ from typing import Any, Callable, Mapping, Sequence
 from urllib.parse import urlencode, urljoin, urlsplit
 from urllib.request import Request, urlopen
 
+from aquant.domain.fundamentals.disclosure_link import report_period_from_title
+
 
 SOURCE_ID = "cninfo"
 QUERY_URL = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
@@ -210,11 +212,28 @@ def normalize_stock_code(value: str) -> str:
 
 
 def market_for_code(stock_code: str) -> str:
+    """六位代码 → 巨潮查询用的 ``column`` 值。
+
+    早期只列了深沪两市的三位前缀，**完全没有北交所**，于是全市场里
+    **600 只北交所证券**（43/83/87/88/92 段）在绑定公告时全部报
+    ``unsupported A-share market prefix``——它们的结构化财报取得到，
+    但"何时披露"这一步过不去，因此拿不到 PIT 时点。
+
+    北交所的段是按**两位**划分的（43/83/87/88/92），与深沪按三位前缀划分
+    的写法不同，所以这里分开判断。实测 ``430017`` 用 ``bj`` 能正常返回公告；
+    巨潮对 ``column`` 其实相当宽容（``szse``/``sse`` 也返回同样结果），
+    这里取**语义正确**的那个值。
+
+    ``302`` 是深市较新的段（全市场 1 只），一并补上。
+    """
+
     code = normalize_stock_code(stock_code)
-    if code.startswith(("000", "001", "002", "003", "300", "301")):
+    if code.startswith(("000", "001", "002", "003", "300", "301", "302")):
         return "szse"
     if code.startswith(("600", "601", "603", "605", "688", "689")):
         return "sse"
+    if code[:2] in ("43", "83", "87", "88", "92"):
+        return "bj"
     raise CninfoProbeError(f"unsupported A-share market prefix: {code[:3]}")
 
 
@@ -281,8 +300,10 @@ def parse_report_period(value: str) -> ReportPeriod:
 
 
 def title_matches_period(title: str, period: ReportPeriod) -> bool:
-    canonical = normalize_title(title)
-    return any(marker in canonical for marker in period.title_markers)
+    # Keep provider index matching in step with the strict title grammar used
+    # for formal disclosure admission. In particular, accept the exact
+    # "YYYY年度半年报" issuer alias while excluding previews/summaries.
+    return report_period_from_title(title) == period.end_date
 
 
 def title_revision_flags(title: str) -> tuple[bool, bool, bool, tuple[str, ...]]:
@@ -342,8 +363,14 @@ def parse_listing_payload(
     *,
     stock_code: str,
     period: ReportPeriod,
+    security_aliases: tuple[str, ...] = (),
+    organization_id: str | None = None,
 ) -> tuple[tuple[AnnouncementMetadata, ...], dict[str, int], int | None, bool | None]:
-    """解析并严格过滤一页响应，不返回原始公告对象。"""
+    """解析并严格过滤一页响应，不返回原始公告对象。
+
+    别名须由调用方从官方清单验证后显式提供；仅当原公告代码在别名集合中，
+    且原 orgId 与提供的组织 ID 完全一致时接纳。保留原公告代码，不推断换码。
+    """
 
     code = normalize_stock_code(stock_code)
     if isinstance(payload, (bytes, str)):
@@ -371,13 +398,20 @@ def parse_listing_payload(
         if not isinstance(item, Mapping):
             skip("non_object_announcement")
             continue
-        raw_code = str(item.get("secCode") or "").strip()
+        raw_item_code = item.get("secCode")
+        raw_code = str(raw_item_code or "").strip()
         try:
             item_code = normalize_stock_code(raw_code) if raw_code else ""
         except CninfoProbeError:
             skip("invalid_security_code")
             continue
-        if item_code != code:
+        is_alias = (
+            item_code != code and isinstance(raw_item_code, str)
+            and raw_item_code in security_aliases
+            and organization_id is not None and bool(organization_id.strip())
+            and item.get("orgId") == organization_id
+        )
+        if item_code != code and not is_alias:
             skip("different_security")
             continue
         title = normalize_title(item.get("announcementTitle"))
@@ -396,7 +430,7 @@ def parse_listing_payload(
         is_correction, is_revision, is_supplement, markers = title_revision_flags(title)
         found[announcement_id] = AnnouncementMetadata(
             announcement_id=announcement_id,
-            sec_code=item_code,
+            sec_code=raw_item_code if is_alias else item_code,
             sec_name=normalize_title(item.get("secName")),
             title=title,
             announcement_time_ms=millis,

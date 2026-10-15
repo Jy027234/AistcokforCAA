@@ -177,6 +177,145 @@ export interface CandidateRow {
   lastClose: string;
 }
 
+/** 独立只读研究集，不参与 S1 候选选择或模拟草稿。 */
+export type ResearchCandidateFactorId = "F07" | "F08" | "F09" | "F10";
+export type ResearchCandidatesView = "candidates" | "all" | "financial";
+export type ResearchValue = string | number | null;
+
+export interface ResearchCandidateEvidence {
+  periodEnd: string;
+  announcementId: string;
+  title: string;
+  publishedDate: string;
+  url: string;
+  valueVerification: "MATCH" | "STRUCTURED_BOUND";
+  receiptId: string;
+  contentHash: string;
+  metrics?: Record<string, ResearchValue> | string[];
+  excerpt?: string;
+  availableAt?: string;
+  observedAt?: string;
+}
+
+export interface ResearchCandidate {
+  instrumentId: string;
+  code: string;
+  displayName: string;
+  position: number | null;
+  signalRank: number | null;
+  factors: Partial<Record<ResearchCandidateFactorId, string>>;
+  factorRanks: Partial<Record<ResearchCandidateFactorId, number>>;
+  basis: string[];
+  risks: string[];
+  evidence: ResearchCandidateEvidence[];
+  exchange?: string;
+  board?: string;
+  industry?: string | null;
+  industryAsOf?: string | null;
+  industryClassification?: {
+    system: string; version: string; categoryCode: string | null; categoryName: string | null;
+    subcategoryCode?: string | null; subcategoryName?: string | null; majorCode?: string | null; majorName?: string | null;
+    classificationAsOf: string | null; referencePeriod?: string | null; publicationDate?: string | null;
+    observedAt?: string | null; selection: string; template: "ORDINARY" | "FINANCIAL" | "UNKNOWN";
+    source?: { url: string; receiptId: string | null; contentHash: string; page?: number; sourceRow?: string | number;
+      receiptLabel?: string; storedPath?: string; queryComplete?: boolean; queryScope?: string };
+  };
+  status?: string;
+  exclusionCode?: string | null;
+  exclusionReason?: string | null;
+  quote?: {
+    asOfTime: string; lastPrice: ResearchValue; marketCapYuan: ResearchValue;
+    receiptId: string; contentHash: string; evidenceId?: string; url?: string;
+  } | null;
+  rankBreakdown?: {
+    factorId: string; name: string; value: ResearchValue; rankPct: number | null;
+    weight: number; contribution: number | null; formula: string;
+    inputs: { label: string; value: ResearchValue; unit: string; periodEnd?: string;
+      evidenceIds: string[] }[];
+  }[];
+  basisEvidence?: { statement: string; sourceIds: string[] }[];
+  counterEvidence?: { statement: string; noneFound: boolean; sourceIds: string[] }[];
+  uncertainties?: string[];
+  financialBridge?: {
+    metric: string; label: string; unit: string; value: ResearchValue; formula: string;
+    components: { periodEnd: string; value: ResearchValue; sign: number; evidenceId: string }[];
+  }[];
+  financialObservation?: {
+    template: string; templateLabel: string; periodEnd: string | null; reportFamily: string | null;
+    status: "COMPLETE" | "PARTIAL" | "MISSING";
+    values: { metric: string; label: string; value: string | null; unit: "元"; evidenceIds: string[] }[];
+    missingMetrics: string[]; comparisonKey: string | null; limitations: string[];
+  };
+  marketContext?: {
+    historyAsOf: string | null; window: string;
+    freshness?: string; expectedAsOf?: string | null; tradingDayCount?: number;
+    source?: { source?: string; receipt_id?: string; content_hash?: string;
+      observed_at?: string; source_url?: string;
+      receipts?: { source: string; receipt_id: string; content_hash: string;
+        observed_at: string; source_url: string; window: string; rowCount: number }[] };
+    metrics: { label: string; value: ResearchValue; unit: string }[];
+    limitations: string[];
+  };
+  impactPaths?: { observation: string; hypothesis: string; verify: string; sourceIds: string[] }[];
+  eventContext?: {
+    window: string; queryComplete: boolean; documentCount: number; observedAt: string | null;
+    scope: string; missing: string | null;
+  };
+  events?: {
+    title: string; publishedDate: string; url: string; quote: string; page: number | null;
+    sourceId: string; verificationStatus: string; receiptId?: string; contentHash?: string;
+    startChar?: number; endChar?: number;
+  }[];
+  tradability?: { simulatable: false; rule: string; effectiveFrom: string | null;
+    detail: string; repair: string };
+}
+
+export interface ResearchCandidatesResponse {
+  schema: "aquant.research-candidates.v1" | "aquant.research-candidates.v2";
+  snapshotId?: string;
+  generatedAt: string;
+  dataAsOf: string;
+  strategy: "S2_RESEARCH";
+  pitMode: "HISTORICAL_RECONSTRUCTED";
+  researchOnly: true;
+  simulationAvailable: false;
+  poolSize: number;
+  rankedCount: number;
+  excludedCount: number;
+  returnedCount: number;
+  exclusions: { code: string; count: number }[];
+  source: {
+    factorReport: string;
+    marketCapSource: string;
+    marketCapAsOf: string;
+    archiveVerified: boolean;
+    placeholderUsed: boolean;
+  };
+  limitations: string[];
+  candidates: ResearchCandidate[];
+  filteredCount?: number;
+  offset?: number;
+  nextOffset?: number | null;
+  scope?: {
+    universeCodeCount: number; observedCount: number; quoteRejectedCount: number;
+    financialCount: number; unknownIndustryCount: number;
+    byBoard: { board: string; requested: number; observed: number; ranked: number }[];
+  };
+  historyCoverage?: { refreshedCount: number; rankedCurrentCount: number; rankedTotal: number };
+  industryCoverage?: {
+    primaryCount: number; supplementCount: number; unknownCount: number; activeUnknownCount: number;
+    systems: { system: string; version: string; count: number }[]; selectionRule: string;
+  };
+  quoteMode?: "INTRADAY_RESEARCH" | "CLOSING_RESEARCH";
+  asOfTime?: string;
+  capturedFrom?: string;
+  capturedTo?: string;
+  quoteCapturedFrom?: string;
+  quoteCapturedTo?: string;
+  comparisonScope?: string;
+  rankingFormula?: string;
+}
+
 export interface DraftOrder {
   instrumentId: string;
   side: "BUY" | "SELL";

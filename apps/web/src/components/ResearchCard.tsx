@@ -52,45 +52,6 @@ export function ResearchCard({
             {card.timeLabel}</Badge></dd>
         </dl>
 
-        {/* 数值：排名，不是概率 */}
-        <div>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
-            <h4>因子依据</h4>
-            <span className="note">{card.comparisonScope}</span>
-          </div>
-          <Callout tone="info">
-            <span className="note" style={{ color: "inherit" }}>{card.rankSemantics}</span>
-          </Callout>
-          {card.rankBreakdown.length === 0 ? (
-            <p className="note" style={{ marginTop: 8 }}>
-              本次未计算因子值。原因见下方限制项，不以空值代替结论。
-            </p>
-          ) : (
-            <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
-              {card.rankBreakdown.map((f) => (
-                <div key={f.factorId}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                    <span>{f.name} <span className="mono" style={{ color: "var(--text-4)" }}>{f.factorId}</span></span>
-                    <span className="mono">
-                      {f.value}
-                      {f.unit ? " " + f.unit : ""}
-                    </span>
-                  </div>
-                  {/* 算不出时必须给原因（§10.2）：只显示一个"—"，
-                      会让"被质量门排除"看起来像"值为空"。 */}
-                  {f.exclusionLabel ? (
-                    <p className="note" style={{ margin: "2px 0 0" }}>
-                      未进排名：{f.exclusionLabel}
-                    </p>
-                  ) : (
-                    <RankBar rankPct={f.rankPct} label="横截面排名" />
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
         {/* 证据与反证 */}
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -133,6 +94,49 @@ export function ResearchCard({
             ))}
           </ul>
         </div>
+
+        <details>
+          <summary>查看因子值与排名依据</summary>
+          {/* 数值：排名，不是概率 */}
+          <div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+              <h4>因子依据</h4>
+              <span className="note">{card.comparisonScope}</span>
+            </div>
+            <Callout tone="info">
+              <span className="note" style={{ color: "inherit" }}>{card.rankSemantics}</span>
+            </Callout>
+            {card.rankBreakdown.length === 0 ? (
+              <p className="note" style={{ marginTop: 8 }}>
+                本次未计算因子值。原因见下方限制项，不以空值代替结论。
+              </p>
+            ) : (
+              <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+                {card.rankBreakdown.map((f) => (
+                  <div key={f.factorId}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <span>{f.name} <span className="mono" style={{ color: "var(--text-4)" }}>{f.factorId}</span></span>
+                      <span className="mono">
+                        {f.value}
+                        {f.unit ? " " + f.unit : ""}
+                      </span>
+                    </div>
+                    {/* 算不出时必须给原因（§10.2）：只显示一个"—"，
+                        会让"被质量门排除"看起来像"值为空"。 */}
+                    {f.exclusionLabel ? (
+                      <p className="note" style={{ margin: "2px 0 0" }}>
+                        未进排名：{f.exclusionLabel}
+                      </p>
+                    ) : (
+                      <RankBar rankPct={f.rankPct} label="横截面排名" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+        </details>
 
         {/* 限制：说清规则、适用日期与修复方法 */}
         {!t.simulatable && (

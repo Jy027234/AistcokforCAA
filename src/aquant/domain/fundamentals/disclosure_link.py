@@ -82,12 +82,19 @@ def report_period_from_title(title: str) -> date | None:
     if _EXCLUDED.search(compact):
         return None
     match = _YEAR.search(compact)
-    if not match or "报告" not in compact:
+    # The actual CNINFO title for 603365 H1 is "2026年度半年报".
+    # Keep this explicit alias narrow so an earnings preview cannot become
+    # a report merely by mentioning a half-year report in its title.
+    semiannual_alias = re.search(
+        r"20\d{2}年度半年报(?:[（(](?:修订版|修订稿|更正版|更正后|更新后)[）)])?\Z",
+        compact,
+    )
+    if not match or ("报告" not in compact and not semiannual_alias):
         return None
     year = int(match.group("year"))
     if re.search(r"第一季度|一季度", compact):
         return date(year, 3, 31)
-    if re.search(r"半年度|中期报告", compact):
+    if semiannual_alias or re.search(r"半年度|中期报告", compact):
         return date(year, 6, 30)
     if re.search(r"第三季度|三季度", compact):
         return date(year, 9, 30)
@@ -104,6 +111,35 @@ def disclosure_role(title: str) -> DisclosureRole:
     if _REVISED_REPORT.search(title):
         return DisclosureRole.REVISED_REPORT
     return DisclosureRole.ORIGINAL_REPORT
+
+
+#: 可能改写**财报金额**的更正类标题短语。
+#:
+#: 判据必须窄到"会计口径"，否则正常公司会被长期挡在自动准入之外。实测反例
+#: （688981 中芯国际）：``中芯国际经修订及重述组织章程大纲及细则`` 只是一份
+#: 章程文件，``港股公告：证券变动月报表（更正）`` 更正的是港股月报表；两者都
+#: 不含会计更正含义，却分别命中裸的``重述``与``更正``，把四份合格财报挡在
+#: 人工队列里。
+#:
+#: 因此这里只认会计口径的完整短语：``追溯调整``、``会计差错``、``前期差错``、
+#: ``财务报表重述``、``年报/半年报/季报更正``。裸的``更正``/``重述``不算。
+FINANCIAL_CORRECTION_PHRASES = (
+    "追溯调整", "追溯重述", "会计差错", "前期差错", "财务报表重述",
+    "年报更正", "年度报告更正", "半年报更正", "半年度报告更正",
+    "季报更正", "季度报告更正", "业绩快报更正", "财务数据更正",
+)
+
+
+def is_financial_correction_title(title: str) -> bool:
+    """标题是否指明**会计口径**的财报更正。
+
+    用于机器核验的自动准入闸门：只有这类标题才需要人工判断对五字段的影响。
+    其余带"修订/补充/更正"字样的公告（章程、股东会通知、港股月报表等）由
+    确定性规则处置为 UNRELATED，并保留理由与索引观察时点。
+    """
+
+    text = title or ""
+    return any(phrase in text for phrase in FINANCIAL_CORRECTION_PHRASES)
 
 
 def link_statement_to_disclosures(

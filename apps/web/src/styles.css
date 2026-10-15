@@ -124,7 +124,7 @@ a:focus-visible,
   white-space: nowrap;
 }
 .tab:hover { color: var(--text); background: rgba(255,255,255,0.7); }
-.tab[aria-selected="true"] {
+.tab[aria-selected="true"], .tab[aria-current="page"], .tab[aria-pressed="true"] {
   background: var(--surface); color: var(--text);
   box-shadow: var(--shadow-sm);
 }
@@ -141,6 +141,33 @@ a:focus-visible,
 
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+
+[hidden] { display: none !important; }
+.utility-menu { position: relative; }
+.utility-menu summary { list-style: none; }
+.utility-menu summary::-webkit-details-marker { display: none; }
+.utility-menu-items { position: absolute; right: 0; top: calc(100% + 8px); width: 240px; padding: 12px; display: grid; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); }
+.page-intro { margin-bottom: 20px; display: grid; gap: 8px; }
+.page-intro p { max-width: 65ch; color: var(--text-2); line-height: 1.7; }
+.task-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.progress-steps { display: flex; flex-wrap: wrap; gap: 8px 16px; list-style: none; padding: 0; margin: 12px 0; color: var(--text-2); font-size: 14px; }
+.progress-steps li { padding: 6px 0; }
+.progress-steps [aria-current="step"] { font-weight: 650; color: var(--accent); border-bottom: 2px solid var(--accent); }
+.secondary-section { margin: 18px 0; border-top: 1px solid var(--border); padding-top: 16px; }
+.secondary-section > summary { cursor: pointer; font-weight: 550; padding: 8px 0; }
+.secondary-section[open] > summary { margin-bottom: 14px; }
+.research-grid { grid-template-columns: minmax(260px, 0.7fr) minmax(0, 1.5fr); }
+.research-grid > *, .grid-2 > * { min-width: 0; }
+.decision-journey-heading { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.decision-journey { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin: 18px 0; }
+.decision-journey-step { min-width: 0; display: grid; align-content: start; gap: 10px; }
+.decision-journey-step + .decision-journey-step { border-left: 1px solid var(--border); padding-left: 20px; }
+.secondary-details > summary { cursor: pointer; font-weight: 550; padding: 10px 0; }
+.secondary-details[open] > summary { margin-bottom: 14px; }
+@media (max-width: 820px) {
+  .decision-journey { grid-template-columns: 1fr; }
+  .decision-journey-step + .decision-journey-step { border-left: 0; padding-left: 0; border-top: 1px solid var(--border); padding-top: 16px; }
+}
 
 @media (max-width: 1080px) { .grid-3 { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 820px) {
@@ -214,7 +241,7 @@ table.data td {
 table.data tbody tr:last-child td { border-bottom: none; }
 table.data tbody tr:hover { background: var(--surface-2); }
 table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
-.mono { font-family: var(--mono); font-size: 12.5px; }
+.mono { font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; }
 
 /* ---------------------------------------------------------------- 数值 */
 .stat { display: flex; flex-direction: column; gap: 2px; }
@@ -311,9 +338,18 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 @keyframes shimmer { from { background-position: 200% 0 } to { background-position: -200% 0 } }
 
 /* ---------------------------------------------------------------- 移动端 */
+@media (max-width: 1080px) {
+  .topbar { flex-wrap: wrap; height: auto; padding: 10px 14px; gap: 10px; }
+  .topbar-status { width: 100%; margin-left: 0; }
+}
 @media (max-width: 720px) {
   .topbar { flex-wrap: wrap; height: auto; padding: 10px 14px; gap: 10px; }
   .topbar-status { width: 100%; margin-left: 0; }
+  .utility-menu { position: static; }
+  .utility-menu-items { left: 14px; right: 14px; width: auto; }
+  .section-head { flex-wrap: wrap; align-items: flex-start; gap: 6px 10px; }
+  .section-head h2 { flex-shrink: 0; }
+  .section-head .hint { flex: 1 1 220px; }
   .tabs { width: 100%; overflow-x: auto; }
   table.data { font-size: 12.5px; }
   table.data th, table.data td { padding: 9px 10px; }

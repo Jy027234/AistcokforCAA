@@ -194,6 +194,7 @@ def record_decision(con: sqlite3.Connection, *, portfolio_id: str,
 def decisions(con: sqlite3.Connection, *, portfolio_id: str | None = None,
               limit: int = 100) -> list[dict]:
     sql = ["SELECT decision_id,portfolio_id,plan_id,snapshot_id,decision_type,"
+           "model_proposed_json,human_final_json,rule_check_json,"
            "diff_json,reason_category,reason_note,external_information_used,"
            "submitted_at FROM decision_log"]
     params: list = []
@@ -207,6 +208,9 @@ def decisions(con: sqlite3.Connection, *, portfolio_id: str | None = None,
     for r in rows:
         item = dict(r)
         item["diff"] = json.loads(item.pop("diff_json") or "{}")
+        for key in ("model_proposed", "human_final", "rule_check"):
+            raw = item.pop(key + "_json")
+            item[key] = json.loads(raw) if raw is not None else None
         item["external_information_used"] = bool(item["external_information_used"])
         out.append(item)
     return out
