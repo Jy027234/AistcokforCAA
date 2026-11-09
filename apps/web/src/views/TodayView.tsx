@@ -1,6 +1,6 @@
 import type { WorkspaceData } from "../lib/types";
 import { categoryLabel, directionLabel, formatAsOf, verificationLabel } from "../lib/format";
-import { Badge, Callout, Card, Empty, Section } from "../components/ui";
+import { Badge, Callout, Card, Empty, ErrorState, Loading, Section } from "../components/ui";
 import type { PreviewResponse, ResearchSimulationDraft } from "../lib/api";
 import { summarizePlan } from "../lib/workflow";
 
@@ -10,10 +10,13 @@ import { summarizePlan } from "../lib/workflow";
 export function TodayView({
   data, onOpenCard, onOpenDraft, onOpenResearch, livePreview = null,
   persistedPlanStatus = null, researchDrafts = [], draftReadError = null, watchIds = [],
+  legacyS1State = "ready", legacyS1Error = null, onRetryLegacyS1,
 }: { data: WorkspaceData; onOpenCard: (id: string) => void; onOpenDraft: () => void;
   onOpenResearch?: () => void; livePreview?: PreviewResponse | null;
   persistedPlanStatus?: "FROZEN" | "EXECUTED" | null;
   researchDrafts?: ResearchSimulationDraft[]; draftReadError?: string | null; watchIds?: string[];
+  legacyS1State?: "idle" | "loading" | "ready" | "error"; legacyS1Error?: string | null;
+  onRetryLegacyS1?: () => void;
 }) {
   const { status, todayChanges, candidates, draft } = data;
   const source = data.dataSource === "api" ? "api" : "fixture";
@@ -48,7 +51,9 @@ export function TodayView({
       <Section title="今日变化与待办" dataSource={source}>
       <div className="grid-2">
         <Card title="今天改变了什么" >
-          {todayChanges.length === 0 ? (
+          {legacyS1State === "error" ? (
+            <ErrorState message={legacyS1Error ?? "今日变化读取失败。"} onRetry={onRetryLegacyS1} />
+          ) : legacyS1State !== "ready" ? <Loading /> : todayChanges.length === 0 ? (
             <Empty title="今日没有新的可用变化">
               当前发布资料没有新的变化摘要；这不表示市场没有变化，也不代表已评估组合。
             </Empty>
@@ -120,7 +125,9 @@ export function TodayView({
         actions={onOpenResearch && <button className="btn btn-sm" onClick={onOpenResearch}>查看全部研究</button>}
       >
         <Card padded={false}>
-          {candidates.length === 0 ? (
+          {legacyS1State === "error" ? (
+            <ErrorState message={legacyS1Error ?? "规则候选读取失败。"} onRetry={onRetryLegacyS1} />
+          ) : legacyS1State !== "ready" ? <Loading /> : candidates.length === 0 ? (
             <Empty title="当前没有候选">
               候选为空是正常状态，不表示系统异常。
             </Empty>

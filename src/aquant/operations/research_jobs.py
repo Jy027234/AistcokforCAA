@@ -36,8 +36,10 @@ from aquant.operations.jobs import Job, JobError, JobStatus, JobStore, job_paylo
 JOB_FACTOR_COMPUTE = "FACTOR_COMPUTE"
 #: 证据研究作业：检索并抽取可引用证据（§5.3，需要模型参与）。
 JOB_EVIDENCE_RESEARCH = "EVIDENCE_RESEARCH"
+#: 财务覆盖只读核验：绑定发布快照与事实/证明版本，不写准入或策略状态。
+JOB_FINANCIAL_CHECK = "FINANCIAL_CHECK"
 
-KNOWN_JOB_TYPES = (JOB_FACTOR_COMPUTE, JOB_EVIDENCE_RESEARCH)
+KNOWN_JOB_TYPES = (JOB_FACTOR_COMPUTE, JOB_EVIDENCE_RESEARCH, JOB_FINANCIAL_CHECK)
 
 
 def _factor_config_error(config_version: str | None) -> str:
@@ -238,6 +240,17 @@ def _dispatch(con: sqlite3.Connection, reader: SnapshotReader, job: Job, *,
         return research_evidence(
             con, reader, job, provider=provider, write_guard=write_guard
         )
+    if job.job_type == JOB_FINANCIAL_CHECK:
+        # Keep financial diagnostics on the existing lease/state machine. The
+        # module is loaded lazily to avoid making ordinary research jobs depend
+        # on the financial fact repository's proof-replay code at import time.
+        from .financial_coverage_jobs import (
+            FinancialCheckError, run_financial_check_job,
+        )
+        try:
+            return run_financial_check_job(job, write_guard=write_guard)
+        except FinancialCheckError as exc:
+            raise ResearchJobError(exc.code, exc.message, exc.repair_action) from exc
     raise ResearchJobError(
         "DATA_NOT_READY",
         f"unknown job type {job.job_type!r}",
@@ -296,6 +309,17 @@ def submit_research_job(con: sqlite3.Connection, *, job_type: str, trading_day: 
         config_version = F10_FEATURE_VERSION
     if job_type == JOB_FACTOR_COMPUTE:
         _validate_factor_config(con, config_version)
+    if job_type == JOB_FINANCIAL_CHECK:
+        from .financial_coverage_jobs import FINANCIAL_CHECK_VERSION
+        if config_version == "default":
+            config_version = FINANCIAL_CHECK_VERSION
+        if config_version != FINANCIAL_CHECK_VERSION:
+            raise JobError(
+                "CONFIG_VERSION_INVALID",
+                "FINANCIAL_CHECK requires the registered financial-check-v1 config version",
+                str(config_version),
+                f"submit FINANCIAL_CHECK with {FINANCIAL_CHECK_VERSION}",
+            )
     store = JobStore(con)
     job_id, created = store.submit(
         job_type=job_type, trading_day=trading_day,

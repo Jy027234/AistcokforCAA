@@ -1148,7 +1148,7 @@ def promote_reviewed_pdf_bundle(
         formal=False,
     )
     for fact in selected:
-        if fact.metric in _FIELDS:
+        if fact.metric in expected_fields:
             previous_by_field[fact.metric] = fact
     late_captured_revised_root = (
         role is DisclosureRole.REVISED_REPORT and not previous_by_field
@@ -1300,13 +1300,71 @@ def promote_reviewed_pdf_bundle(
         if impact is not None:
             evidence['revision_impact_proof'] = impact
             evidence['revision_impact_archive'] = _revision_impact_archive
-        if any(check.holds and check.path == "ruled_grid_cell_reextraction"
-               for field in machine.fields for check in field.checks):
-            # Consumer must re-run this second algorithm on the SQL-bound
-            # original bytes. Paths describe the actual archive used here.
+        has_geometry_proof = any(
+            check.holds and check.path == "ruled_grid_cell_reextraction"
+            for field in machine.fields for check in field.checks)
+        has_parent_equity_proof = any(
+            check.holds and check.path in {
+                "native_parent_equity_change_table_closing_cell",
+                "parent_equity_comprehensive_income_minus_oci",
+            }
+            for field in machine.fields for check in field.checks)
+        has_operating_cashflow_subtotal_proof = any(
+            check.holds and check.path ==
+            "operating_cashflow_inflow_less_outflow_subtotals"
+            for field in machine.fields for check in field.checks)
+        has_native_full_report_note_proof = any(
+            check.holds and check.path == "native_full_report_note_crosscheck"
+            for field in machine.fields for check in field.checks)
+        if (has_geometry_proof or has_parent_equity_proof or
+                has_operating_cashflow_subtotal_proof or
+                has_native_full_report_note_proof):
+            # Archive descriptors point to the exact receipt and PDF used by
+            # the verifier; the repository independently replays each proof.
             archive_db = next(row[2] for row in archive.con.execute("PRAGMA database_list")
                               if row[1] == "main")
-            evidence["geometry_archive"] = {
+            archive_binding = {
+                "database_path": str(Path(archive_db).resolve()),
+                "root": str(archive.root.resolve()),
+                "pdf_receipt_id": pdf_receipt_id,
+                "document_url": candidate.document_url,
+            }
+            if has_geometry_proof:
+                evidence["geometry_archive"] = archive_binding
+            if has_parent_equity_proof:
+                evidence["native_parent_equity_archive"] = {
+                    **archive_binding,
+                    "content_hash": candidate.pdf_sha256,
+                }
+            if has_operating_cashflow_subtotal_proof:
+                evidence["native_operating_cashflow_archive"] = {
+                    **archive_binding,
+                    "content_hash": candidate.pdf_sha256,
+                }
+        if has_native_full_report_note_proof:
+            evidence["native_full_report_note_archive"] = {
+                **archive_binding,
+                "content_hash": candidate.pdf_sha256,
+            }
+        if any(check.holds and check.path == "dated_note_current_total"
+               for field in machine.fields for check in field.checks):
+            # The fresh reader must replay this note-specific typed path from
+            # the receipt-bound original PDF; a grid descriptor is not enough.
+            archive_db = next(row[2] for row in archive.con.execute("PRAGMA database_list")
+                              if row[1] == "main")
+            evidence["dated_note_archive"] = {
+                "database_path": str(Path(archive_db).resolve()),
+                "root": str(archive.root.resolve()),
+                "pdf_receipt_id": pdf_receipt_id,
+                "document_url": candidate.document_url,
+            }
+        if any(check.holds and check.path == "profit_before_tax_less_income_tax"
+               for field in machine.fields for check in field.checks):
+            # The repository re-reads this independent native-cell arithmetic
+            # proof from the same receipt-bound original PDF.
+            archive_db = next(row[2] for row in archive.con.execute("PRAGMA database_list")
+                              if row[1] == "main")
+            evidence["profit_tax_archive"] = {
                 "database_path": str(Path(archive_db).resolve()),
                 "root": str(archive.root.resolve()),
                 "pdf_receipt_id": pdf_receipt_id,
@@ -1314,13 +1372,16 @@ def promote_reviewed_pdf_bundle(
             }
     evidence_json = json.dumps(evidence, ensure_ascii=False, sort_keys=True,
                                separators=(",", ":"))
-    bundle_id = (
-        ("cninfo_machine_" if machine is not None else
-         "cninfo_pdf_v2_" if _subset_v2 else "cninfo_pdf_")
-        + hashlib.sha256(
-            f"{candidate.instrument_id}|{candidate.period_end}|"
-            f"{version_review.announcement_id}".encode(),
-        ).hexdigest()[:32])
+    bundle_identity = (f"{candidate.instrument_id}|{candidate.period_end}|"
+                       f"{version_review.announcement_id}")
+    bundle_prefix = ("cninfo_machine_" if machine is not None else
+                     "cninfo_pdf_v2_" if _subset_v2 else "cninfo_pdf_")
+    if machine is not None and expected_fields != _FIELDS:
+        # Disjoint machine-verified missing fields get their own immutable
+        # review cohort; prior reviews and per-metric fact IDs are untouched.
+        bundle_prefix = "cninfo_machine_fields_"
+        bundle_identity += "|" + ",".join(sorted(expected_fields))
+    bundle_id = bundle_prefix + hashlib.sha256(bundle_identity.encode()).hexdigest()[:32]
     repository.append_many(facts, review_bundle=FactReviewBundle(bundle_id, evidence_json))
     return tuple(facts)
 

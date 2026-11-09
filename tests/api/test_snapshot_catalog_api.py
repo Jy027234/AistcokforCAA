@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,37 @@ def _insert_nonpublished(con, snapshot_id: str, status: str) -> None:
     )
 
 
+def _publish_same_data_snapshot(state, snapshot_id: str) -> None:
+    """增加一份真实 PUBLISHED 元数据项，共用不可变 fixture 数据文件。"""
+
+    from aquant.domain.data.snapshot import DataMode, DatasetRef, SnapshotDraft
+
+    source = state.store.published_snapshot("snap-syn-001")
+    datasets = [
+        DatasetRef(
+            name=row["name"], path=row["path"], sha256=row["sha256"],
+            record_count=row["record_count"],
+            as_of_upper_bound=datetime.fromisoformat(row["as_of_upper_bound"]),
+            coverage_ratio=row["coverage_ratio"],
+        )
+        for row in state.store.datasets("snap-syn-001")
+    ]
+    state.store.publish(SnapshotDraft(
+        snapshot_id=snapshot_id,
+        kind=source["kind"], data_mode=DataMode(source["data_mode"]),
+        input_cutoff_at=datetime.fromisoformat(source["input_cutoff_at"]),
+        as_of_time=(datetime.fromisoformat(source["as_of_time"])
+                    if source["as_of_time"] else None),
+        created_at=datetime.fromisoformat(source["created_at"]),
+        published_at=datetime.fromisoformat(source["published_at"]),
+        code_version=source["code_version"], data_version=source["data_version"],
+        watermark=source["watermark"], strategy_version=source["strategy_version"],
+        feature_version=source["feature_version"], rule_version=source["rule_version"],
+        fee_version=source["fee_version"], pool_hash=source["pool_hash"],
+        quality_status=source["quality_status"], datasets=datasets,
+    ))
+
+
 def test_catalog_returns_only_published_summaries(snapshot_api):
     client, state = snapshot_api
     _insert_nonpublished(state.con, "snap-draft-hidden", "DRAFT")
@@ -63,6 +95,34 @@ def test_catalog_returns_only_published_summaries(snapshot_api):
     assert "path" not in item
     assert "DRAFT" not in response.text
     assert "REJECTED" not in response.text
+
+
+def test_catalog_scans_raw_quotes_once_without_building_quote_rows(snapshot_api, monkeypatch):
+    client, state = snapshot_api
+    import main
+
+    _publish_same_data_snapshot(state, "snap-syn-002")
+    original = main.SnapshotReader._catalog_quote_summary
+    scans: list[str] = []
+
+    def count_scans(reader, snapshot_id, **kwargs):
+        scans.append(snapshot_id)
+        return original(reader, snapshot_id, **kwargs)
+
+    def reject_quote_rows(*_args, **_kwargs):
+        pytest.fail("catalog must not build public QuoteRow objects")
+
+    monkeypatch.setattr(main.SnapshotReader, "_catalog_quote_summary", count_scans)
+    monkeypatch.setattr(main.SnapshotReader, "daily_quotes", reject_quote_rows)
+    response = client.get("/api/v1/snapshots")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["count"] == 2
+    assert {item["snapshotId"] for item in body["snapshots"]} == {
+        "snap-syn-001", "snap-syn-002",
+    }
+    assert sorted(scans) == ["snap-syn-001", "snap-syn-002"]
 
 
 def test_detail_does_not_expose_nonpublished_status(snapshot_api):

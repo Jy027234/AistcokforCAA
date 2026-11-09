@@ -381,6 +381,65 @@ def _same_bundle(rows: Iterable[FinancialFact], *, period_end: date,
         )
 
 
+def _assert_ganneng_ttm_comparability(
+    selected: Iterable[FinancialFact],
+    *,
+    instrument_id: str,
+    latest_period_end: date,
+    metrics: S2MetricNames,
+) -> None:
+    """Reject the one unresolved 000899 FY25/H126 TTM source combination.
+
+    The FY25 annual report and the H125/H126 values from the later H126 report
+    are all individually admitted, but their cross-report consolidation scope
+    has not been demonstrated. Keep this exact source-chain guard until that
+    comparability evidence is resolved; it is not a general issuer exclusion.
+    """
+
+    if (instrument_id.rsplit(".", 1)[-1] != "000899" or
+            latest_period_end != date(2026, 6, 30)):
+        return
+
+    annual_hash = "sha256:1063fd11f45f1190db6fbfb0db47c59088417410047b8676ccc38a11d96c2db4"
+    h126_hash = "sha256:0908a0080bdd676f3fbddcd3180cf4b3a91c32c980fd3b7643b313972f7587b8"
+    annual_period = date(2025, 12, 31)
+    h125_period = date(2025, 6, 30)
+    h126_period = date(2026, 6, 30)
+    expected: set[tuple[str, date, str, str, str, StatementScope, ProfitScope | None]] = set()
+
+    for metric, profit_scope in (
+        (metrics.attributable_net_profit, ProfitScope.ATTRIBUTABLE),
+        (metrics.consolidated_net_profit, ProfitScope.CONSOLIDATED),
+        (metrics.operating_cash_flow, None),
+        (metrics.revenue, None),
+    ):
+        expected.update((
+            (metric, annual_period, "cninfo", "1225121246", annual_hash,
+             StatementScope.CONSOLIDATED, profit_scope),
+            (metric, h125_period, "cninfo", "1225490300", h126_hash,
+             StatementScope.CONSOLIDATED, profit_scope),
+            (metric, h126_period, "cninfo", "1225490300", h126_hash,
+             StatementScope.CONSOLIDATED, profit_scope),
+        ))
+    for period in (h125_period, h126_period):
+        expected.add((metrics.parent_equity, period, "cninfo", "1225490300",
+                      h126_hash, StatementScope.CONSOLIDATED, None))
+
+    observed = {
+        (row.metric, row.period_end, row.source_id, row.source_document_id,
+         row.content_hash, row.statement_scope, row.profit_scope)
+        for row in selected
+    }
+    if expected.issubset(observed):
+        raise S2ComputationError(
+            "S2_COMPARABILITY_UNVERIFIED",
+            "赣能股份的2025年度报告（1225121246）与2026年半年报披露的2025年及2026年上半年数据 "
+            "（1225490300）尚无已核实的同一合并范围证明；暂不计算正式S2因子。",
+            instrument_id=instrument_id,
+            repair_action="取得并核验覆盖2025年度及2025年、2026年上半年的同口径证据后，再重算正式S2。",
+        )
+
+
 def _index_metric(
     selected: Iterable[FinancialFact],
     *,
@@ -601,6 +660,9 @@ def compute_s2_financial_inputs(
     prior_revenue_ttm = _ttm(
         revenue, latest_period_end=prior_endpoint,
         instrument_id=instrument_id, label=f"{metrics.revenue} prior-year")
+    _assert_ganneng_ttm_comparability(
+        selected, instrument_id=instrument_id,
+        latest_period_end=latest_period_end, metrics=metrics)
     all_versions = set(attr_ttm.fact_version_ids)
     all_versions.update(np_ttm.fact_version_ids)
     all_versions.update(cfo_ttm.fact_version_ids)
@@ -777,6 +839,9 @@ def compute_s2_factors(
             repair_action="capture a positive market cap on the same decision date as the snapshot",
         )
     f10 = attr_ttm.value / market_cap_decimal
+    _assert_ganneng_ttm_comparability(
+        selected, instrument_id=instrument_id,
+        latest_period_end=latest_period_end, metrics=metrics)
 
     all_versions = set(attr_ttm.fact_version_ids)
     all_versions.update(np_ttm.fact_version_ids)

@@ -211,6 +211,9 @@ class Job:
     input_snapshot_id: str | None = None
     payload_json: str | None = None
     result_json: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    heartbeat_at: datetime | None = None
     # Stored inside payload_json because the existing job schema is shared by
     # older deployments and must not gain ownership columns.
     owner_metadata: dict[str, str] | None = None
@@ -462,6 +465,9 @@ class JobStore:
             config_version=row["config_version"],
             input_snapshot_id=row["input_snapshot_id"],
             payload_json=row["payload_json"], result_json=row["result_json"],
+            created_at=_parse(row["created_at"]) if row["created_at"] else None,
+            updated_at=_parse(row["updated_at"]) if row["updated_at"] else None,
+            heartbeat_at=_parse(row["heartbeat_at"]) if row["heartbeat_at"] else None,
             owner_metadata=owner_metadata,
             idempotency_namespace=idempotency_namespace,
         )

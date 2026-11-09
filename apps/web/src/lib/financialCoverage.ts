@@ -23,7 +23,7 @@ export interface FinancialCoverageReport {
         start_parent_equity: string; end_parent_equity: string; average_parent_equity: string;
         latest_period_end: string; ttm_start_period_end: string; fact_version_ids: string[];
         non_positive_denominator_factors?: string[] } | null;
-      financialInputStatus?: string; financialInputCutoffAt?: string;
+      financialInputStatus?: string; financialInputReason?: string; financialInputCutoffAt?: string;
       marketCap?: { status: string; value_yuan: string | null; as_of: string | null;
         source_id: string | null; observed_at: string | null; receipt_id: string | null; content_hash: string | null };
       signal?: { signal_rank: number; quality_rank: number; value_rank: number;
@@ -33,4 +33,60 @@ export interface FinancialCoverageReport {
         firstSeenAt: string | null; availableAt: string | null }[] };
     historicalReconstructed: { availableMetricPeriodCount: number; completeFacts: boolean };
   }[];
+}
+
+export type FinancialCoverageJobStatus = "PENDING" | "RUNNING" | "SUCCEEDED" | "FAILED" | "BLOCKED";
+
+/** Server-generated identities for the exact database input used by a diagnostic. */
+export interface FinancialCoverageInputBinding {
+  inputHash: string;
+  snapshotId: string;
+  snapshotCutoffAt: string;
+  tradingDay: string;
+  researchSnapshotId: string;
+  researchContentHash: string;
+  liveFactsVersion: string;
+  proofVersion: string;
+  reconstructedFactsVersion: string;
+  targetMapHash: string;
+  priorityInstrumentIdsHash: string;
+  codeVersion: string;
+}
+
+export interface FinancialCoverageJobSubmission {
+  jobId: string;
+  jobType: "FINANCIAL_CHECK";
+  status: FinancialCoverageJobStatus;
+  created: boolean;
+  snapshotId: string;
+  inputBinding: FinancialCoverageInputBinding;
+  submittedAt: string;
+  retryOf?: string;
+}
+
+export interface FinancialCoverageJobResult {
+  report: FinancialCoverageReport;
+  verifiedAt: string;
+  binding: FinancialCoverageInputBinding;
+  resultHash: string;
+}
+
+export interface FinancialCoverageJobError {
+  code: string;
+  message: string;
+  repairAction?: string;
+}
+
+export interface FinancialCoverageJobState {
+  jobId: string;
+  jobType: "FINANCIAL_CHECK";
+  status: FinancialCoverageJobStatus;
+  createdAt: string;
+  updatedAt: string;
+  heartbeatAt: string | null;
+  snapshotId: string;
+  inputBinding: FinancialCoverageInputBinding;
+  result: FinancialCoverageJobResult | null;
+  error: FinancialCoverageJobError | null;
+  isCurrent: boolean | null;
 }

@@ -30,6 +30,7 @@ export function ExperimentsApiView({ onOpenPortfolio }: { onOpenPortfolio?: () =
   const [experiments, setExperiments] = useState<ReadState<ExperimentRow>>(emptyRead);
   const [decisions, setDecisions] = useState<ReadState<DecisionRow>>(emptyRead);
   const [drafts, setDrafts] = useState<ReadState<SavedResearchDraft>>(emptyRead);
+  const [engineeringOpened, setEngineeringOpened] = useState(false);
   const refresh = () => setAttempt(n => n + 1);
   useEffect(() => {
     let active = true;
@@ -55,12 +56,16 @@ export function ExperimentsApiView({ onOpenPortfolio }: { onOpenPortfolio?: () =
     <DecisionHistoryDisplay {...decisions} onRefresh={refresh} onOpenPortfolio={onOpenPortfolio} />
     <ResearchDraftHistoryDisplay {...drafts} rows={personalDrafts} onRefresh={refresh} onOpenPortfolio={onOpenPortfolio} />
     <Section title="对照与工程验证" hint="深入查看规则对照、工程结果与实验登记" dataSource="static" noNumericValue>
-      <details className="secondary-details"><summary>展开对照与工程验证</summary>
+      <details className="secondary-details" onToggle={event => {
+        if (event.currentTarget.open) setEngineeringOpened(true);
+      }}><summary>展开对照与工程验证</summary>
         <p className="note">工程选择、历史回放与规则对照不代表你完成了一次个人决策；真实行情、历史重建与示例数据沿用各记录的来源声明。</p>
-        <EngineeringForwardResults />
-        <ComparisonResults />
-        <ExperimentRegistrationDisplay {...experiments} onRefresh={refresh} />
-        <ResearchDraftHistoryDisplay {...drafts} rows={otherDrafts} onRefresh={refresh} engineering />
+        {engineeringOpened && <>
+          <EngineeringForwardResults />
+          <ComparisonResults />
+          <ExperimentRegistrationDisplay {...experiments} onRefresh={refresh} />
+          <ResearchDraftHistoryDisplay {...drafts} rows={otherDrafts} onRefresh={refresh} engineering />
+        </>}
       </details>
     </Section>
   </>;

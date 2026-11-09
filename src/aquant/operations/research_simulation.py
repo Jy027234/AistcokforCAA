@@ -23,7 +23,10 @@ from aquant.domain.portfolio.construction import (
 )
 from aquant.domain.portfolio.plan import PlanError, PlanService
 from aquant.operations.research_candidates import ResearchCandidateError, file_hash
-from aquant.operations.research_scan import load_research_scan
+from aquant.operations.research_scan import (
+    load_verified_research_scan_context_projection,
+    load_verified_research_scan_packet,
+)
 
 LABEL = "研究候选人工模拟"
 MARKET_TZ = ZoneInfo("Asia/Shanghai")
@@ -81,19 +84,7 @@ def assert_execution_eligibility(reader, *, decision_snapshot_id: str,
                             "publish the actual execution-day normal/ST/suspension status; prior-day status cannot replace it")
 
 
-def load_simulation_research(path: Path) -> tuple[dict, dict]:
-    """Verify existing research explanations, then bind the exact full artifact.
-
-    The ordinary endpoint paginates its output, so recover the whole artifact
-    only after its existing source/hash/formula verifier has accepted it.  A
-    second file hash rejects replacement during the verification/read interval.
-    """
-    path = resolve_artifact_path(path)
-    digest = file_hash(path)
-    load_research_scan(path, view="all", limit=1)
-    packet = json.loads(path.read_text(encoding="utf-8"))
-    if file_hash(path) != digest:
-        raise ResearchCandidateError("research artifact changed during verification")
+def _bind_simulation_research(path: Path, packet, digest: str):
     observed = [_stamp(packet["capturedTo"], "capturedTo")]
     available = [_stamp(packet["generatedAt"], "generatedAt"),
                  _stamp(packet["asOfTime"], "asOfTime")]
@@ -112,6 +103,20 @@ def load_simulation_research(path: Path) -> tuple[dict, dict]:
                "researchDataAsOf": packet["dataAsOf"],
                "researchOriginPath": str(path.resolve())}
     return packet, binding
+
+
+def load_simulation_research(path: Path) -> tuple[dict, dict]:
+    """Verify and return the exact full artifact for financial and write callers."""
+    path = resolve_artifact_path(path)
+    packet, digest = load_verified_research_scan_packet(path)
+    return _bind_simulation_research(path, packet, digest)
+
+
+def load_simulation_research_context(path: Path):
+    """Verify and bind the immutable narrow projection used by context GET only."""
+    path = resolve_artifact_path(path)
+    packet, digest = load_verified_research_scan_context_projection(path)
+    return _bind_simulation_research(path, packet, digest)
 
 
 class IndexedDecisionReader:

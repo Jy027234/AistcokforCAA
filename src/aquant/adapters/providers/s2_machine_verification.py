@@ -48,6 +48,23 @@ from decimal import Decimal
 from .cninfo_financial_candidate import CninfoFinancialPdfError
 from .cninfo_financial_pdf import CninfoS2CandidateFacts, PdfCandidateFact
 from .cninfo_statement_geometry import extract_grid_statement_cells
+from .dated_note_current_total import (
+    DatedNoteCurrentTotalNotLocatedError,
+    extract_dated_note_current_total,
+)
+from .profit_before_tax_less_income_tax import (
+    ProfitTaxNotLocatedError,
+    extract_profit_before_tax_less_income_tax_expense,
+)
+from .operating_cashflow_subtotals import (
+    OperatingCashflowSubtotalsNotLocatedError,
+    extract_operating_cashflow_subtotals,
+)
+from .parent_equity_native_closing import extract_parent_equity_native_closing_cell
+from .parent_equity_comprehensive_income import (
+    ParentComprehensiveIncomeNotLocated,
+    extract_parent_comprehensive_income_minus_oci,
+)
 from .cninfo_statement_sections import (
     PARENT_MATCHING_FIELDS,
     ROLE_CONSOLIDATED,
@@ -100,6 +117,29 @@ PATH_DESCRIPTIONS = {
     ),
     "ruled_grid_cell_reextraction": (
         "独立按原始PDF格线、单元格几何及当期列头重新定位金额；不输入主抽取金额或列索引"
+    ),
+    "dated_note_current_total": (
+        "独立按合并附注61自身标题、单位、本期/上期收入成本列、合计行及原生单元格定位"
+    ),
+    "profit_before_tax_less_income_tax": (
+        "独立按合并利润表自身标题、单位、本期/上期列头及利润总额、所得税费用原生单元格，"
+        "精确核对净利润 = 利润总额 - 所得税费用"
+    ),
+    "operating_cashflow_inflow_less_outflow_subtotals": (
+        "独立按合并现金流量表本期/上期列头及经营活动现金流入、流出小计原生单元格，"
+        "核对经营现金流 = 流入小计 - 流出小计"
+    ),
+    "native_parent_equity_change_table_closing_cell": (
+        "独立按合并所有者权益变动表本期表头的归母所有者权益/小计列，"
+        "读取本期期末余额行与该列对齐的原生单元格"
+    ),
+    "native_full_report_note_crosscheck": (
+        "同一官方全文中从原生合并附注按当期列提取主值，再由不同页的原生附注或主要会计数据"
+        "独立核对；不把扫描主表称为原生文本"
+    ),
+    "parent_equity_comprehensive_income_minus_oci": (
+        "独立按合并所有者权益变动表本期表头，在同一“（一）综合收益总额”行读取"
+        "归母所有者权益/小计与同组其他综合收益原生格，并核对归母净利润恒等式"
     ),
 }
 
@@ -368,6 +408,92 @@ def _revenue_note_decomposition_check(
         evidence=evidence)
 
 
+def _dated_note_current_total_check(
+    *, pdf_bytes: bytes, period_end: date, value: Decimal,
+    item: PdfCandidateFact, instrument_id: str,
+) -> IndependentCheck:
+    """Read the note's own unique dated total; compare only after selection."""
+
+    evidence: dict[str, object] = {
+        "candidate": {
+            "field": "revenue", "value_yuan": str(value),
+            "pdf_page": item.pdf_page, "amount_unit": item.amount_unit,
+            "display_row_label": item.display_row_label,
+        },
+    }
+    try:
+        note = extract_dated_note_current_total(
+            pdf_bytes, instrument_id=instrument_id, period_end=period_end)
+    except DatedNoteCurrentTotalNotLocatedError as exc:
+        return IndependentCheck(
+            path="dated_note_current_total", holds=False,
+            detail=f"合并附注本期收入合计未唯一定位：{exc}",
+            evidence=evidence)
+    evidence.update(note.as_evidence())
+    evidence["primary_comparison"] = {
+        "primary_candidate_yuan": str(value),
+        "note_current_total_yuan": str(note.current_revenue_yuan),
+        "comparison": "performed only after the note cell was independently selected",
+    }
+    if note.current_revenue_yuan != value:
+        raise MachineVerificationError(
+            f"revenue: independent dated note total {note.current_revenue_yuan} "
+            f"differs from primary candidate {value}")
+    if note.current_revenue_cell.page == item.pdf_page:
+        return IndependentCheck(
+            path="dated_note_current_total", holds=False,
+            detail=("附注合计与主候选同在 "
+                    f"{item.pdf_page} 页，不构成独立原文位置"),
+            evidence=evidence)
+    return IndependentCheck(
+        path="dated_note_current_total", holds=True,
+        detail=(f"合并附注第 {note.note_heading.page} 页自身表格的"
+                f"本期发生额收入合计 = {note.current_revenue_yuan} 元"),
+        evidence=evidence)
+
+
+def _profit_before_tax_less_income_tax_check(
+    *, pdf_bytes: bytes, period_end: date, value: Decimal,
+    item: PdfCandidateFact, instrument_id: str, section: StatementSection,
+) -> IndependentCheck:
+    """Use the consolidated P&L's own native PBT and tax cells as a last path."""
+
+    evidence: dict[str, object] = {
+        "candidate": {
+            "field": "net_profit_consolidated", "value_yuan": str(value),
+            "pdf_page": item.pdf_page, "amount_unit": item.amount_unit,
+            "display_row_label": item.display_row_label,
+        },
+    }
+    try:
+        proof = extract_profit_before_tax_less_income_tax_expense(
+            pdf_bytes, instrument_id=instrument_id, period_end=period_end,
+            section=section,
+        )
+    except ProfitTaxNotLocatedError as exc:
+        return IndependentCheck(
+            path="profit_before_tax_less_income_tax", holds=False,
+            detail=f"合并利润表的利润总额/所得税费用原生单元格未唯一定位：{exc}",
+            evidence=evidence)
+    evidence.update(proof.evidence)
+    evidence["primary_comparison"] = {
+        "primary_candidate_yuan": str(value),
+        "independent_current_recomputed_yuan": str(proof.current_recomputed_yuan),
+        "comparison": "performed only after native PBT and tax cells were independently selected",
+    }
+    if proof.current_recomputed_yuan != value:
+        raise MachineVerificationError(
+            "net_profit_consolidated: independent profit-before-tax less income-tax "
+            f"amount {proof.current_recomputed_yuan} differs from primary candidate {value}")
+    return IndependentCheck(
+        path="profit_before_tax_less_income_tax", holds=True,
+        detail=("合并利润表本期利润总额 - 所得税费用 = "
+                f"{proof.current_recomputed_yuan} 元，与候选相符；"
+                f"上期同式 = {proof.prior_recomputed_yuan} 元"),
+        evidence=evidence)
+
+
+
 def verify_machine_evidence(
     pdf_bytes: bytes, *,
     candidate: CninfoS2CandidateFacts,
@@ -384,10 +510,41 @@ def verify_machine_evidence(
     fields = tuple(sorted(expected_fields))
     if len(fields) != len(set(fields)) or not set(fields) <= set(candidate.by_field):
         raise MachineVerificationError("expected fields must be unique candidate fields")
+    if candidate.version_label == "spring_native_consolidated_note_candidate_v1":
+        from .spring_native_notes import verify_native_note_evidence
+        return verify_native_note_evidence(
+            pdf_bytes, candidate=candidate, expected_fields=fields,
+        )
+    if candidate.version_label == "native_consolidated_notes_v1":
+        from .chifeng_native_notes import verify_native_note_evidence
+        return verify_native_note_evidence(
+            pdf_bytes, candidate=candidate, expected_fields=fields,
+        )
+    all_statement_scope = ("资产负债表", "利润表", "现金流量表")
     try:
+        # Keep the established full-section parse as the primary path. Existing
+        # complete proofs are unchanged whenever this succeeds.
         sections = extract_statement_sections(pdf_bytes, period_end=candidate.period_end)
     except CninfoFinancialPdfError as exc:
-        raise MachineVerificationError(f"statement sections are not locatable: {exc}") from exc
+        required_statements = {_STATEMENT_FOR_FIELD[field] for field in fields}
+        if not required_statements or required_statements == set(all_statement_scope):
+            raise MachineVerificationError(f"statement sections are not locatable: {exc}") from exc
+        scoped_statements = tuple(
+            statement for statement in all_statement_scope
+            if statement in required_statements
+        )
+        try:
+            # Retry only the tables required by the caller's real field subset.
+            # Each selected section still parses its complete rows and all
+            # identity components used below; a required ambiguous table fails.
+            sections = extract_statement_sections(
+                pdf_bytes, period_end=candidate.period_end,
+                statements=scoped_statements,
+            )
+        except CninfoFinancialPdfError as scoped_exc:
+            raise MachineVerificationError(
+                f"required statement sections are not locatable: {scoped_exc}"
+            ) from scoped_exc
 
     # 恒等式分量与"本报告需要哪些字段"**无关**：它们是被核对值的另一处原文
     # 证据，只按 expected_fields 去定位会让必需字段变少时核对整批消失
@@ -462,10 +619,10 @@ def verify_machine_evidence(
     def consolidated_row(field: str) -> StatementRow | None:
         try:
             if field == "parent_equity":
-                return balance.find(field)
+                return None if balance is None else balance.find(field)
             if field in ("revenue", "net_profit_attributable", "net_profit_consolidated"):
-                return income.find(field)
-            return cashflow.find(field)
+                return None if income is None else income.find(field)
+            return None if cashflow is None else cashflow.find(field)
         except CninfoFinancialPdfError as exc:
             raise MachineVerificationError(f"{field}: ambiguous row: {exc}") from exc
 
@@ -628,6 +785,168 @@ def verify_machine_evidence(
             updated.append(FieldVerification(result.field, result.value_yuan,
                                              (*result.checks, check)))
         results = updated
+
+    # The dated note total is a separate typed path and runs only after the
+    # legacy identity/decomposition and primary ruled-grid paths leave revenue
+    # unresolved. Existing successful revenue fields retain their exact checks.
+    updated = []
+    for result in results:
+        if result.field != "revenue" or result.verified:
+            updated.append(result)
+            continue
+        item = candidate.by_field["revenue"]
+        check = _dated_note_current_total_check(
+            pdf_bytes=pdf_bytes, period_end=candidate.period_end,
+            value=result.value_yuan, item=item,
+            instrument_id=candidate.instrument_id)
+        updated.append(FieldVerification(result.field, result.value_yuan,
+                                         (*result.checks, check)))
+    results = updated
+
+    # This arithmetic path is last for consolidated net profit. It runs only
+    # after both legacy identity and ruled-grid checks have failed, and does
+    # not change either proof or its meaning.
+    updated = []
+    for result in results:
+        if result.field != "net_profit_consolidated" or result.verified:
+            updated.append(result)
+            continue
+        check = _profit_before_tax_less_income_tax_check(
+            pdf_bytes=pdf_bytes, period_end=candidate.period_end,
+            value=result.value_yuan,
+            item=candidate.by_field["net_profit_consolidated"],
+            instrument_id=candidate.instrument_id, section=income,
+        )
+        updated.append(FieldVerification(result.field, result.value_yuan,
+                                         (*result.checks, check)))
+    results = updated
+
+    # This native closing-cell path is limited to unresolved parent equity.
+    # The helper derives the table, header, cell geometry, and amount from the
+    # same supplied PDF bytes; the legacy identity and grid evidence stay intact.
+    updated = []
+    for result in results:
+        if result.field != "parent_equity" or result.verified:
+            updated.append(result)
+            continue
+        try:
+            proof = extract_parent_equity_native_closing_cell(
+                pdf_bytes, period_end=candidate.period_end)
+        except Exception as exc:
+            check = IndependentCheck(
+                path="native_parent_equity_change_table_closing_cell",
+                holds=False,
+                detail=("合并所有者权益变动表的归母/小计期末原格不可唯一定位："
+                        f"{type(exc).__name__}: {exc}"),
+                evidence={},
+            )
+        else:
+            if proof.amount_yuan != result.value_yuan:
+                raise MachineVerificationError(
+                    "parent_equity: independent native closing subtotal "
+                    f"{proof.amount_yuan} differs from primary candidate {result.value_yuan}")
+            check = IndependentCheck(
+                path="native_parent_equity_change_table_closing_cell",
+                holds=True,
+                detail=("合并所有者权益变动表归属于母公司所有者权益/小计列，"
+                        f"四、本期期末余额原生单元格 = {proof.amount_yuan} 元"),
+                evidence=proof.as_evidence(),
+            )
+        updated.append(FieldVerification(result.field, result.value_yuan,
+                                         (*result.checks, check)))
+    results = updated
+
+    # This typed native-cell identity is the final fallback for unresolved
+    # attributable net profit. It derives both components from the supplied
+    # PDF bytes and period; the primary amount is compared only after selection.
+    updated = []
+    for result in results:
+        if result.field != "net_profit_attributable" or result.verified:
+            updated.append(result)
+            continue
+        try:
+            proof = extract_parent_comprehensive_income_minus_oci(
+                pdf_bytes, period_end=candidate.period_end)
+        except ParentComprehensiveIncomeNotLocated as exc:
+            check = IndependentCheck(
+                path="parent_equity_comprehensive_income_minus_oci",
+                holds=False,
+                detail=("合并所有者权益变动表归母综合收益总额减其他综合收益的原格"
+                        f"不可唯一定位：{exc}"),
+                evidence={},
+            )
+        else:
+            evidence = proof.as_evidence()
+            evidence["primary_comparison"] = {
+                "primary_candidate_yuan": str(result.value_yuan),
+                "independent_current_recomputed_yuan": str(
+                    proof.net_profit_attributable_yuan),
+                "comparison": "performed only after both native cells were independently selected",
+            }
+            if proof.net_profit_attributable_yuan != result.value_yuan:
+                raise MachineVerificationError(
+                    "net_profit_attributable: independent parent comprehensive-income "
+                    f"minus OCI amount {proof.net_profit_attributable_yuan} differs from "
+                    f"primary candidate {result.value_yuan}")
+            check = IndependentCheck(
+                path="parent_equity_comprehensive_income_minus_oci",
+                holds=True,
+                detail=("合并所有者权益变动表同一综合收益行归母小计减同组其他综合收益"
+                        f" = {proof.net_profit_attributable_yuan} 元，与候选相符"),
+                evidence=evidence,
+            )
+        updated.append(FieldVerification(result.field, result.value_yuan,
+                                         (*result.checks, check)))
+    results = updated
+
+    # The native subtotal pair is a final path for an unresolved operating
+    # cash-flow candidate. Its helper receives no candidate amount or row; the
+    # candidate is compared only after both source cells have been selected.
+    updated = []
+    for result in results:
+        if result.field != "operating_cashflow" or result.verified:
+            updated.append(result)
+            continue
+        try:
+            proof = extract_operating_cashflow_subtotals(
+                pdf_bytes,
+                instrument_id=candidate.instrument_id,
+                period_end=candidate.period_end,
+                section=cashflow,
+            )
+        except OperatingCashflowSubtotalsNotLocatedError as exc:
+            check = IndependentCheck(
+                path="operating_cashflow_inflow_less_outflow_subtotals",
+                holds=False,
+                detail=("合并现金流量表经营活动流入/流出小计的本期原生格不可唯一定位："
+                        f"{exc}"),
+                evidence={},
+            )
+        else:
+            evidence = dict(proof.evidence)
+            evidence["primary_comparison"] = {
+                "primary_candidate_yuan": str(result.value_yuan),
+                "independent_current_recomputed_yuan":
+                    str(proof.current_recomputed_yuan),
+                "comparison": (
+                    "performed only after both native subtotal cells were independently selected"
+                ),
+            }
+            if proof.current_recomputed_yuan != result.value_yuan:
+                raise MachineVerificationError(
+                    "operating_cashflow: independent inflow-subtotal less "
+                    f"outflow-subtotal amount {proof.current_recomputed_yuan} differs "
+                    f"from primary candidate {result.value_yuan}")
+            check = IndependentCheck(
+                path="operating_cashflow_inflow_less_outflow_subtotals",
+                holds=True,
+                detail=("合并现金流量表本期经营活动现金流入小计 - "
+                        f"现金流出小计 = {proof.current_recomputed_yuan} 元，与候选相符"),
+                evidence=evidence,
+            )
+        updated.append(FieldVerification(result.field, result.value_yuan,
+                                         (*result.checks, check)))
+    results = updated
 
     identities.append(_check_identity(
         "equity_identity",

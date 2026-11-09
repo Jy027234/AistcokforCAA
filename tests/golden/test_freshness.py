@@ -103,6 +103,154 @@ def test_every_day_succeeding_but_data_not_updating_is_still_stale(tmp_path):
     assert result.last_published_day == "2026-09-14"
 
 
+def test_consecutive_failed_runs_do_not_reuse_an_older_data_day(tmp_path):
+    """失败记录显式没有 data_last_day 时，不能回退到旧记录并报成新鲜。"""
+
+    log = _write(tmp_path / "runs.jsonl", [
+        {"trading_day": "2026-10-20", "outcome": "PUBLISHED",
+         "data_last_day": "2026-10-20"},
+        {"trading_day": "2026-10-21", "outcome": "FAILED",
+         "data_last_day": None, "reason": "BaoStock 登录超时"},
+        {"trading_day": "2026-10-22", "outcome": "FAILED",
+         "data_last_day": None, "reason": "BaoStock 登录超时"},
+        {"trading_day": "2026-10-23", "outcome": "FAILED",
+         "data_last_day": None, "reason": "BaoStock 登录超时"},
+    ])
+
+    result = freshness(log, snapshot_day="2026-10-20")
+    assert result.data_last_day is None
+    assert result.stale is True
+    assert result.staleness_days == 3
+    assert result.last_attempt["outcome"] == "FAILED"
+    assert "2026-10-23" in result.detail
+    assert "2026-10-20" in result.detail
+    assert "BaoStock 登录超时" in result.detail
+
+
+def test_failed_attempt_on_snapshot_day_is_reported_without_inventing_a_gap(tmp_path):
+    log = _write(tmp_path / "runs.jsonl", [
+        {"trading_day": "2026-09-18", "outcome": "FAILED",
+         "data_last_day": None, "reason": "上游连接超时"},
+    ])
+
+    result = freshness(log, snapshot_day="2026-09-18")
+    assert result.stale is False
+    assert result.staleness_days is None
+    assert "最近一次日更" in result.detail
+    assert "上游连接超时" in result.detail
+
+
+def test_closed_day_skip_keeps_latest_failure_until_successful_publish(tmp_path):
+    entries = [
+        {"trading_day": "2026-10-20", "outcome": "PUBLISHED",
+         "data_last_day": "2026-10-20"},
+        {"trading_day": "2026-10-23", "outcome": "FAILED",
+         "data_last_day": None, "reason": "BaoStock 登录超时"},
+        {"trading_day": "2026-10-25", "outcome": "SKIPPED",
+         "data_last_day": None, "calendarGate": {"isTradingDay": False}},
+    ]
+    log = _write(tmp_path / "runs.jsonl", entries)
+
+    after_closed_day = freshness(log, snapshot_day="2026-10-20")
+    assert after_closed_day.last_attempt["outcome"] == "FAILED"
+    assert after_closed_day.last_attempt["tradingDay"] == "2026-10-23"
+    assert "已核验 2026-10-25 为休市日" in after_closed_day.detail
+    assert after_closed_day.stale is True
+    assert "BaoStock 登录超时" in after_closed_day.detail
+
+    entries.append({"trading_day": "2026-10-26", "outcome": "PUBLISHED",
+                    "data_last_day": "2026-10-26"})
+    _write(log, entries)
+    after_publish = freshness(log, snapshot_day="2026-10-26")
+    assert after_publish.last_attempt["outcome"] == "PUBLISHED"
+    assert after_publish.stale is False
+    assert after_publish.data_last_day == "2026-10-26"
+
+
+def test_older_backfill_does_not_resolve_a_newer_failed_target(tmp_path):
+    entries = [
+        {"trading_day": "2026-10-30", "outcome": "FAILED",
+         "data_last_day": None, "reason": "日更目标日 30 失败"},
+        {"trading_day": "2026-10-29", "outcome": "PUBLISHED",
+         "data_last_day": "2026-10-29"},
+    ]
+    log = _write(tmp_path / "runs.jsonl", entries)
+
+    after_backfill = freshness(log, snapshot_day="2026-10-29")
+    assert after_backfill.last_attempt["outcome"] == "PUBLISHED"
+    assert after_backfill.last_attempt["tradingDay"] == "2026-10-29"
+    assert after_backfill.last_published_day == "2026-10-29"
+    assert after_backfill.data_last_day == "2026-10-29"
+    assert after_backfill.stale is True
+    assert after_backfill.staleness_days == 1
+    assert "此前日更（目标日 2026-10-30）失败" in after_backfill.detail
+    assert "尚未由后续成功发布恢复" in after_backfill.detail
+
+    entries.append({"trading_day": "2026-10-30", "outcome": "PUBLISHED",
+                    "data_last_day": "2026-10-30"})
+    _write(log, entries)
+    after_covering_publish = freshness(log, snapshot_day="2026-10-30")
+    assert after_covering_publish.last_attempt["outcome"] == "PUBLISHED"
+    assert after_covering_publish.last_published_day == "2026-10-30"
+    assert after_covering_publish.stale is False
+    assert "尚未由后续成功发布恢复" not in after_covering_publish.detail
+    assert json.loads(log.read_text(encoding="utf-8").splitlines()[0])["outcome"] == "FAILED"
+
+
+def test_lock_skip_does_not_report_an_old_snapshot_as_fresh(tmp_path):
+    log = _write(tmp_path / "runs.jsonl", [
+        {"trading_day": "2026-10-28", "outcome": "PUBLISHED",
+         "data_last_day": "2026-10-28"},
+        {"trading_day": "2026-10-30", "outcome": "SKIPPED",
+         "data_last_day": None, "reason": "流水线正在运行中（锁文件 daily-run.lock）"},
+    ])
+
+    result = freshness(log, snapshot_day="2026-10-28")
+    assert result.last_attempt["outcome"] == "SKIPPED"
+    assert result.stale is True
+    assert result.staleness_days == 2
+    assert result.data_last_day == "2026-10-28"
+    assert "异常跳过" in result.detail
+    assert "锁文件" in result.detail
+    assert "仍使用覆盖到 2026-10-28 的快照" in result.detail
+
+
+def test_later_lock_skip_keeps_an_unresolved_failure_visible(tmp_path):
+    log = _write(tmp_path / "runs.jsonl", [
+        {"trading_day": "2026-10-28", "outcome": "PUBLISHED",
+         "data_last_day": "2026-10-28"},
+        {"trading_day": "2026-10-29", "outcome": "FAILED",
+         "data_last_day": None, "reason": "BaoStock 登录超时"},
+        {"trading_day": "2026-10-30", "outcome": "SKIPPED",
+         "data_last_day": None, "reason": "流水线正在运行中（锁文件 daily-run.lock）"},
+    ])
+
+    result = freshness(log, snapshot_day="2026-10-28")
+    assert result.last_attempt["outcome"] == "SKIPPED"
+    assert result.stale is True
+    assert result.staleness_days == 2
+    assert result.data_last_day is None
+    assert "锁文件" in result.detail
+    assert "此前日更（目标日 2026-10-29）失败" in result.detail
+    assert "BaoStock 登录超时" in result.detail
+    assert "尚未由后续成功发布恢复" in result.detail
+
+
+def test_only_verified_closed_day_skip_is_not_an_update_warning(tmp_path):
+    log = _write(tmp_path / "runs.jsonl", [
+        {"trading_day": "2026-10-30", "outcome": "SKIPPED",
+         "data_last_day": None, "reason": "已验证交易日历标记休市；未启动任何数据源采集",
+         "calendarGate": {"isTradingDay": False}},
+    ])
+
+    result = freshness(log, snapshot_day="2026-10-28")
+    assert result.last_attempt["outcome"] == "SKIPPED"
+    assert result.last_attempt["calendarGate"] == {"isTradingDay": False}
+    assert result.stale is False
+    assert "已核验 2026-10-30 为休市日" in result.detail
+    assert "异常跳过" not in result.detail
+
+
 def test_weekend_gap_is_not_stale(tmp_path):
     """跨周末本来就有 2 天间隔，把正常状态做成提醒会让真提醒没人看。"""
 
@@ -110,7 +258,8 @@ def test_weekend_gap_is_not_stale(tmp_path):
         {"trading_day": "2026-09-10", "outcome": "PUBLISHED",
          "data_last_day": "2026-09-10"},
         {"trading_day": "2026-09-12", "outcome": "SKIPPED",
-         "data_last_day": "2026-09-12"},
+         "data_last_day": "2026-09-12",
+         "calendarGate": {"isTradingDay": False}},
     ])
     result = freshness(log, snapshot_day="2026-09-10")
     assert result.staleness_days == 2

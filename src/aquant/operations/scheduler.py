@@ -340,13 +340,13 @@ def request_run(con: sqlite3.Connection, *, source: str, requested_by: str,
 
     if source not in ("scheduler", "manual"):
         raise ScheduleError(f"未知来源 {source!r}", "用 scheduler 或 manual")
-    pending = con.execute(
-        "SELECT request_id FROM pipeline_run_request "
-        "WHERE status IN ('PENDING','CLAIMED') ORDER BY requested_at LIMIT 1").fetchone()
-    if pending is not None:
-        return pending["request_id"]
-    request_id = "run_" + uuid.uuid4().hex[:16]
     with write_tx(con):
+        pending = con.execute(
+            "SELECT request_id FROM pipeline_run_request "
+            "WHERE status IN ('PENDING','CLAIMED') ORDER BY requested_at LIMIT 1").fetchone()
+        if pending is not None:
+            return pending["request_id"]
+        request_id = "run_" + uuid.uuid4().hex[:16]
         con.execute(
             "INSERT INTO pipeline_run_request (request_id,source,reason,requested_by,"
             "requested_at,status) VALUES (?,?,?,?,?,'PENDING')",
@@ -394,15 +394,61 @@ def claim_next(con: sqlite3.Connection, *, worker_id: str,
 
 def finish_request(con: sqlite3.Connection, *, request_id: str, status: str,
                    exit_code: int | None, detail: str,
-                   now: datetime | None = None) -> None:
+                   now: datetime | None = None, record: dict | None = None) -> None:
+    """Finish a request and, when supplied, commit both views of its run record."""
+
     if status not in ("DONE", "FAILED", "CANCELLED"):
         raise ScheduleError(f"未知终态 {status!r}", "用 DONE / FAILED / CANCELLED")
+    finished_at = _iso(now or datetime.now(timezone.utc))
     with write_tx(con):
+        if record is not None:
+            claimed = con.execute(
+                "SELECT source FROM pipeline_run_request WHERE request_id=? AND status='CLAIMED'",
+                (request_id,)).fetchone()
+            if claimed is None:
+                raise ScheduleError("该运行请求已结束或尚未领取。", "读取现有运行结果。")
         con.execute(
             "UPDATE pipeline_run_request SET status=?, finished_at=?, exit_code=?,"
             "detail=? WHERE request_id=?",
-            (status, _iso(now or datetime.now(timezone.utc)), exit_code,
-             detail[:2000], request_id))
+            (status, finished_at, exit_code, detail[:2000], request_id))
+        if record is not None:
+            values = _run_summary_values(
+                request_id, claimed["source"], dict(record, finished_at=finished_at), exit_code)
+            calendar = record.get("calendarGate")
+            retry = record.get("retryableFailure")
+            con.execute(
+                "INSERT INTO pipeline_run_history (request_id,source,trading_day,snapshot_id,"
+                "outcome,reason,exit_code,started_at,finished_at,duration_seconds,steps_json,"
+                "data_last_day,calendar_gate_json,artifact_dir,retryable_kind)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (*values, record.get("data_last_day"),
+                 json.dumps(calendar, ensure_ascii=False) if isinstance(calendar, dict) else None,
+                 record.get("artifactDirectory"), retry.get("kind") if isinstance(retry, dict) else None))
+            _write_latest_run(con, values)
+
+
+def _run_summary_values(request_id: str | None, source: str, record: dict,
+                        exit_code: int | None) -> tuple:
+    steps = [{"step": s.get("step"), "ok": s.get("ok"), "seconds": s.get("seconds")}
+             for s in (record.get("steps") or [])]
+    return (request_id, source, record.get("trading_day"), record.get("snapshot_id"),
+            record.get("outcome"), record.get("reason"), exit_code, record.get("started_at"),
+            record.get("finished_at"), record.get("duration_seconds"),
+            json.dumps(steps, ensure_ascii=False))
+
+
+def _write_latest_run(con: sqlite3.Connection, values: tuple) -> None:
+    con.execute(
+        "INSERT INTO pipeline_last_run (run_id,request_id,source,trading_day,"
+        "snapshot_id,outcome,reason,exit_code,started_at,finished_at,"
+        "duration_seconds,steps_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(run_id) DO UPDATE SET request_id=excluded.request_id,"
+        "source=excluded.source, trading_day=excluded.trading_day,"
+        "snapshot_id=excluded.snapshot_id, outcome=excluded.outcome,"
+        "reason=excluded.reason, exit_code=excluded.exit_code,"
+        "started_at=excluded.started_at, finished_at=excluded.finished_at,"
+        "duration_seconds=excluded.duration_seconds, steps_json=excluded.steps_json",
+        (LAST_RUN_ID, *values))
 
 
 def record_last_run(con: sqlite3.Connection, *, request_id: str | None,
@@ -410,26 +456,8 @@ def record_last_run(con: sqlite3.Connection, *, request_id: str | None,
                     now: datetime | None = None) -> None:
     """把留痕记录摘要成一行，供界面读取。**留痕文件仍是权威。**"""
 
-    import json
-
     with write_tx(con):
-        con.execute(
-            "INSERT INTO pipeline_last_run (run_id,request_id,source,trading_day,"
-            "snapshot_id,outcome,reason,exit_code,started_at,finished_at,"
-            "duration_seconds,steps_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(run_id) DO UPDATE SET request_id=excluded.request_id,"
-            "source=excluded.source, trading_day=excluded.trading_day,"
-            "snapshot_id=excluded.snapshot_id, outcome=excluded.outcome,"
-            "reason=excluded.reason, exit_code=excluded.exit_code,"
-            "started_at=excluded.started_at, finished_at=excluded.finished_at,"
-            "duration_seconds=excluded.duration_seconds, steps_json=excluded.steps_json",
-            (LAST_RUN_ID, request_id, source, record.get("trading_day"),
-             record.get("snapshot_id"), record.get("outcome"), record.get("reason"),
-             exit_code, record.get("started_at"), record.get("finished_at"),
-             record.get("duration_seconds"),
-             json.dumps([{"step": s.get("step"), "ok": s.get("ok"),
-                          "seconds": s.get("seconds")}
-                         for s in (record.get("steps") or [])], ensure_ascii=False)))
+        _write_latest_run(con, _run_summary_values(request_id, source, record, exit_code))
 
 
 def last_run(con: sqlite3.Connection) -> dict | None:

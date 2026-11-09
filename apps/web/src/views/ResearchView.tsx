@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { WorkspaceData } from "../lib/types";
 import { api, AquantApiError } from "../lib/api";
-import { Badge, Callout, Card, Empty, Section } from "../components/ui";
+import { Badge, Callout, Card, Empty, ErrorState, Loading, Section } from "../components/ui";
 import { ResearchCard } from "../components/ResearchCard";
 import { ResearchCandidates } from "../components/ResearchCandidates";
 import { FinancialCoverage } from "../components/FinancialCoverage";
@@ -19,6 +19,7 @@ const SCOPES: { id: Scope; label: string }[] = [
 export function ResearchView({
   data, selectedId, onSelect, onOpenEvidence, onAction,
   onRequestResearch, loadingResearchId, onPrepareSimulation, focusedInstrumentId,
+  legacyS1State = "ready", legacyS1Error = null, onLoadLegacyS1, onRetryLegacyS1,
 }: {
   data: WorkspaceData;
   selectedId: string | null;
@@ -29,6 +30,10 @@ export function ResearchView({
   loadingResearchId?: string | null;
   onPrepareSimulation?: (instrumentId: string, researchSnapshotId: string | null) => void;
   focusedInstrumentId?: string | null;
+  legacyS1State?: "idle" | "loading" | "ready" | "error";
+  legacyS1Error?: string | null;
+  onLoadLegacyS1?: () => void;
+  onRetryLegacyS1?: () => void;
 }) {
   const [scope, setScope] = useState<Scope>("market");
   const [watchlist, setWatchlist] = useState<string[]>([]);
@@ -36,12 +41,18 @@ export function ResearchView({
   const [watchError, setWatchError] = useState<string | null>(null);
   const [snapshotResearchOpen, setSnapshotResearchOpen] = useState(Boolean(selectedId));
   const [financialCoverageVisited, setFinancialCoverageVisited] = useState(false);
+  const onLoadLegacyS1Ref = useRef(onLoadLegacyS1);
+  onLoadLegacyS1Ref.current = onLoadLegacyS1;
   const source = data.dataSource === "api" ? "api" : "fixture";
   const cardsById = new Map(data.researchCards.map((c) => [c.instrumentId, c]));
 
   useEffect(() => {
     if (selectedId) setSnapshotResearchOpen(true);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (snapshotResearchOpen && source === "api") onLoadLegacyS1Ref.current?.();
+  }, [snapshotResearchOpen, source]);
 
   useEffect(() => {
     if (source !== "api") return;
@@ -111,7 +122,7 @@ export function ResearchView({
       }}>
         <summary>查看财务数据覆盖与缺项</summary>
         {financialCoverageVisited && <div style={{ marginTop: 16 }}>
-          <FinancialCoverage snapshotId={data.status.snapshotId} />
+          <FinancialCoverage />
         </div>}
       </details>}
       <details className="section" open={snapshotResearchOpen}
@@ -132,7 +143,9 @@ export function ResearchView({
             <Callout tone="danger" title="自选没有更新">{watchError}</Callout>
           </div>
         )}
-        {scoped.length === 0 ? (
+        {source === "api" && legacyS1State === "error" ? (
+          <ErrorState message={legacyS1Error ?? "规则基线资料读取失败。"} onRetry={onRetryLegacyS1} />
+        ) : source === "api" && legacyS1State !== "ready" ? <Loading /> : scoped.length === 0 ? (
           <Card><Empty title={scope === "watchlist" ? "自选列表为空" : "该范围内没有标的"}>
             {scope === "watchlist"
               ? "在研究卡上选择「加入自选」后，标的会出现在这里。自选与模拟持仓在视觉与权限上分离。"
@@ -173,6 +186,7 @@ export function ResearchView({
             <div>
               {selected ? (
                 <ResearchCard card={selected} onOpenEvidence={onOpenEvidence}
+                  allowAssistant={source === "api"}
                   onAction={(actionId, cardId) => {
                     if (actionId === "watchlist.add") {
                       if (watchBusy === cardId) return;

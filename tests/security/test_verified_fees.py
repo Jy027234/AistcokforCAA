@@ -148,7 +148,8 @@ def test_archived_evidence_bytes_match_their_recorded_hash():
     for s in archive.get("sources") or []:
         if not s.get("fetched") or not s.get("contentHash") or not s.get("archivedAt"):
             continue
-        path = ROOT / s["archivedAt"]
+        # 旧档案记录 Windows 分隔符；读取路径兼容 Linux，不改写留证字节。
+        path = ROOT / s["archivedAt"].replace("\\", "/")
         assert path.exists(), f"档案里记着 {s['archivedAt']}，文件却不存在"
         actual = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
         assert actual == s["contentHash"], (

@@ -25,6 +25,11 @@ from .s2_pdf_review_policy import (
 )
 from .versioned import FinancialFact, VersionedFinancialFactStore
 from .proof_supplement import STORAGE_SCHEMA as _PROOF_SUPPLEMENT_SCHEMA
+from .review_validation_pool import (
+    ReviewValidationRecord,
+    shutdown_review_workers,
+    validate_ordinary_reviews,
+)
 
 
 _SCHEMA = """
@@ -199,6 +204,48 @@ _S2_PDF_FIELDS = frozenset({
     "net_profit_attributable", "net_profit_consolidated", "operating_cashflow",
     "revenue", "parent_equity",
 })
+# One explicit finite cohort. This schema is deliberately dispatched separately
+# from the ordinary single-report machine bundle protocol below.
+_601069_FY24_REVENUE_CHAIN_SCHEMA = (
+    "aquant.cninfo.601069-fy24-revenue-forward-root-v1"
+)
+_601069_FY24_REVENUE_CHAIN_PREFIX = "cninfo_machine_revenue_chain_"
+_600578_FY24_REVENUE_CHAIN_SCHEMA = (
+    "aquant.cninfo.600578-fy24-revenue-adjusted-forward-root-v1"
+)
+_600578_FY24_REVENUE_CHAIN_PREFIX = "cninfo_machine_600578_fy24_revenue_chain_"
+_600578_H125_FOUR_FIELD_CHAIN_SCHEMA = (
+    "aquant.cninfo.600578-h125-four-field-presented-prior-chain.v1"
+)
+_600578_H125_FOUR_FIELD_CHAIN_PREFIX = "cninfo_machine_600578_h125_four_field_chain_"
+_600578_H124_REVENUE_CHAIN_SCHEMA = (
+    "aquant.cninfo.600578-h124-revenue-presented-prior-chain.v1"
+)
+_600578_H124_REVENUE_CHAIN_PREFIX = "cninfo_machine_600578_h124_revenue_chain_"
+_000422_FY24_REVENUE_CHAIN_SCHEMA = (
+    "aquant.cninfo.000422-fy24-revenue-presented-prior-chain.v1"
+)
+_000422_FY24_REVENUE_CHAIN_PREFIX = "cninfo_machine_000422_fy24_revenue_chain_"
+_000422_H124_REVENUE_CHAIN_SCHEMA = (
+    "aquant.cninfo.000422-h124-revenue-presented-prior-chain.v1"
+)
+_000422_H124_REVENUE_CHAIN_PREFIX = "cninfo_machine_000422_h124_revenue_chain_"
+_000422_H125_PARENT_EQUITY_SCHEMA = (
+    "aquant.cninfo.000422-h125-parent-equity-no-effect-value-only-chain.v1"
+)
+_000422_H125_PARENT_EQUITY_PREFIX = "cninfo_machine_000422_h125_parent_equity_"
+_000680_H125_PROFIT_PAIR_SCHEMA = (
+    "aquant.cninfo.000680-h125-profit-pair-presented-prior-chain.v2"
+)
+_000680_H125_PROFIT_PAIR_PREFIX = "cninfo_machine_000680_h125_profit_pair_"
+_000680_H125_PARENT_EQUITY_SCHEMA = (
+    "aquant.cninfo.000680-h125-parent-equity-presented-prior-chain.v1"
+)
+_000680_H125_PARENT_EQUITY_PREFIX = "cninfo_machine_000680_h125_parent_equity_"
+_000680_H124_REVENUE_CHAIN_SCHEMA = (
+    "aquant.cninfo.000680-h124-revenue-presented-prior-chain.v1"
+)
+_000680_H124_REVENUE_CHAIN_PREFIX = "cninfo_machine_000680_h124_revenue_chain_"
 #: 机器核验证据协议。与 v1/v2 人工协议**并列**，不混用、不互相替代。
 MACHINE_VERIFICATION_SCHEMA = "cninfo-s2-machine-verified-v1"
 #: 机器核验者身份前缀。人工``reviewer_id``不得以此开头，机器核验也不得
@@ -378,7 +425,20 @@ def _accepted_machine_verified_review(
                 not isinstance(content_hash, str) or
                 not content_hash.startswith("sha256:")):
             return False
-        if row["bundle_id"] != "cninfo_machine_" + hashlib.sha256(
+        scoped_fields = None
+        if row["bundle_id"].startswith("cninfo_machine_fields_"):
+            declared = evidence.get("required_fields")
+            if (not isinstance(declared, list) or not declared or
+                    any(not isinstance(field, str) for field in declared) or
+                    declared != sorted(set(declared)) or
+                    not set(declared) < _S2_PDF_FIELDS):
+                return False
+            scoped_fields = frozenset(declared)
+            identity = f"{iid}|{period}|{announcement}|" + ",".join(declared)
+            if row["bundle_id"] != "cninfo_machine_fields_" + hashlib.sha256(
+                    identity.encode()).hexdigest()[:32]:
+                return False
+        elif row["bundle_id"] != "cninfo_machine_" + hashlib.sha256(
             f"{iid}|{period}|{announcement}".encode()
         ).hexdigest()[:32]:
             return False
@@ -402,6 +462,9 @@ def _accepted_machine_verified_review(
         by_metric = {facts[version_id].metric: facts[version_id]
                      for version_id in member_ids}
         if {item.get("field") for item in fields if isinstance(item, dict)} != set(by_metric):
+            return False
+        if scoped_fields is not None and (
+                set(by_metric) != scoped_fields or len(fields) != len(scoped_fields)):
             return False
         dispositions = evidence.get("cross_category_index", {}).get("candidate_dispositions", ())
         has_impact_disposition = any(isinstance(item, Mapping) and
@@ -453,6 +516,88 @@ def _accepted_machine_verified_review(
         return True
     except (KeyError, AttributeError, TypeError, ValueError, ArithmeticError):
         return False
+
+
+def _accepted_review_group_links(
+    report_key: tuple[str, str, str],
+    bundles: list[tuple[object, set[str]]],
+    facts: Mapping[str, FinancialFact],
+) -> dict[str, tuple[str, str]] | None:
+    """Link individually accepted reviews, merging only disjoint machine cohorts.
+
+    Keep singleton handling unchanged. For a multi-review report, require the
+    known machine namespaces, at least one field-scoped review, and one raw
+    content hash across the group. Individual validators authenticate each
+    review's own receipts and metadata; independent captures may have different
+    receipt IDs.
+    """
+
+    if not bundles:
+        return None
+    if len(bundles) == 1:
+        row, member_ids = bundles[0]
+        try:
+            return {version_id: (row["bundle_id"], row["evidence_hash"])
+                    for version_id in member_ids}
+        except (KeyError, TypeError):
+            return None
+
+    links: dict[str, tuple[str, str]] = {}
+    seen_bundle_ids: set[str] = set()
+    seen_evidence_hashes: set[str] = set()
+    seen_version_ids: set[str] = set()
+    seen_metrics: set[str] = set()
+    shared_content_hash: str | None = None
+    field_scoped_count = 0
+    legacy_count = 0
+
+    for row, member_ids in bundles:
+        try:
+            bundle_id = row["bundle_id"]
+            evidence_hash = row["evidence_hash"]
+            evidence = json.loads(row["evidence_json"])
+            if (not isinstance(bundle_id, str) or
+                    not isinstance(evidence_hash, str) or
+                    not isinstance(evidence, dict)):
+                return None
+            if bundle_id.startswith("cninfo_machine_fields_"):
+                field_scoped_count += 1
+            elif bundle_id.startswith("cninfo_machine_"):
+                legacy_count += 1
+                if legacy_count > 1:
+                    return None
+            else:
+                return None
+
+            if ((evidence.get("instrument_id"), evidence.get("period_end"),
+                 evidence.get("announcement_id")) != report_key):
+                return None
+            content_hash = evidence.get("content_hash")
+            if not isinstance(content_hash, str) or not content_hash:
+                return None
+            if shared_content_hash is None:
+                shared_content_hash = content_hash
+            elif content_hash != shared_content_hash:
+                return None
+            if (bundle_id in seen_bundle_ids or
+                    evidence_hash in seen_evidence_hashes):
+                return None
+            if not member_ids or seen_version_ids & member_ids:
+                return None
+            metrics = [facts[version_id].metric for version_id in member_ids]
+            if len(set(metrics)) != len(metrics) or seen_metrics & set(metrics):
+                return None
+
+            for version_id in member_ids:
+                links[version_id] = (bundle_id, evidence_hash)
+            seen_bundle_ids.add(bundle_id)
+            seen_evidence_hashes.add(evidence_hash)
+            seen_version_ids.update(member_ids)
+            seen_metrics.update(metrics)
+        except (KeyError, AttributeError, TypeError, ValueError):
+            return None
+
+    return links if field_scoped_count and links else None
 
 
 def _replay_revision_impact(bundle: Mapping[str, object],
@@ -561,7 +706,12 @@ _MACHINE_VERIFICATION_PATHS = frozenset({
     "parent_statement_mirror", "equity_identity", "profit_identity",
     "revenue_identity", "revenue_note_decomposition", "cashflow_identity",
     "cash_rollforward",
-    "ruled_grid_cell_reextraction",
+    "ruled_grid_cell_reextraction", "dated_note_current_total",
+    "profit_before_tax_less_income_tax",
+    "operating_cashflow_inflow_less_outflow_subtotals",
+    "native_parent_equity_change_table_closing_cell",
+    "parent_equity_comprehensive_income_minus_oci",
+    "native_full_report_note_crosscheck",
 })
 
 
@@ -574,6 +724,23 @@ def _machine_path_is_independent(check: Mapping[str, object],
     assert isinstance(evidence, Mapping)
     if check["path"] == "ruled_grid_cell_reextraction":
         return _replay_grid_cell(evidence, fact, bundle_evidence)
+    if check["path"] == "dated_note_current_total":
+        return _replay_dated_note_current_total(evidence, fact, bundle_evidence)
+    if check["path"] == "profit_before_tax_less_income_tax":
+        return _replay_profit_before_tax_less_income_tax(
+            evidence, fact, bundle_evidence)
+    if check["path"] == "operating_cashflow_inflow_less_outflow_subtotals":
+        return _replay_operating_cashflow_inflow_less_outflow_subtotals(
+            evidence, fact, bundle_evidence)
+    if check["path"] == "native_parent_equity_change_table_closing_cell":
+        return _replay_native_parent_equity_change_table_closing_cell(
+            evidence, fact, bundle_evidence)
+    if check["path"] == "parent_equity_comprehensive_income_minus_oci":
+        return _replay_parent_equity_comprehensive_income_minus_oci(
+            evidence, fact, bundle_evidence)
+    if check["path"] == "native_full_report_note_crosscheck":
+        return _replay_native_full_report_note_crosscheck(
+            check, fact, bundle_evidence)
     if check["path"] == "parent_statement_mirror":
         parent_row = evidence.get("parent_row")
         return (isinstance(parent_row, Mapping) and
@@ -667,6 +834,418 @@ def _replay_grid_cell(cell_evidence: Mapping[str, object], fact: FinancialFact,
                 dict(cell_evidence) == matches[0].as_evidence())
     except (OSError, sqlite3.Error, KeyError, TypeError, ValueError, ArithmeticError):
         return False
+
+
+def _replay_dated_note_current_total(
+    note_evidence: Mapping[str, object], fact: FinancialFact,
+    bundle: Mapping[str, object] | None,
+) -> bool:
+    """Replay the independently typed note total from receipt-bound raw PDF bytes."""
+    from urllib.parse import urlsplit
+    from ...adapters.providers.dated_note_current_total import (
+        extract_dated_note_current_total,
+    )
+    try:
+        if (fact.metric != "revenue" or bundle is None or
+                not isinstance(bundle.get("dated_note_archive"), Mapping)):
+            return False
+        archive = bundle["dated_note_archive"]
+        receipt_id = archive["pdf_receipt_id"]
+        if (receipt_id != bundle["pdf_receipt_id"] or
+                not isinstance(archive["database_path"], str) or
+                not isinstance(archive["root"], str) or
+                not isinstance(archive["document_url"], str)):
+            return False
+        with closing(connect(resolve_artifact_path(archive["database_path"]),
+                             read_only=True)) as con:
+            receipt = con.execute(
+                "SELECT * FROM fetch_receipt WHERE receipt_id=?", (receipt_id,),
+            ).fetchone()
+            raw = con.execute(
+                "SELECT * FROM raw_artifact WHERE content_hash=?", (fact.content_hash,),
+            ).fetchone()
+        if receipt is None or raw is None:
+            return False
+        url = urlsplit(receipt["url"])
+        if (receipt["source_id"] != "cninfo" or receipt["outcome"] != "OK" or
+                receipt["http_status"] != 200 or
+                receipt["content_hash"] != fact.content_hash or
+                receipt["url"] != archive["document_url"] or
+                url.scheme not in ("https", "http") or
+                url.hostname != "static.cninfo.com.cn" or
+                url.path.rsplit("/", 1)[-1].lower() !=
+                f"{fact.source_document_id}.pdf".lower() or
+                datetime.fromisoformat(receipt["first_seen_at"]) != fact.first_seen_at):
+            return False
+        root = resolve_artifact_path(archive["root"]).resolve()
+        path = resolve_archive_member(root, raw["stored_path"])
+        payload = path.read_bytes()
+        digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+        if (not payload.startswith(b"%PDF-") or
+                len(payload) != receipt["byte_size"] or
+                len(payload) != raw["byte_size"] or digest != fact.content_hash):
+            return False
+        note = extract_dated_note_current_total(
+            payload, instrument_id=fact.instrument_id, period_end=fact.period_end,
+        )
+        canonical_note = note.as_evidence()
+        if set(note_evidence) != set(canonical_note) | {"candidate", "primary_comparison"}:
+            return False
+        if {key: note_evidence.get(key) for key in canonical_note} != canonical_note:
+            return False
+        candidate = note_evidence.get("candidate")
+        comparison = note_evidence.get("primary_comparison")
+        expected_value = str(Decimal(str(fact.value)))
+        if (not isinstance(candidate, Mapping) or
+                set(candidate) != {"field", "value_yuan", "pdf_page", "amount_unit",
+                                   "display_row_label"} or
+                candidate.get("field") != "revenue" or
+                candidate.get("value_yuan") != expected_value or
+                not isinstance(candidate.get("pdf_page"), int) or
+                candidate.get("pdf_page") == note.current_revenue_cell.page):
+            return False
+        return (isinstance(comparison, Mapping) and
+                dict(comparison) == {
+                    "primary_candidate_yuan": expected_value,
+                    "note_current_total_yuan": str(note.current_revenue_yuan),
+                    "comparison": "performed only after the note cell was independently selected",
+                } and note.current_revenue_yuan == Decimal(str(fact.value)))
+    except (OSError, sqlite3.Error, KeyError, AttributeError, TypeError,
+            ValueError, ArithmeticError):
+        return False
+
+
+def _replay_profit_before_tax_less_income_tax(
+    proof_evidence: Mapping[str, object], fact: FinancialFact,
+    bundle: Mapping[str, object] | None,
+) -> bool:
+    """Replay the PBT-minus-tax proof from the fact's receipt-bound PDF."""
+    from urllib.parse import urlsplit
+    from ...adapters.providers.cninfo_statement_sections import (
+        ROLE_CONSOLIDATED, extract_statement_sections,
+    )
+    from ...adapters.providers.profit_before_tax_less_income_tax import (
+        extract_profit_before_tax_less_income_tax_expense,
+    )
+    try:
+        if (fact.metric != "net_profit_consolidated" or bundle is None or
+                not isinstance(bundle.get("profit_tax_archive"), Mapping)):
+            return False
+        archive = bundle["profit_tax_archive"]
+        receipt_id = archive["pdf_receipt_id"]
+        if (receipt_id != bundle["pdf_receipt_id"] or
+                not isinstance(archive["database_path"], str) or
+                not isinstance(archive["root"], str) or
+                not isinstance(archive["document_url"], str)):
+            return False
+        with closing(connect(resolve_artifact_path(archive["database_path"]),
+                             read_only=True)) as con:
+            receipt = con.execute(
+                "SELECT * FROM fetch_receipt WHERE receipt_id=?", (receipt_id,),
+            ).fetchone()
+            raw = con.execute(
+                "SELECT * FROM raw_artifact WHERE content_hash=?", (fact.content_hash,),
+            ).fetchone()
+        if receipt is None or raw is None:
+            return False
+        url = urlsplit(receipt["url"])
+        if (receipt["source_id"] != "cninfo" or receipt["outcome"] != "OK" or
+                receipt["http_status"] != 200 or
+                receipt["content_hash"] != fact.content_hash or
+                receipt["url"] != archive["document_url"] or
+                url.scheme not in ("https", "http") or
+                url.hostname != "static.cninfo.com.cn" or
+                url.path.rsplit("/", 1)[-1].lower() !=
+                f"{fact.source_document_id}.pdf".lower() or
+                datetime.fromisoformat(receipt["first_seen_at"]) != fact.first_seen_at):
+            return False
+        root = resolve_artifact_path(archive["root"]).resolve()
+        path = resolve_archive_member(root, raw["stored_path"])
+        payload = path.read_bytes()
+        digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+        if (not payload.startswith(b"%PDF-") or
+                len(payload) != receipt["byte_size"] or
+                len(payload) != raw["byte_size"] or digest != fact.content_hash):
+            return False
+        sections = extract_statement_sections(payload, period_end=fact.period_end)
+        section = sections.get(ROLE_CONSOLIDATED, "利润表")
+        if section is None:
+            return False
+        proof = extract_profit_before_tax_less_income_tax_expense(
+            payload, instrument_id=fact.instrument_id,
+            period_end=fact.period_end, section=section,
+        )
+        canonical_proof = proof.evidence
+        if set(proof_evidence) != set(canonical_proof) | {
+                "candidate", "primary_comparison"}:
+            return False
+        if {key: proof_evidence.get(key) for key in canonical_proof} != canonical_proof:
+            return False
+        candidate = proof_evidence.get("candidate")
+        comparison = proof_evidence.get("primary_comparison")
+        expected_value = str(Decimal(str(fact.value)))
+        if (not isinstance(candidate, Mapping) or
+                set(candidate) != {"field", "value_yuan", "pdf_page", "amount_unit",
+                                   "display_row_label"} or
+                candidate.get("field") != "net_profit_consolidated" or
+                candidate.get("value_yuan") != expected_value or
+                not isinstance(candidate.get("pdf_page"), int)):
+            return False
+        return (isinstance(comparison, Mapping) and
+                dict(comparison) == {
+                    "primary_candidate_yuan": expected_value,
+                    "independent_current_recomputed_yuan":
+                        str(proof.current_recomputed_yuan),
+                    "comparison": (
+                        "performed only after native PBT and tax cells were independently selected"
+                    ),
+                } and proof.current_recomputed_yuan == Decimal(str(fact.value)))
+    except (OSError, sqlite3.Error, KeyError, AttributeError, TypeError,
+            ValueError, ArithmeticError):
+        return False
+
+
+def _load_native_parent_equity_payload(
+    fact: FinancialFact, bundle: Mapping[str, object] | None,
+    *, archive_key: str = "native_parent_equity_archive",
+) -> bytes | None:
+    """Load only the native-proof PDF bound to this machine bundle's receipt."""
+    from urllib.parse import urlsplit
+
+    try:
+        if bundle is None or not isinstance(
+                bundle.get(archive_key), Mapping):
+            return None
+        archive = bundle[archive_key]
+        expected_keys = {
+            "database_path", "root", "pdf_receipt_id", "document_url", "content_hash",
+        }
+        if (set(archive) != expected_keys or
+                not all(isinstance(archive.get(key), str) and archive.get(key)
+                        for key in expected_keys) or
+                archive["pdf_receipt_id"] != bundle.get("pdf_receipt_id") or
+                archive["document_url"] != bundle.get("document_url") or
+                archive["content_hash"] != fact.content_hash or
+                bundle.get("content_hash") != fact.content_hash):
+            return None
+        receipt_id = archive["pdf_receipt_id"]
+        with closing(connect(resolve_artifact_path(archive["database_path"]),
+                             read_only=True)) as con:
+            con.execute("PRAGMA query_only=ON")
+            con.execute("BEGIN")
+            before_changes = con.total_changes
+            try:
+                receipt = con.execute(
+                    "SELECT * FROM fetch_receipt WHERE receipt_id=?", (receipt_id,),
+                ).fetchone()
+                raw = con.execute(
+                    "SELECT * FROM raw_artifact WHERE content_hash=?", (fact.content_hash,),
+                ).fetchone()
+                if con.total_changes != before_changes:
+                    return None
+            finally:
+                if con.in_transaction:
+                    con.execute("ROLLBACK")
+        if receipt is None or raw is None:
+            return None
+        url = urlsplit(receipt["url"])
+        if (receipt["source_id"] != "cninfo" or receipt["outcome"] != "OK" or
+                receipt["http_status"] != 200 or
+                receipt["content_hash"] != fact.content_hash or
+                receipt["url"] != archive["document_url"] or
+                url.scheme not in ("https", "http") or
+                url.hostname != "static.cninfo.com.cn" or
+                url.path.rsplit("/", 1)[-1].lower() !=
+                f"{fact.source_document_id}.pdf".lower() or
+                datetime.fromisoformat(receipt["first_seen_at"]) != fact.first_seen_at):
+            return None
+        root = resolve_artifact_path(archive["root"]).resolve()
+        path = resolve_archive_member(root, raw["stored_path"])
+        payload = path.read_bytes()
+        digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+        if (not payload.startswith(b"%PDF-") or
+                len(payload) != receipt["byte_size"] or
+                len(payload) != raw["byte_size"] or digest != fact.content_hash):
+            return None
+        return payload
+    except (OSError, sqlite3.Error, KeyError, AttributeError, TypeError,
+            ValueError, ArithmeticError):
+        return None
+
+
+def _replay_native_full_report_note_crosscheck(
+    stored_check: Mapping[str, object], fact: FinancialFact,
+    bundle: Mapping[str, object] | None,
+) -> bool:
+    """Regenerate the full report's typed native-note proof from receipt bytes."""
+    try:
+        company = {"601021": "春秋航空股份有限公司",
+                   "600988": "赤峰吉隆黄金矿业股份有限公司"}.get(fact.instrument_id)
+        if (bundle is None or company is None or
+                fact.metric not in {"revenue", "net_profit_attributable",
+                                    "net_profit_consolidated", "operating_cashflow"} or
+                fact.statement_scope.value != "CONSOLIDATED"):
+            return False
+        expected_profit_scope = (
+            "ATTRIBUTABLE" if fact.metric == "net_profit_attributable" else
+            "CONSOLIDATED" if fact.metric == "net_profit_consolidated" else None)
+        if ((fact.profit_scope.value if fact.profit_scope else None) != expected_profit_scope or
+                bundle.get("instrument_id") != fact.instrument_id or
+                bundle.get("period_end") != fact.period_end.isoformat() or
+                bundle.get("announcement_id") != fact.source_document_id or
+                bundle.get("content_hash") != fact.content_hash or
+                bundle.get("schema") != "cninfo-s2-machine-verified-v1" or
+                bundle.get("company") != company or
+                bundle.get("document_url") !=
+                bundle.get("native_full_report_note_archive", {}).get("document_url")):
+            return False
+        required = bundle.get("required_fields")
+        if (not isinstance(required, list) or not required or
+                required != sorted(set(required)) or fact.metric not in required):
+            return False
+        payload = _load_native_parent_equity_payload(
+            fact, bundle, archive_key="native_full_report_note_archive")
+        if payload is None:
+            return False
+        from ...adapters.providers.cninfo_statement_sections import extract_section_facts
+        from ...adapters.providers.s2_machine_verification import verify_machine_evidence
+        candidate = extract_section_facts(
+            payload, instrument_id=fact.instrument_id, company=company,
+            period_end=fact.period_end, announcement_id=fact.source_document_id,
+            document_url=str(bundle["document_url"]),
+            required_fields=tuple(required),
+        )
+        machine = verify_machine_evidence(
+            payload, candidate=candidate, expected_fields=tuple(required),
+        )
+        expected = json.loads(json.dumps(machine.as_evidence(), ensure_ascii=False))
+        for key in ("schema", "verifier_version", "verifier_id", "instrument_id",
+                    "period_end", "announcement_id", "content_hash", "fields",
+                    "sections", "identities"):
+            bundle_key = "verifier_version" if key == "verifier_version" else key
+            if bundle.get(bundle_key) != expected[key]:
+                return False
+        selected = next((item for item in machine.fields if item.field == fact.metric), None)
+        if selected is None or selected.value_yuan != Decimal(str(fact.value)):
+            return False
+        canonical_check = next((check.as_dict() for check in selected.checks
+                                if check.path == "native_full_report_note_crosscheck"), None)
+        return (canonical_check is not None and dict(stored_check) ==
+                json.loads(json.dumps(canonical_check, ensure_ascii=False)))
+    except (ImportError, OSError, sqlite3.Error, KeyError, AttributeError,
+            TypeError, ValueError, ArithmeticError):
+        return False
+
+
+def _replay_native_parent_equity_change_table_closing_cell(
+    proof_evidence: Mapping[str, object], fact: FinancialFact,
+    bundle: Mapping[str, object] | None,
+) -> bool:
+    """Replay the parent-equity closing subtotal from its archived PDF."""
+    if (fact.metric != "parent_equity" or
+            fact.statement_scope.value != "CONSOLIDATED" or fact.profit_scope is not None):
+        return False
+    payload = _load_native_parent_equity_payload(fact, bundle)
+    if payload is None:
+        return False
+    try:
+        from ...adapters.providers.parent_equity_native_closing import (
+            extract_parent_equity_native_closing_cell,
+        )
+        proof = extract_parent_equity_native_closing_cell(
+            payload, period_end=fact.period_end,
+        )
+        return (dict(proof_evidence) == proof.as_evidence() and
+                proof.amount_yuan == Decimal(str(fact.value)))
+    except (ImportError, OSError, KeyError, AttributeError, TypeError,
+            ValueError, ArithmeticError):
+        return False
+
+
+def _replay_parent_equity_comprehensive_income_minus_oci(
+    proof_evidence: Mapping[str, object], fact: FinancialFact,
+    bundle: Mapping[str, object] | None,
+) -> bool:
+    """Replay the attributable-net-profit relation from the current equity row."""
+    if (fact.metric != "net_profit_attributable" or
+            fact.statement_scope.value != "CONSOLIDATED" or
+            fact.profit_scope is None or fact.profit_scope.value != "ATTRIBUTABLE"):
+        return False
+    payload = _load_native_parent_equity_payload(fact, bundle)
+    if payload is None:
+        return False
+    try:
+        from ...adapters.providers.parent_equity_comprehensive_income import (
+            extract_parent_comprehensive_income_minus_oci,
+        )
+        proof = extract_parent_comprehensive_income_minus_oci(
+            payload, period_end=fact.period_end,
+        )
+        canonical = proof.as_evidence()
+        if (set(proof_evidence) != set(canonical) | {"primary_comparison"} or
+                {key: proof_evidence.get(key) for key in canonical} != canonical):
+            return False
+        expected_value = str(Decimal(str(fact.value)))
+        return (
+            proof_evidence.get("primary_comparison") == {
+                "primary_candidate_yuan": expected_value,
+                "independent_current_recomputed_yuan":
+                    str(proof.net_profit_attributable_yuan),
+                "comparison": "performed only after both native cells were independently selected",
+            } and proof.net_profit_attributable_yuan == Decimal(str(fact.value))
+        )
+    except (ImportError, OSError, KeyError, AttributeError, TypeError,
+            ValueError, ArithmeticError):
+        return False
+
+
+def _replay_operating_cashflow_inflow_less_outflow_subtotals(
+    proof_evidence: Mapping[str, object], fact: FinancialFact,
+    bundle: Mapping[str, object] | None,
+) -> bool:
+    """Replay the operating-cash-flow subtotal relation from its PDF receipt."""
+    if (fact.metric != "operating_cashflow" or
+            fact.statement_scope.value != "CONSOLIDATED" or
+            fact.profit_scope is not None):
+        return False
+    payload = _load_native_parent_equity_payload(
+        fact, bundle, archive_key="native_operating_cashflow_archive")
+    if payload is None:
+        return False
+    try:
+        from ...adapters.providers.cninfo_statement_sections import (
+            ROLE_CONSOLIDATED, extract_statement_sections,
+        )
+        from ...adapters.providers.operating_cashflow_subtotals import (
+            extract_operating_cashflow_subtotals,
+        )
+        sections = extract_statement_sections(payload, period_end=fact.period_end)
+        section = sections.get(ROLE_CONSOLIDATED, "现金流量表")
+        if section is None:
+            return False
+        proof = extract_operating_cashflow_subtotals(
+            payload, instrument_id=fact.instrument_id,
+            period_end=fact.period_end, section=section,
+        )
+        canonical = proof.evidence
+        if (set(proof_evidence) != set(canonical) | {"primary_comparison"} or
+                {key: proof_evidence.get(key) for key in canonical} != canonical):
+            return False
+        expected_value = str(Decimal(str(fact.value)))
+        return (
+            proof_evidence.get("primary_comparison") == {
+                "primary_candidate_yuan": expected_value,
+                "independent_current_recomputed_yuan":
+                    str(proof.current_recomputed_yuan),
+                "comparison": (
+                    "performed only after both native subtotal cells were independently selected"
+                ),
+            } and proof.current_recomputed_yuan == Decimal(str(fact.value))
+        )
+    except (ImportError, OSError, KeyError, AttributeError, TypeError,
+            ValueError, ArithmeticError):
+        return False
+
 
 
 class FinancialFactRepository:
@@ -861,6 +1440,7 @@ class FinancialFactRepository:
             rows = con.execute(_SELECT + " ORDER BY sequence").fetchall()
         return VersionedFinancialFactStore(_decode(row) for row in rows)
 
+
     def append_machine_proof_supplement(self, **kwargs):
         """Append a whole-cohort raw-replayed proof; preserve every old row."""
         from .proof_supplement import append
@@ -910,19 +1490,107 @@ class FinancialFactRepository:
         for row in memberships:
             members.setdefault(row["bundle_id"], set()).add(row["version_id"])
         valid_bundles: dict[tuple[str, str, str], list[tuple[sqlite3.Row, set[str]]]] = {}
-        for row in reviews:
+        cashflow_chain_reviews: list[tuple[sqlite3.Row, set[str]]] = []
+        h125_profit_two_reviews: list[tuple[sqlite3.Row, set[str]]] = []
+        h125_parent_equity_revenue_reviews: list[tuple[sqlite3.Row, set[str]]] = []
+        pending_601069_revenue_chains: list[tuple[sqlite3.Row, set[str]]] = []
+        pending_600578_fy24_revenue_chains: list[tuple[sqlite3.Row, set[str]]] = []
+        pending_600578_h125_four_field_chains: list[tuple[sqlite3.Row, set[str]]] = []
+        pending_600578_h124_revenue_chains: list[tuple[sqlite3.Row, set[str]]] = []
+        pending_000422_fy24_revenue_chains: list[tuple[sqlite3.Row, set[str]]] = []
+        pending_000422_h124_revenue_chains: list[tuple[sqlite3.Row, set[str]]] = []
+        pending_000422_h125_parent_equity: list[tuple[sqlite3.Row, set[str]]] = []
+        pending_000680_h125_profit_pairs: list[tuple[sqlite3.Row, set[str]]] = []
+        pending_000680_h125_parent_equity: list[tuple[sqlite3.Row, set[str]]] = []
+        pending_000680_h124_revenue_chains: list[tuple[sqlite3.Row, set[str]]] = []
+        pending_canonical_packages: list[tuple[sqlite3.Row, set[str]]] = []
+        ordinary_reviews: list[ReviewValidationRecord] = []
+        for review_index, row in enumerate(reviews):
             member_ids = members.get(row["bundle_id"], set())
-            if _accepted_s2_pdf_review(row, member_ids, by_id):
-                evidence = json.loads(row["evidence_json"])
-                report_key = (evidence["instrument_id"], evidence["period_end"],
-                              evidence["announcement_id"])
-                valid_bundles.setdefault(report_key, []).append((row, member_ids))
+            try:
+                routing_evidence = json.loads(row["evidence_json"])
+                review_schema = routing_evidence.get("schema")
+                issuer_key = routing_evidence.get("instrument_id")
+            except (AttributeError, TypeError, ValueError):
+                review_schema = None
+                issuer_key = None
+            if (review_schema == "cninfo-s2-canonical-report-package-v1" or
+                    row["bundle_id"].startswith("cninfo_machine_canonical_package_")):
+                pending_canonical_packages.append((row, member_ids))
                 continue
-            if _accepted_machine_verified_review(row, member_ids, by_id):
-                evidence = json.loads(row["evidence_json"])
-                report_key = (evidence["instrument_id"], evidence["period_end"],
-                              evidence["announcement_id"])
-                valid_bundles.setdefault(report_key, []).append((row, member_ids))
+            if (review_schema == _600578_FY24_REVENUE_CHAIN_SCHEMA or
+                    row["bundle_id"].startswith(_600578_FY24_REVENUE_CHAIN_PREFIX)):
+                pending_600578_fy24_revenue_chains.append((row, member_ids))
+                continue
+            if (review_schema == _600578_H125_FOUR_FIELD_CHAIN_SCHEMA or
+                    row["bundle_id"].startswith(_600578_H125_FOUR_FIELD_CHAIN_PREFIX)):
+                pending_600578_h125_four_field_chains.append((row, member_ids))
+                continue
+            if (review_schema == _600578_H124_REVENUE_CHAIN_SCHEMA or
+                    row["bundle_id"].startswith(_600578_H124_REVENUE_CHAIN_PREFIX)):
+                pending_600578_h124_revenue_chains.append((row, member_ids))
+                continue
+            if (review_schema == _000422_FY24_REVENUE_CHAIN_SCHEMA or
+                    row["bundle_id"].startswith(_000422_FY24_REVENUE_CHAIN_PREFIX)):
+                pending_000422_fy24_revenue_chains.append((row, member_ids))
+                continue
+            if (review_schema == _000422_H124_REVENUE_CHAIN_SCHEMA or
+                    row["bundle_id"].startswith(_000422_H124_REVENUE_CHAIN_PREFIX)):
+                pending_000422_h124_revenue_chains.append((row, member_ids))
+                continue
+            if (review_schema == _000422_H125_PARENT_EQUITY_SCHEMA or
+                    row["bundle_id"].startswith(_000422_H125_PARENT_EQUITY_PREFIX)):
+                pending_000422_h125_parent_equity.append((row, member_ids))
+                continue
+            if (review_schema == _000680_H125_PROFIT_PAIR_SCHEMA or
+                    row["bundle_id"].startswith(_000680_H125_PROFIT_PAIR_PREFIX)):
+                pending_000680_h125_profit_pairs.append((row, member_ids))
+                continue
+            if (review_schema == _000680_H125_PARENT_EQUITY_SCHEMA or
+                    row["bundle_id"].startswith(_000680_H125_PARENT_EQUITY_PREFIX)):
+                pending_000680_h125_parent_equity.append((row, member_ids))
+                continue
+            if (review_schema == _000680_H124_REVENUE_CHAIN_SCHEMA or
+                    row["bundle_id"].startswith(_000680_H124_REVENUE_CHAIN_PREFIX)):
+                pending_000680_h124_revenue_chains.append((row, member_ids))
+                continue
+            if (review_schema == _601069_FY24_REVENUE_CHAIN_SCHEMA or
+                    row["bundle_id"].startswith(_601069_FY24_REVENUE_CHAIN_PREFIX)):
+                pending_601069_revenue_chains.append((row, member_ids))
+                continue
+            if row["bundle_id"].startswith("cninfo_machine_cfo_chain_"):
+                cashflow_chain_reviews.append((row, member_ids))
+                continue
+            if row["bundle_id"].startswith("cninfo_machine_h125_profit2_"):
+                h125_profit_two_reviews.append((row, member_ids))
+                continue
+            if row["bundle_id"].startswith("cninfo_machine_h125_parent_equity_revenue_"):
+                h125_parent_equity_revenue_reviews.append((row, member_ids))
+                continue
+            ordinary_reviews.append(ReviewValidationRecord(
+                index=review_index,
+                row=row,
+                member_ids=frozenset(member_ids),
+                issuer_key=(issuer_key if isinstance(issuer_key, str) and issuer_key
+                            else None),
+            ))
+        ordinary_results = validate_ordinary_reviews(
+            ordinary_reviews, by_id,
+            s2_validator=_accepted_s2_pdf_review,
+            machine_validator=_accepted_machine_verified_review,
+        )
+        # The worker may finish issuer groups in any order. Consume outcomes in
+        # the original ORDER BY bundle_id sequence so each report's bundle list
+        # and every downstream link-selection/chain pass retain prior ordering.
+        for review, accepted_review in zip(ordinary_reviews, ordinary_results):
+            if not accepted_review:
+                continue
+            row = review.row
+            evidence = json.loads(row["evidence_json"])
+            report_key = (evidence["instrument_id"], evidence["period_end"],
+                          evidence["announcement_id"])
+            valid_bundles.setdefault(report_key, []).append(
+                (row, set(review.member_ids)))
         supplement_floors = {}
         if supplements:
             from .proof_supplement import validate
@@ -942,21 +1610,246 @@ class FinancialFactRepository:
                 valid_bundles[key] = existing + [(link, cohort)]
                 supplement_floors.update({version:available for version in cohort})
         accepted: dict[str, tuple[str, str]] = {}
-        for bundles in valid_bundles.values():
-            # A report has one immutable review cohort. Two independent proofs
-            # of the same announcement would permit a silent field-set mix, and
-            # the human and machine protocols must never be mixed either.
-            if len(bundles) != 1:
-                continue
-            row, member_ids = bundles[0]
-            for version_id in member_ids:
-                accepted[version_id] = (row["bundle_id"], row["evidence_hash"])
+        for report_key, bundles in valid_bundles.items():
+            links = _accepted_review_group_links(report_key, bundles, by_id)
+            if links is not None:
+                accepted.update(links)
+        if cashflow_chain_reviews:
+            from ...adapters.providers.cashflow_version_review import accepted_cashflow_version_chain
+            reviews_by_id = {row["bundle_id"]: row for row in reviews}
+            # New chain members are admitted only after the existing annual
+            # review has passed its unchanged ordinary reader and grouping.
+            for row, member_ids in cashflow_chain_reviews:
+                if member_ids & accepted.keys():
+                    continue
+                if accepted_cashflow_version_chain(row, member_ids, by_id, accepted, reviews_by_id):
+                    link = (row["bundle_id"], row["evidence_hash"])
+                    accepted.update({version_id: link for version_id in member_ids})
+        if h125_profit_two_reviews:
+            from ...adapters.providers.h125_profit_two_version_chain import accepts_601069_h125_profit_two
+            reviews_by_id = {row["bundle_id"]: row for row in reviews}
+            # The forward-root chain never replaces an already accepted old link.
+            for row, member_ids in h125_profit_two_reviews:
+                if member_ids & accepted.keys():
+                    continue
+                if accepts_601069_h125_profit_two(
+                    row, member_ids, by_id, accepted_links=accepted,
+                    review_rows=reviews_by_id,
+                ):
+                    link = (row["bundle_id"], row["evidence_hash"])
+                    accepted.update({version_id: link for version_id in member_ids})
+        if h125_parent_equity_revenue_reviews:
+            from ...adapters.providers.h125_parent_equity_revenue_version_chain import (
+                accepts_601069_h125_parent_equity_revenue,
+            )
+            reviews_by_id = {row["bundle_id"]: row for row in reviews}
+            for row, member_ids in h125_parent_equity_revenue_reviews:
+                if member_ids & accepted.keys():
+                    continue
+                if accepts_601069_h125_parent_equity_revenue(
+                    row, member_ids, by_id, accepted_links=accepted,
+                    review_rows=reviews_by_id,
+                ):
+                    link = (row["bundle_id"], row["evidence_hash"])
+                    accepted.update({version_id: link for version_id in member_ids})
         if supplement_floors:
             store = VersionedFinancialFactStore(
                 replace(fact, available_at=max(fact.available_at, supplement_floors[fact.version_id]))
                 if fact.version_id in accepted and fact.version_id in supplement_floors else fact
                 for fact in store.facts)
+            by_id = {fact.version_id: fact for fact in store.facts}
+        if pending_601069_revenue_chains:
+            from ...adapters.providers.annual_revenue_version_review import (
+                accepts_601069_fy24_revenue_chain,
+            )
+            review_by_id = {row["bundle_id"]: row for row in reviews}
+            for row, member_ids in pending_601069_revenue_chains:
+                try:
+                    valid = accepts_601069_fy24_revenue_chain(
+                        row, member_ids, by_id, accepted_links=accepted,
+                        review_rows=review_by_id,
+                    )
+                except (OSError, sqlite3.Error, KeyError, AttributeError, TypeError,
+                        ValueError, ArithmeticError):
+                    valid = False
+                if not valid or any(version_id in accepted for version_id in member_ids):
+                    continue
+                accepted.update({version_id: (row["bundle_id"], row["evidence_hash"])
+                                 for version_id in member_ids})
+        if pending_600578_fy24_revenue_chains:
+            from ...adapters.providers.fy24_revenue_600578_version_review import (
+                accepts_600578_fy24_revenue_chain,
+            )
+            for row, member_ids in pending_600578_fy24_revenue_chains:
+                if member_ids & accepted.keys():
+                    continue
+                try:
+                    valid = accepts_600578_fy24_revenue_chain(
+                        row, member_ids, by_id, accepted_links=accepted,
+                    )
+                except (OSError, sqlite3.Error, KeyError, AttributeError, TypeError,
+                        ValueError, ArithmeticError):
+                    valid = False
+                if not valid or any(version_id in accepted for version_id in member_ids):
+                    continue
+                accepted.update({version_id: (row["bundle_id"], row["evidence_hash"])
+                                 for version_id in member_ids})
+        if pending_600578_h125_four_field_chains:
+            from ...adapters.providers.h125_four_field_version_chain_600578 import (
+                accepts_600578_h125_four_field_version_chain,
+            )
+            for row, member_ids in pending_600578_h125_four_field_chains:
+                if member_ids & accepted.keys():
+                    continue
+                try:
+                    valid = accepts_600578_h125_four_field_version_chain(
+                        row, member_ids, by_id, accepted_links=accepted,
+                    )
+                except (OSError, sqlite3.Error, KeyError, AttributeError, TypeError,
+                        ValueError, ArithmeticError):
+                    valid = False
+                if not valid or any(version_id in accepted for version_id in member_ids):
+                    continue
+                accepted.update({version_id: (row["bundle_id"], row["evidence_hash"])
+                                 for version_id in member_ids})
+        if pending_600578_h124_revenue_chains:
+            from ...adapters.providers.h124_revenue_600578_version_chain import (
+                accepts_600578_h124_revenue_version_chain,
+            )
+            for row, member_ids in pending_600578_h124_revenue_chains:
+                if member_ids & accepted.keys():
+                    continue
+                try:
+                    valid = accepts_600578_h124_revenue_version_chain(
+                        row, member_ids, by_id, accepted_links=accepted,
+                    )
+                except (OSError, sqlite3.Error, KeyError, AttributeError, TypeError,
+                        ValueError, ArithmeticError):
+                    valid = False
+                if not valid or any(version_id in accepted for version_id in member_ids):
+                    continue
+                accepted.update({version_id: (row["bundle_id"], row["evidence_hash"])
+                                 for version_id in member_ids})
+        if pending_000680_h125_profit_pairs:
+            from ...adapters.providers.h125_profit_pair_000680_version_chain import (
+                accepts_000680_h125_profit_pair,
+            )
+            for row, member_ids in pending_000680_h125_profit_pairs:
+                if member_ids & accepted.keys():
+                    continue
+                try:
+                    valid = accepts_000680_h125_profit_pair(
+                        row, member_ids, by_id, accepted_links=accepted,
+                    )
+                except (OSError, sqlite3.Error, KeyError, AttributeError, TypeError,
+                        ValueError, ArithmeticError):
+                    valid = False
+                if not valid or any(version_id in accepted for version_id in member_ids):
+                    continue
+                accepted.update({version_id: (row["bundle_id"], row["evidence_hash"])
+                                 for version_id in member_ids})
+        if pending_000422_h125_parent_equity:
+            from ...adapters.providers.h125_parent_equity_000422_version_chain import (
+                accepts_000422_h125_parent_equity_version_chain,
+            )
+            for row, member_ids in pending_000422_h125_parent_equity:
+                if member_ids & accepted.keys():
+                    continue
+                try:
+                    valid = accepts_000422_h125_parent_equity_version_chain(
+                        row, member_ids, by_id, accepted_links=accepted,
+                    )
+                except (OSError, sqlite3.Error, KeyError, IndexError, AttributeError,
+                        TypeError, ValueError, ArithmeticError):
+                    valid = False
+                if not valid or any(version_id in accepted for version_id in member_ids):
+                    continue
+                accepted.update({version_id: (row["bundle_id"], row["evidence_hash"])
+                                 for version_id in member_ids})
+        if pending_000680_h125_parent_equity:
+            from ...adapters.providers.h125_parent_equity_000680_version_chain import (
+                accepts_000680_h125_parent_equity_version_chain,
+            )
+            for row, member_ids in pending_000680_h125_parent_equity:
+                if member_ids & accepted.keys():
+                    continue
+                try:
+                    valid = accepts_000680_h125_parent_equity_version_chain(
+                        row, member_ids, by_id, accepted_links=accepted,
+                    )
+                except (OSError, sqlite3.Error, KeyError, IndexError, AttributeError,
+                        TypeError, ValueError, ArithmeticError):
+                    valid = False
+                if not valid or any(version_id in accepted for version_id in member_ids):
+                    continue
+                accepted.update({version_id: (row["bundle_id"], row["evidence_hash"])
+                                 for version_id in member_ids})
+        if pending_000680_h124_revenue_chains:
+            from ...adapters.providers.h124_revenue_000680_version_chain import (
+                accepts_000680_h124_revenue_version_chain,
+            )
+            for row, member_ids in pending_000680_h124_revenue_chains:
+                if member_ids & accepted.keys():
+                    continue
+                try:
+                    valid = accepts_000680_h124_revenue_version_chain(
+                        row, member_ids, by_id, accepted_links=accepted,
+                    )
+                except (OSError, sqlite3.Error, KeyError, IndexError, AttributeError,
+                        TypeError, ValueError, ArithmeticError):
+                    valid = False
+                if not valid:
+                    continue
+                accepted.update({version_id: (row["bundle_id"], row["evidence_hash"])
+                                 for version_id in member_ids})
+        if pending_000422_fy24_revenue_chains:
+            from ...adapters.providers.fy24_revenue_000422_version_chain import (
+                accepts_000422_fy24_revenue_version_chain,
+            )
+            for row, member_ids in pending_000422_fy24_revenue_chains:
+                if member_ids & accepted.keys():
+                    continue
+                try:
+                    valid = accepts_000422_fy24_revenue_version_chain(
+                        row, member_ids, by_id, accepted_links=accepted,
+                    )
+                except (OSError, sqlite3.Error, KeyError, AttributeError, TypeError,
+                        ValueError, ArithmeticError):
+                    valid = False
+                if not valid or any(version_id in accepted for version_id in member_ids):
+                    continue
+                accepted.update({version_id: (row["bundle_id"], row["evidence_hash"])
+                                 for version_id in member_ids})
+        if pending_000422_h124_revenue_chains:
+            from ...adapters.providers.h124_revenue_000422_version_chain import (
+                accepts_000422_h124_revenue_version_chain,
+            )
+            for row, member_ids in pending_000422_h124_revenue_chains:
+                if member_ids & accepted.keys():
+                    continue
+                try:
+                    valid = accepts_000422_h124_revenue_version_chain(
+                        row, member_ids, by_id, accepted_links=accepted,
+                    )
+                except (OSError, sqlite3.Error, KeyError, AttributeError, TypeError,
+                        ValueError, ArithmeticError):
+                    valid = False
+                if not valid or any(version_id in accepted for version_id in member_ids):
+                    continue
+                accepted.update({version_id: (row["bundle_id"], row["evidence_hash"])
+                                 for version_id in member_ids})
+        if pending_canonical_packages:
+            from ...adapters.providers.canonical_report_package import (
+                accepts_canonical_report_package,
+            )
+            for row, member_ids in pending_canonical_packages:
+                if member_ids & accepted.keys():
+                    continue
+                valid = accepts_canonical_report_package(row, member_ids, by_id)
+                if valid and not (member_ids & accepted.keys()):
+                    accepted.update({version_id: (row["bundle_id"], row["evidence_hash"])
+                                     for version_id in member_ids})
         return store, accepted
 
 
-__all__ = ["FactReviewBundle", "FinancialFactRepository"]
+__all__ = ["FactReviewBundle", "FinancialFactRepository", "shutdown_review_workers"]

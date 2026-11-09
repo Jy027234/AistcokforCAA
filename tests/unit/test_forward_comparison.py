@@ -7,6 +7,7 @@ from copy import deepcopy
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+import hashlib
 import json
 
 import pytest
@@ -17,7 +18,7 @@ from aquant.domain.portfolio.construction import ConstructionParams
 from aquant.domain.portfolio.plan import PlanError, PlanService
 from aquant.domain.simulation.verified_fees import verified_fee_table
 from aquant.operations.forward_comparison import (
-    ForwardComparisonStore, execute_forward_initial, prepare_forward_comparison,
+    ForwardComparisonStore, _canonical, execute_forward_initial, prepare_forward_comparison,
     record_forward_observation, track_active_forward,
 )
 from tests.golden.test_four_portfolio_comparison import IDS, world
@@ -60,7 +61,11 @@ def forward_world(world, tmp_path, monkeypatch):
              "exchange": "SSE", "board": "MAIN", "position": index + 1, "signalRank": 1 - index / 3,
              "quote": {"providerName": "local fixture"}, "evidence": []}
             for index, iid in enumerate(IDS)]}), encoding="utf-8")
-    monkeypatch.setattr("aquant.operations.research_simulation.load_research_scan", lambda *a, **k: {})
+    def load_fixture(path):
+        body = path.read_bytes()
+        return json.loads(body), "sha256:" + hashlib.sha256(body).hexdigest()
+
+    monkeypatch.setattr("aquant.operations.research_simulation.load_verified_research_scan_packet", load_fixture)
     yield con, service, ForwardComparisonStore(tmp_path / "forward"), source
 
 
@@ -87,6 +92,27 @@ def test_actual_preopen_spec_freezes_common_pool_s1_and_full_equal_b_without_use
     assert con.execute("SELECT COUNT(*) FROM fill").fetchone()[0] == 0
     assert store.list_series(subject="user:different") == []
     assert store.list_series()[0]["observedSessionCount"] == 0
+
+
+def test_non_creating_series_read_still_validates_observations(tmp_path):
+    store = ForwardComparisonStore(tmp_path / "forward-comparison")
+    core = {"authorizationSubject": "user:alice", "createdAt": REGISTERED.isoformat(),
+            "modelTargets": [{"instrument_id": "SH.600000"}]}
+    series_id = "fwd-" + hashlib.sha256(_canonical(core)).hexdigest()[:24]
+    portfolios = {kind: {"portfolioId": f"pf-engineering-series-{series_id}-{kind.lower()}"}
+                  for kind in "MEB"}
+    portfolios["H"] = {"portfolioId": None, "status": "UNAVAILABLE"}
+    spec = store.write_spec(dict(core, seriesId=series_id, portfolios=portfolios))
+    store.observe({"seriesId": series_id, "tradingDay": "2026-09-08"})
+    reader = ForwardComparisonStore(store.root, create=False)
+    assert reader.list_series(subject=spec["authorizationSubject"])[0]["modelTargets"] == spec["modelTargets"]
+    assert reader.list_series(subject="user:bob") == []
+    assert not (store.root.parent / "simulation-attribution").exists()
+
+    bad_observation = store.root / f'{spec["seriesId"]}.2026-09-08.observation.json'
+    bad_observation.write_text("{}", encoding="utf-8")
+    with pytest.raises(ComparisonError):
+        reader.list_series(subject=spec["authorizationSubject"])
 
 
 def test_registration_after_open_uses_next_actual_calendar_session_not_past_date(forward_world):

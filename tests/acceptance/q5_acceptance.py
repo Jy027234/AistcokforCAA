@@ -2002,13 +2002,16 @@ def _a12_replay_probe(product_data: dict[str, Any]) -> dict[str, Any]:
     class _A12FixedProvider:
         provider_name = "q5-a12-fixture"
         model_name = "research-model-v1"
+        test_only = True
 
         def complete(self, request: Any) -> ModelResponse:
             # A structured result makes the archived bytes a quantitative
             # research artifact, while the actual product path remains the
             # source of its audit and persistence semantics.
+            citation_ids = re.findall(r"\[citation_id: ([^\]\n]+)\]", request.context)
             return ModelResponse(
-                text='{"factor":"F10","value":42,"source":"fixed-input"}',
+                text=json.dumps({"answer": "固定摘录记录 F10=42。",
+                                 "citationIds": citation_ids[:1]}, ensure_ascii=False),
                 provider=self.provider_name,
                 model=self.model_name,
                 # Deliberately malformed provider metadata: the product must
@@ -2020,15 +2023,6 @@ def _a12_replay_probe(product_data: dict[str, Any]) -> dict[str, Any]:
 
     data_dir = Path(product_data["data_dir"])
     snapshot_id = str(product_data["snapshot_id"])
-    meta_path = Path(product_data["meta_path"])
-    fixed_body = {
-        "purpose": "Q5 A12 固定输入研究",
-        "materials": [{
-            "source_id": "cninfo",
-            "text": "Q5 A12 fixed input: F10=42",
-            "contains_personal_data": False,
-        }],
-    }
     old_snapshot = os.environ.get("AQUANT_SNAPSHOT_ID")
     state = None
     try:
@@ -2039,10 +2033,41 @@ def _a12_replay_probe(product_data: dict[str, Any]) -> dict[str, Any]:
         state = build_state(data_dir)
         state.model_provider = _A12FixedProvider()
         app = create_app(state=state)
+        from aquant.domain.evidence.store import record_evidence
+
+        ref = state.reader.ref(snapshot_id)
+        instruments = state.reader.instruments(snapshot_id, as_of=ref.as_of_time)
+        instrument_id = str(instruments[0].get("instrument_id") or instruments[0].get("id"))
+        fixed_excerpt = "Q5 A12 fixed input: F10=42"
+        record_evidence(
+            state.con, instrument_id=instrument_id, source_id="synthetic-fixture",
+            source_url="https://example.invalid/q5-a12.pdf", source_title="Q5 A12 合成证据",
+            source_text=fixed_excerpt,
+            available_at=ref.as_of_time - timedelta(days=1),
+            fact_summary="固定输入 F10=42", verification_status="VERIFIED",
+            extra={"announced_on": (ref.as_of_time - timedelta(days=1)).date().isoformat(),
+                   "citations": [fixed_excerpt]},
+        )
         with TestClient(app) as client:
+            published = state.reader.published_snapshot(snapshot_id)
+            trading_day = published.trading_day or ref.as_of_time.date().isoformat()
+            card_response = client.get(
+                f"/api/v1/instruments/{instrument_id}/research",
+                params={"trading_day": trading_day},
+            )
+            if card_response.status_code != 200:
+                return {"available": True, "passed": False,
+                        "reason": "could not load a card for the archived assistant probe",
+                        "card_status": card_response.status_code}
+            card = card_response.json()
             first_response = client.post(
                 "/api/v1/assistant/messages",
-                json=fixed_body,
+                json={
+                    "card_id": card["cardId"],
+                    "question_id": "EVIDENCE_SUMMARY",
+                    "citation_ids": [card["evidence"][0]["citationId"]],
+                    "confirm_external_send": True,
+                },
                 headers={"X-Aquant-Subject": "user:q5-a12"},
             )
             if first_response.status_code != 200:
@@ -2070,10 +2095,16 @@ def _a12_replay_probe(product_data: dict[str, Any]) -> dict[str, Any]:
                     "calls": _json_safe(calls),
                 }
             archive = load_archive(state.con, archive_id)
+            assistant_body = {
+                "card_id": card["cardId"],
+                "question_id": "EVIDENCE_SUMMARY",
+                "citation_ids": [card["evidence"][0]["citationId"]],
+                "confirm_external_send": True,
+            }
 
             replay_response = client.post(
                 "/api/v1/assistant/replay",
-                json={**fixed_body, "archive_id": archive_id},
+                json={**assistant_body, "archive_id": archive_id},
                 headers={"X-Aquant-Subject": "user:q5-a12"},
             )
             replay = replay_response.json()
@@ -2081,9 +2112,9 @@ def _a12_replay_probe(product_data: dict[str, Any]) -> dict[str, Any]:
             changed_response = client.post(
                 "/api/v1/assistant/replay",
                 json={
-                    **fixed_body,
+                    **assistant_body,
                     "archive_id": archive_id,
-                    "purpose": "Q5 A12 changed input must fail closed",
+                    "question_id": "EVIDENCE_LIMITATIONS",
                 },
                 headers={"X-Aquant-Subject": "user:q5-a12"},
             )
@@ -2091,7 +2122,7 @@ def _a12_replay_probe(product_data: dict[str, Any]) -> dict[str, Any]:
 
             foreign_response = client.post(
                 "/api/v1/assistant/replay",
-                json={**fixed_body, "archive_id": archive_id},
+                json={**assistant_body, "archive_id": archive_id},
                 headers={"X-Aquant-Subject": "user:q5-a12-other"},
             )
 
@@ -2116,16 +2147,12 @@ def _a12_replay_probe(product_data: dict[str, Any]) -> dict[str, Any]:
                 actual_hash == archive.output_hash
                 == str(original_run.get("output_hash") if original_run else "")
                 == str(replay_run.get("output_hash") if replay_run else "")
-                == str(first.get("contentHash") or "")
-                == str(replay.get("contentHash") or "")
             )
             artifact_hash_same = bool(
                 quantitative_artifact_hash
                 and quantitative_artifact_hash == archive.artifact_hash
                 == str(original_run.get("artifact_hash") if original_run else "")
                 == str(replay_run.get("artifact_hash") if replay_run else "")
-                == str(first.get("artifactHash") or "")
-                == str(replay.get("artifactHash") or "")
             )
             input_hash_same = bool(
                 original_run
@@ -2153,7 +2180,7 @@ def _a12_replay_probe(product_data: dict[str, Any]) -> dict[str, Any]:
             )
             passed = bool(
                 replay_response.status_code == 200
-                and replay.get("text") == archive.output_text
+                and replay.get("text") == first.get("text")
                 and output_hash_same
                 and artifact_hash_same
                 and input_hash_same

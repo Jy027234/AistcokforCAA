@@ -80,6 +80,17 @@ class QuoteRow:
     board_limit_up: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class _CatalogQuoteSummary:
+    """Small quote-derived values needed by the published catalog."""
+
+    trading_day: date | None
+    raw_counts: dict[str, int]
+    adjusted_counts: dict[str, int]
+    missing_adjusted: set[str]
+    legacy_quote_rows: list[QuoteRow] | None = None
+
+
 class SnapshotReader:
     def __init__(self, store: SnapshotStore) -> None:
         self.store = store
@@ -92,17 +103,10 @@ class SnapshotReader:
         key = (snapshot_id, name)
         if key in self._cache:
             return self._cache[key]
-        # 读取即校验哈希：不可变的前提是内容真的没变
-        self.store.verify_dataset(snapshot_id, name)
-        for d in self.store.datasets(snapshot_id):
-            if d["name"] == name:
-                payload = json.loads((self.store.root / d["path"]).read_text(encoding="utf-8"))
-                self._cache[key] = payload
-                return payload
-        raise SnapshotError(
-            "DATA_NOT_READY", f"snapshot {snapshot_id!r} has no dataset {name!r}",
-            snapshot_id, "check the snapshot manifest for available dataset names",
-        )
+        body = self.store.read_verified_dataset(snapshot_id, name)
+        payload = json.loads(body.decode("utf-8"))
+        self._cache[key] = payload
+        return payload
 
     def ref(self, snapshot_id: str) -> SnapshotRef:
         snap = self.store.require_published(snapshot_id)
@@ -140,6 +144,24 @@ class SnapshotReader:
             )
             for d in datasets
         )
+        dataset_names = {d["name"] for d in datasets}
+        point = datetime.fromisoformat(as_of)
+        # 一份目录摘要会复用此前可能已缓存的派生输入。此处只对目录派生
+        # 用到且命中缓存的数据集重算哈希；冷读取仍由 _load_dataset 校验，
+        # 因而每个摘要每个输入只校验一次，且篡改不能被热缓存遮住。
+        for name in ("daily_quotes", "instruments"):
+            if name in dataset_names and (snapshot_id, name) in self._cache:
+                self.store.verify_dataset(snapshot_id, name)
+        # 行情目录末日与 S1 能力都依赖同一份报价。目录只需最后日期和计数，
+        # 因此扫描已校验的原始记录，避免构造和排序整份 QuoteRow 列表。
+        quote_summary = (
+            self._catalog_quote_summary(snapshot_id, as_of=point)
+            if "daily_quotes" in dataset_names else None
+        )
+        instrument_rows = (
+            self.instruments(snapshot_id, as_of=point)
+            if "instruments" in dataset_names else None
+        )
         return PublishedSnapshot(
             snapshot_id=snapshot_id,
             kind=snap["kind"],
@@ -149,12 +171,13 @@ class SnapshotReader:
             published_at=snap["published_at"],
             quality_status=snap["quality_status"],
             trading_day=self._published_trading_day(
-                snapshot_id, as_of=as_of, dataset_names={d["name"] for d in datasets}
+                snapshot_id, as_of=as_of, dataset_names=dataset_names,
+                quote_summary=quote_summary,
             ),
             dataset_summary=dataset_summary,
             s1_decision=self._s1_decision_capability(
-                snapshot_id, as_of=as_of,
-                dataset_names={d["name"] for d in datasets},
+                snapshot_id, as_of=as_of, dataset_names=dataset_names,
+                quote_summary=quote_summary, instrument_rows=instrument_rows,
             ),
         )
 
@@ -170,7 +193,10 @@ class SnapshotReader:
     published_snapshots = published_snapshot_catalog
 
     def _s1_decision_capability(self, snapshot_id: str, *, as_of: str,
-                                dataset_names: set[str]) -> SnapshotCapability:
+                                dataset_names: set[str],
+                                quote_summary: _CatalogQuoteSummary | None = None,
+                                instrument_rows: list[dict] | None = None
+                                ) -> SnapshotCapability:
         """判定快照能否作为 S1 决策输入。
 
         这里复用候选计算的关键数据门槛：证券必须有行业分类，价格因子需要
@@ -192,21 +218,39 @@ class SnapshotReader:
         point = datetime.fromisoformat(as_of)
         industries = {
             row.get("instrument_id")
-            for row in self.instruments(snapshot_id, as_of=point)
+            for row in (instrument_rows if instrument_rows is not None else
+                        self.instruments(snapshot_id, as_of=point))
             if row.get("instrument_id") and row.get("industry_code")
         }
         raw_counts: dict[str, int] = {}
         adjusted_counts: dict[str, int] = {}
         missing_adjusted: set[str] = set()
-        for row in self.daily_quotes(snapshot_id, as_of=point):
-            iid = row.instrument_id
-            if iid not in industries:
-                continue
-            raw_counts[iid] = raw_counts.get(iid, 0) + 1
-            if row.adjusted_close_cents is None:
-                missing_adjusted.add(iid)
-            else:
-                adjusted_counts[iid] = adjusted_counts.get(iid, 0) + 1
+        legacy_rows = quote_summary.legacy_quote_rows if quote_summary is not None else None
+        if quote_summary is None or legacy_rows is not None:
+            # Non-string instrument IDs are outside the published schema, but
+            # retain daily_quotes' historical ordering/comparison behavior for
+            # any old snapshots that still contain them.
+            rows = legacy_rows if legacy_rows is not None else self.daily_quotes(snapshot_id, as_of=point)
+            for row in rows:
+                iid = row.instrument_id
+                if iid not in industries:
+                    continue
+                raw_counts[iid] = raw_counts.get(iid, 0) + 1
+                if row.adjusted_close_cents is None:
+                    missing_adjusted.add(iid)
+                else:
+                    adjusted_counts[iid] = adjusted_counts.get(iid, 0) + 1
+        else:
+            for iid, count in quote_summary.raw_counts.items():
+                if iid in industries:
+                    raw_counts[iid] = count
+            for iid, count in quote_summary.adjusted_counts.items():
+                if iid in industries:
+                    adjusted_counts[iid] = count
+            missing_adjusted = {
+                iid for iid in quote_summary.missing_adjusted
+                if iid in industries
+            }
 
         incomplete = sorted(
             iid for iid, count in raw_counts.items()
@@ -237,18 +281,82 @@ class SnapshotReader:
         )
 
     def _published_trading_day(self, snapshot_id: str, *, as_of: str,
-                               dataset_names: set[str]) -> str | None:
+                               dataset_names: set[str],
+                               quote_summary: _CatalogQuoteSummary | None = None
+                               ) -> str | None:
         """取得快照最后一个交易日；无法可靠派生时返回 ``None``。"""
 
         # A full-year calendar may include future dates. Only original quote
         # rows establish an observed market day for execution selection.
         if "daily_quotes" in dataset_names:
-            rows = self.daily_quotes(
-                snapshot_id, as_of=datetime.fromisoformat(as_of)
-            )
+            if quote_summary is not None:
+                return (quote_summary.trading_day.isoformat()
+                        if quote_summary.trading_day is not None else None)
+            rows = self.daily_quotes(snapshot_id, as_of=datetime.fromisoformat(as_of))
             if rows:
                 return max(row.trading_day for row in rows).isoformat()
         return None
+
+    def _catalog_quote_summary(self, snapshot_id: str, *,
+                               as_of: datetime) -> _CatalogQuoteSummary:
+        """Validate quote rows and derive only the values the catalog needs.
+
+        The required field accesses, date parse, and optional field reads match
+        ``daily_quotes``. This keeps malformed or older supported quote payloads
+        visible while avoiding its per-row dataclass construction and sort.
+        """
+
+        self._assert_as_of_within_snapshot(snapshot_id, as_of)
+        raw = self._load_dataset(snapshot_id, "daily_quotes")
+        latest_day: date | None = None
+        raw_counts: dict[str, int] = {}
+        adjusted_counts: dict[str, int] = {}
+        missing_adjusted: set[str] = set()
+        requires_legacy_rows = False
+
+        for q in raw:
+            # Preserve daily_quotes' conversion and field-access order. Values
+            # not used by the catalog are still read so a missing required field
+            # fails before the catalog begins reading instruments.
+            day = date.fromisoformat(q["trading_day"])
+            iid = q["instrument_id"]
+            _ = q["open_cents"]
+            _ = q["high_cents"]
+            _ = q["low_cents"]
+            _ = q["close_cents"]
+            adjusted = q.get("adjusted_close_cents")
+            _ = q["volume_shares"]
+            _ = q.get("amount_cents")
+            _ = q.get("prev_close_cents")
+            _ = bool(q.get("board_limit_up"))
+
+            if latest_day is None or day > latest_day:
+                latest_day = day
+            if not isinstance(iid, str):
+                requires_legacy_rows = True
+                continue
+            raw_counts[iid] = raw_counts.get(iid, 0) + 1
+            if adjusted is None:
+                missing_adjusted.add(iid)
+            else:
+                adjusted_counts[iid] = adjusted_counts.get(iid, 0) + 1
+
+        if requires_legacy_rows:
+            # Preserve the previous sort/type behavior for nonstandard IDs.
+            # This branch does not run for published quote datasets in schema.
+            rows = self.daily_quotes(snapshot_id, as_of=as_of)
+            return _CatalogQuoteSummary(
+                trading_day=latest_day,
+                raw_counts={}, adjusted_counts={}, missing_adjusted=set(),
+                legacy_quote_rows=rows,
+            )
+
+        return _CatalogQuoteSummary(
+            trading_day=latest_day,
+            raw_counts=raw_counts,
+            adjusted_counts=adjusted_counts,
+            missing_adjusted=missing_adjusted,
+        )
 
     def _assert_as_of_within_snapshot(self, snapshot_id: str, as_of: datetime) -> None:
         """as_of 必须**恰好**是快照自身的时间点。

@@ -17,6 +17,7 @@ import pytest
 from aquant.domain.data.db import connect
 from aquant.domain.fundamentals.fact_repository import (
     MACHINE_VERIFICATION_SCHEMA, FactReviewBundle, FinancialFactRepository,
+    shutdown_review_workers,
 )
 from aquant.domain.fundamentals.versioned import (
     FinancialFact, ProfitScope, StatementScope,
@@ -125,6 +126,42 @@ def test_machine_verified_bundle_is_accepted_and_links_every_fact(tmp_path) -> N
     assert len(store.facts) == len(FIELDS)
     assert set(accepted) == {fact.version_id for fact in facts}
     assert all(bundle.startswith("cninfo_machine_") for bundle, _ in accepted.values())
+
+
+def test_parallel_review_results_keep_original_bundle_order(tmp_path) -> None:
+    facts = _facts()
+    repository = _write(tmp_path, _evidence(facts), facts)
+    invalid_reviews = []
+    for index in range(15):
+        evidence = {
+            "instrument_id": f"00065{2 + index % 2}",
+            "probe": index,
+            "schema": "invalid-review",
+        }
+        evidence_json = json.dumps(evidence, ensure_ascii=False, sort_keys=True,
+                                   separators=(",", ":"))
+        invalid_reviews.append((
+            f"{'a' if index < 7 else 'z'}-invalid-{index:02d}",
+            "sha256:" + hashlib.sha256(evidence_json.encode()).hexdigest(),
+            evidence_json,
+        ))
+    with closing(connect(repository.db_path)) as con:
+        con.executemany(
+            "INSERT INTO financial_fact_review(bundle_id,evidence_hash,evidence_json) "
+            "VALUES (?,?,?)",
+            invalid_reviews,
+        )
+        con.commit()
+
+    try:
+        # At least 16 records across three issuers takes the spawned-worker
+        # path. Invalid bundles sort on both sides of the valid bundle ID.
+        store, accepted = repository.load_with_accepted_s2_pdf_reviews()
+        assert len(store.facts) == len(FIELDS)
+        assert set(accepted) == {fact.version_id for fact in facts}
+        assert all(bundle.startswith("cninfo_machine_") for bundle, _ in accepted.values())
+    finally:
+        shutdown_review_workers()
 
 
 def _impact_fixture(evidence, facts, tmp_path):

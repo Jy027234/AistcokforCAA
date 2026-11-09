@@ -87,9 +87,17 @@ def _assert_portfolio_bindings(spec: dict) -> None:
 
 class ForwardComparisonStore:
     """One frozen spec and append-only daily observations per actual series."""
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, create: bool = True):
         self.root = Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
+        self._create = create
+        if create:
+            self.root.mkdir(parents=True, exist_ok=True)
+        elif not self.root.is_dir():
+            try:
+                self.root.lstat()
+            except FileNotFoundError:
+                return
+            raise NotADirectoryError(self.root)
 
     def _write_once(self, name: str, document: dict) -> dict:
         target = self.root / name
@@ -146,7 +154,7 @@ class ForwardComparisonStore:
                 continue
             observations = self.observations(spec["seriesId"])
             from aquant.operations.simulation_attribution import AttributionStore
-            attribution_store = AttributionStore(self.root.parent / "simulation-attribution")
+            attribution_store = AttributionStore(self.root.parent / "simulation-attribution", create=self._create)
             display_observations = [dict(row, attribution=attribution_store.read(spec["seriesId"], row["tradingDay"])) for row in observations]
             results.append(dict(spec, observations=display_observations,
                 observedSessionCount=len(observations),

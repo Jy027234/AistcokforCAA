@@ -16,9 +16,10 @@ from aquant.domain.portfolio.plan import PlanError, PlanService
 from aquant.domain.simulation.board_rules import BOARD_RULES
 from aquant.domain.simulation.fees import FeeSchedule, FeeTable
 from aquant.operations.research_candidates import ResearchCandidateError, file_hash
+from aquant.operations import research_scan
 from aquant.operations.research_simulation import (
     assert_draft_binding, assert_execution_eligibility, assert_user_selection_timing,
-    load_simulation_research, project_pending_draft,
+    load_simulation_research, load_simulation_research_context, project_pending_draft,
     research_draft_origin, research_drafts, save_research_draft, simulation_context,
 )
 
@@ -101,12 +102,79 @@ def test_exact_source_hash_and_actual_available_time_are_bound(tmp_path, monkeyp
     original = packet()
     original["candidates"][0]["evidence"] = [{"availableAt": "2026-10-10T08:00:00+08:00",
                                                "observedAt": "2026-10-10T07:00:00+08:00"}]
+    original["candidates"][1]["evidence"] = [{"availableAt": "2026-10-10T09:00:00+08:00",
+                                               "observedAt": "2026-10-10T09:00:00+08:00"}]
     source = tmp_path / "research.json"
     source.write_text(json.dumps(original), encoding="utf-8")
-    monkeypatch.setattr("aquant.operations.research_simulation.load_research_scan", lambda *a, **k: {})
+    digest = file_hash(source)
+    monkeypatch.setattr("aquant.operations.research_simulation.load_verified_research_scan_packet",
+                        lambda path: (original, digest))
     loaded, bound = load_simulation_research(source)
-    assert loaded == original and bound["researchContentHash"] == file_hash(source)
-    assert bound["researchAvailableAt"] == "2026-10-10T08:00:00+08:00"
+    assert loaded == original
+    assert bound == {"researchSnapshotId": "research-fixture", "researchContentHash": digest,
+        "researchObservedAt": "2026-10-10T09:00:00+08:00",
+        "researchAvailableAt": "2026-10-10T09:00:00+08:00",
+        "researchDataAsOf": "2026-10-09", "researchOriginPath": str(source.resolve())}
+
+
+def test_context_projection_preserves_full_timestamp_binding_and_context(tmp_path, request):
+    source = tmp_path / "frozen-source.json"
+    source.write_bytes(b"source-A")
+    artifact_packet = packet()
+    artifact_packet.update({"schema": research_scan.SCHEMA, "researchOnly": True,
+        "simulationAvailable": False,
+        "provenance": [{"role": "fixture", "path": str(source),
+                        "contentHash": file_hash(source)}]})
+    artifact_packet["candidates"][0]["evidence"] = [{
+        "observedAt": "2026-10-10T11:00:00+08:00",
+        "availableAt": "2026-10-10T12:00:00+08:00",
+        "details": "large evidence payload"}]
+    artifact_packet["candidates"][1]["industryClassification"] = {
+        "observedAt": "2026-10-10T13:00:00+08:00",
+        "availableAt": "2026-10-10T14:00:00+08:00",
+        "details": "large industry payload"}
+    artifact_packet["candidates"].append({
+        "instrumentId": "SH.600999", "displayName": "excluded fixture", "position": None,
+        "exchange": "SSE", "board": "MAIN", "status": "EXCLUDED", "signalRank": 0.1,
+        "quote": {}, "industryClassification": {},
+        "evidence": [{"observedAt": "2026-10-12T09:00:00+08:00",
+                      "availableAt": "2026-10-12T10:00:00+08:00",
+                      "details": "later excluded evidence"}]})
+    artifact = tmp_path / "research-scan.json"
+    artifact.write_text(json.dumps(artifact_packet), encoding="utf-8")
+    sources = tuple(sorted((item["role"], item["path"], item["contentHash"])
+                           for item in artifact_packet["provenance"]))
+    digest = file_hash(artifact)
+    key = (str(artifact.resolve()), digest, sources, research_scan._RESEARCH_SCAN_CACHE_VERSION)
+    research_scan.rebuild_scan.cache_clear()
+    research_scan._SCAN_CACHE[sources] = {"warm": True}
+    research_scan._VERIFIED_SCAN_CACHE[key] = {
+        "sources": sources, "packet": artifact_packet,
+        "body": artifact.read_bytes(),
+    }
+    request.addfinalizer(research_scan.rebuild_scan.cache_clear)
+
+    full_packet, full_binding = load_simulation_research(artifact)
+    projected_packet, projected_binding = load_simulation_research_context(artifact)
+    assert projected_binding == full_binding
+    assert projected_binding["researchObservedAt"] == "2026-10-12T09:00:00+08:00"
+    assert projected_binding["researchAvailableAt"] == "2026-10-12T10:00:00+08:00"
+    assert len(projected_packet["candidates"]) == len(full_packet["candidates"]) == 3
+    full_context, full_eligible, _ = simulation_context(
+        full_packet, full_binding, reader=Reader(), snapshot_id="formal-fixture", params=params())
+    projected_context, projected_eligible, _ = simulation_context(
+        projected_packet, projected_binding, reader=Reader(), snapshot_id="formal-fixture", params=params())
+    assert projected_context == full_context
+    assert projected_eligible == full_eligible
+    with pytest.raises(TypeError):
+        projected_packet["candidates"][2]["evidence"][0]["availableAt"] = "1900-01-01T00:00:00+00:00"
+    projected_again, binding_again = load_simulation_research_context(artifact)
+    assert binding_again == full_binding
+    assert projected_again is projected_packet
+    again_context, again_eligible, _ = simulation_context(
+        projected_again, binding_again, reader=Reader(), snapshot_id="formal-fixture", params=params())
+    assert again_context == full_context
+    assert again_eligible == full_eligible
 
 
 def test_context_accepts_verified_current_inputs_and_next_calendar_session():

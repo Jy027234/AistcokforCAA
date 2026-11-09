@@ -35,9 +35,16 @@ def _pct(value, denominator):
 
 
 class AttributionStore:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, *, create: bool = True):
         self.root = Path(root)
-        self.root.mkdir(parents=True, exist_ok=True)
+        if create:
+            self.root.mkdir(parents=True, exist_ok=True)
+        elif not self.root.is_dir():
+            try:
+                self.root.lstat()
+            except FileNotFoundError:
+                return
+            raise NotADirectoryError(self.root)
 
     def _path(self, origin_id: str, trading_day: str) -> Path:
         if not ORIGIN.fullmatch(origin_id):

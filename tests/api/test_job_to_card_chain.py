@@ -46,6 +46,7 @@ class StubExtractor:
 
     provider_name = "stub"
     model_name = "stub-extractor"
+    test_only = True
 
     def __init__(self) -> None:
         self.calls: list = []

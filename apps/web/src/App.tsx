@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   DataStatus, Draft, ResearchCard, TodayChange, WorkspaceData,
 } from "./lib/types";
@@ -8,7 +8,7 @@ import {
   api, AquantApiError, type CandidateResponseRow, type EventResponseRow,
   type PlanTimingSelection, type PreviewResponse, type PublishedSnapshot,
 } from "./lib/api";
-import { ErrorState, Loading } from "./components/ui";
+import { Callout, ErrorState, Loading } from "./components/ui";
 import { EvidenceDrawer } from "./components/ResearchCard";
 import { TodayView } from "./views/TodayView";
 import { ResearchView } from "./views/ResearchView";
@@ -164,6 +164,11 @@ function fallbackStatus(): DataStatus {
   };
 }
 
+type LegacyS1State =
+  | { kind: "idle" | "loading"; snapshotId: string | null }
+  | { kind: "ready"; snapshotId: string; workspace: WorkspaceData }
+  | { kind: "error"; snapshotId: string; message: string };
+
 export default function App() {
   const demoMode = isDemoMode();
   const [state, setState] = useState<
@@ -191,10 +196,23 @@ export default function App() {
   const [frozenPlanId, setFrozenPlanId] = useState<string | null>(null);
   const [persistedPlanStatus, setPersistedPlanStatus] = useState<"FROZEN" | "EXECUTED" | null>(null);
   const [snapshots, setSnapshots] = useState<PublishedSnapshot[]>([]);
+  const [snapshotCatalogState, setSnapshotCatalogState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [snapshotCatalogError, setSnapshotCatalogError] = useState<string | null>(null);
   const [timing, setTiming] = useState<PlanTimingSelection | null>(null);
   const [planCandidates, setPlanCandidates] = useState<CandidateResponseRow[]>([]);
+  const [planCandidatesSnapshotId, setPlanCandidatesSnapshotId] = useState<string | null>(null);
+  const [legacyS1, setLegacyS1] = useState<LegacyS1State>({ kind: "idle", snapshotId: null });
+  const appLoadGeneration = useRef(0);
+  const legacyLoadGeneration = useRef(0);
+  const currentSnapshotId = useRef<string | null>(null);
+  const legacyS1Ref = useRef<LegacyS1State>(legacyS1);
   /** null = 接受模型方案；数组 = 人工点选的 S1 候选子集。 */
   const [selectedInstrumentIds, setSelectedInstrumentIds] = useState<string[] | null>(null);
+
+  const setLegacyS1State = useCallback((next: LegacyS1State) => {
+    legacyS1Ref.current = next;
+    setLegacyS1(next);
+  }, []);
 
   const setTab = useCallback((next: Tab) => {
     setTabState(next);
@@ -229,10 +247,15 @@ export default function App() {
   }, []);
 
   const load = useCallback(async () => {
+    const generation = ++appLoadGeneration.current;
+    legacyLoadGeneration.current++;
+    currentSnapshotId.current = null;
+    setLegacyS1State({ kind: "idle", snapshotId: null });
     setState({ kind: "loading" });
     setNotice(null); setLivePreview(null); setConfirmResult(null);
     setSnapshots([]); setTiming(null); setFrozenPlanId(null); setPersistedPlanStatus(null);
-    setPlanCandidates([]); setSelectedInstrumentIds(null);
+    setSnapshotCatalogState("idle"); setSnapshotCatalogError(null);
+    setPlanCandidates([]); setPlanCandidatesSnapshotId(null); setSelectedInstrumentIds(null);
     if (demoMode) {
       try {
         const res = await fetch(WS_URL, { cache: "no-store" });
@@ -246,75 +269,155 @@ export default function App() {
       return;
     }
     try {
-      const portfolioId = configuredPortfolioId();
-      const [status, candidateResponse, eventResponse, snapshotResponse, planResponse] = await Promise.all([
-        api.status(), api.candidates(), api.events(), api.snapshots(), api.plans(portfolioId),
+      const status = await api.status();
+      if (generation !== appLoadGeneration.current) return;
+      currentSnapshotId.current = status.snapshotId;
+      setApiUp(true);
+      setState({ kind: "ready", data: buildApiWorkspace(
+        status, [], "", [],
+      ) });
+    } catch (err) {
+      if (generation !== appLoadGeneration.current) return;
+      setApiUp(false);
+      setState({ kind: "error", message:
+        "工作台状态读取失败，请重试。\n" + explain(err) });
+    }
+  }, [demoMode, explain, setLegacyS1State]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const baseData = state.kind === "ready" ? state.data : null;
+  const matchingLegacyS1 = baseData && legacyS1.kind === "ready" &&
+    legacyS1.snapshotId === baseData.status.snapshotId ? legacyS1.workspace : null;
+  const data = useMemo(() => {
+    if (!baseData || !matchingLegacyS1) return baseData;
+    return { ...baseData, candidates: matchingLegacyS1.candidates,
+      todayChanges: matchingLegacyS1.todayChanges, note: matchingLegacyS1.note };
+  }, [baseData, matchingLegacyS1]);
+  const legacyS1ViewState = !baseData || demoMode ? "ready" :
+    legacyS1.snapshotId !== baseData.status.snapshotId ? "idle" : legacyS1.kind;
+  const legacyS1Error = legacyS1.kind === "error" && legacyS1.snapshotId === baseData?.status.snapshotId
+    ? legacyS1.message : null;
+  const displayStatus = data?.status ?? fallbackStatus();
+
+  const loadLegacyS1 = useCallback(async (retry = false) => {
+    if (!baseData || demoMode || apiUp !== true) return;
+    const expectedSnapshotId = baseData.status.snapshotId;
+    if (currentSnapshotId.current !== expectedSnapshotId) return;
+    const previous = legacyS1Ref.current;
+    if (previous.snapshotId === expectedSnapshotId &&
+        (previous.kind === "loading" || previous.kind === "ready" || (!retry && previous.kind === "error"))) return;
+    const appGeneration = appLoadGeneration.current;
+    const requestGeneration = ++legacyLoadGeneration.current;
+    setLegacyS1State({ kind: "loading", snapshotId: expectedSnapshotId });
+    try {
+      const [candidateResponse, eventResponse] = await Promise.all([
+        api.candidates(expectedSnapshotId), api.events(),
       ]);
-      const expected = status.snapshotId;
-      if (candidateResponse.snapshotId !== expected || eventResponse.snapshotId !== expected) {
+      if (appGeneration !== appLoadGeneration.current ||
+          requestGeneration !== legacyLoadGeneration.current ||
+          currentSnapshotId.current !== expectedSnapshotId) return;
+      if (candidateResponse.snapshotId !== expectedSnapshotId || eventResponse.snapshotId !== expectedSnapshotId) {
         throw new Error(
-          "API 返回了不一致的快照：status=" + expected +
+          "API 返回了不一致的快照：status=" + expectedSnapshotId +
           "，candidates=" + candidateResponse.snapshotId +
           "，events=" + eventResponse.snapshotId,
         );
       }
-      if (!snapshotResponse.snapshots.some((item) => item.snapshotId === expected)) {
-        throw new Error("当前快照不在已发布快照目录中：" + expected);
-      }
-      setSnapshots(snapshotResponse.snapshots);
-      setPlanCandidates(candidateResponse.candidates);
-      let restoredTiming = status.dataMode === "SYNTHETIC" ? null : defaultProductionTiming(
-        snapshotResponse.snapshots.filter((item) => item.dataMode === status.dataMode),
-        expected,
-      );
-      const recovered = planResponse.plans[0];
-      if (recovered?.decisionSnapshotId && recovered.executionSnapshotId &&
-          recovered.decisionCutoffAt && recovered.executionCutoffAt && recovered.tradingDay) {
-        restoredTiming = {
-          decisionSnapshotId: recovered.decisionSnapshotId,
-          decisionCutoffAt: recovered.decisionCutoffAt,
-          executionSnapshotId: recovered.executionSnapshotId,
-          executionCutoffAt: recovered.executionCutoffAt,
-          tradingDay: recovered.tradingDay,
-        };
-        setFrozenPlanId(recovered.planId);
-        setPersistedPlanStatus(recovered.status);
-      }
-      setTiming(restoredTiming);
-      setApiUp(true);
-      setState({ kind: "ready", data: buildApiWorkspace(
-        status, candidateResponse.candidates, candidateResponse.note, eventResponse.events,
-      ) });
+      setLegacyS1State({ kind: "ready", snapshotId: expectedSnapshotId,
+        workspace: buildApiWorkspace(baseData.status, candidateResponse.candidates,
+          candidateResponse.note, eventResponse.events) });
     } catch (err) {
-      setApiUp(false);
-      setState({ kind: "error", message:
-        "实时工作台 API 加载失败；未回退到 workspace.json。\n" + explain(err) });
+      if (appGeneration !== appLoadGeneration.current ||
+          requestGeneration !== legacyLoadGeneration.current ||
+          currentSnapshotId.current !== expectedSnapshotId) return;
+      setLegacyS1State({ kind: "error", snapshotId: expectedSnapshotId,
+        message: "今日与规则基线资料读取失败，请重试。\n" + explain(err) });
     }
-  }, [demoMode, explain]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  const data = state.kind === "ready" ? state.data : null;
-  const displayStatus = data?.status ?? fallbackStatus();
+  }, [baseData, demoMode, apiUp, explain, setLegacyS1State]);
 
   useEffect(() => {
-    if (apiUp !== true || !data) return;
+    if (tab === "today") void loadLegacyS1();
+  }, [tab, loadLegacyS1]);
+
+  const loadSnapshotCatalog = useCallback(async () => {
+    if (!data || demoMode) return;
+    setSnapshotCatalogState("loading");
+    setSnapshotCatalogError(null);
+    try {
+      const response = await api.snapshots();
+      const expected = data.status.snapshotId;
+      if (!response.snapshots.some((item) => item.snapshotId === expected)) {
+        throw new Error("当前快照不在已发布快照目录中：" + expected);
+      }
+      setSnapshots(response.snapshots);
+      setSnapshotCatalogState("ready");
+      if (data.status.dataMode !== "SYNTHETIC") {
+        const initialTiming = defaultProductionTiming(
+          response.snapshots.filter((item) => item.dataMode === data.status.dataMode), expected,
+        );
+        setTiming(previous => previous ?? initialTiming);
+      }
+    } catch (err) {
+      setSnapshotCatalogError("已发布快照历史暂不可用。模拟预览需要可核验的同源决策与执行快照。" + explain(err));
+      setSnapshotCatalogState("error");
+    }
+  }, [data?.status.snapshotId, data?.status.dataMode, demoMode, explain]);
+
+  useEffect(() => {
+    if (tab !== "portfolio" || portfolioMode !== "baseline" || !data || demoMode ||
+        snapshotCatalogState !== "idle") return;
+    void loadSnapshotCatalog();
+  }, [tab, portfolioMode, data, demoMode, snapshotCatalogState, loadSnapshotCatalog]);
+
+  useEffect(() => {
+    if (apiUp !== true || !data || (tab !== "today" && tab !== "portfolio")) return;
     let active = true;
-    void Promise.all([api.researchSimulationDrafts(), api.plans(data.draft.portfolioId), api.decisions(data.draft.portfolioId)]).then(([response, plans, decisions]) => {
-      if (active) {
-        const restored = restoreResearchDrafts(response.drafts.filter(item => item.portfolioId === data.draft.portfolioId), plans.plans, decisions.decisions);
+    void Promise.allSettled([
+      api.researchSimulationDrafts(), api.plans(data.draft.portfolioId), api.decisions(data.draft.portfolioId),
+    ]).then(([draftResult, planResult, decisionResult]) => {
+      if (!active) return;
+      const errors: string[] = [];
+      const plans = planResult.status === "fulfilled" ? planResult.value.plans : [];
+      const decisions = decisionResult.status === "fulfilled" ? decisionResult.value.decisions : [];
+      if (planResult.status === "fulfilled") {
+        const recovered = plans.find(item => item.portfolioId === data.draft.portfolioId);
+        if (recovered?.decisionSnapshotId && recovered.executionSnapshotId &&
+            recovered.decisionCutoffAt && recovered.executionCutoffAt && recovered.tradingDay) {
+          setFrozenPlanId(recovered.planId);
+          setPersistedPlanStatus(recovered.status);
+          setTiming({
+            decisionSnapshotId: recovered.decisionSnapshotId,
+            decisionCutoffAt: recovered.decisionCutoffAt,
+            executionSnapshotId: recovered.executionSnapshotId,
+            executionCutoffAt: recovered.executionCutoffAt,
+            tradingDay: recovered.tradingDay,
+          });
+        }
+      } else {
+        errors.push("已确认计划状态尚未恢复：" + explain(planResult.reason));
+      }
+      if (draftResult.status === "fulfilled") {
+        const restored = restoreResearchDrafts(
+          draftResult.value.drafts.filter(item => item.portfolioId === data.draft.portfolioId), plans, decisions,
+        );
         setResearchDrafts(previous => restored.map(item => {
           const reviewed = previous.find(old => old.draftId === item.draftId && old.status === "READY_FOR_REVIEW" &&
             old.researchSnapshotId === item.researchSnapshotId && old.decisionSnapshotId === item.decisionSnapshotId && old.tradingDay === item.tradingDay);
           return item.status === "WAITING_EXECUTION_SNAPSHOT" && reviewed ? reviewed : item;
         }));
-        setDraftReadError(null);
+      } else {
+        errors.push("已保存方案尚未恢复：" + explain(draftResult.reason));
       }
-    }).catch(error => { if (active) setDraftReadError(explain(error)); });
+      if (decisionResult.status === "rejected") {
+        errors.push("原判断与计划绑定尚未读取：" + explain(decisionResult.reason));
+      }
+      setDraftReadError(errors.length ? errors.join("；") : null);
+    });
     void api.watchlist().then(response => { if (active) setWatchIds(response.items.map(item => item.instrument_id)); })
       .catch(() => { if (active) setWatchIds([]); });
     return () => { active = false; };
-  }, [apiUp, data?.status.snapshotId, data?.draft.portfolioId, reviewRevision, explain]);
+  }, [apiUp, data?.status.snapshotId, data?.draft.portfolioId, reviewRevision, tab, explain]);
 
   const onPrepareResearchSimulation = useCallback((instrumentId: string, researchSnapshotId: string | null) => {
     setResearchSelection(previous => ({ requestId: (previous?.requestId ?? 0) + 1, instrumentId, researchSnapshotId }));
@@ -331,10 +434,22 @@ export default function App() {
 
   useEffect(() => {
     const currentSnapshotId = data?.status.snapshotId;
-    const decisionSnapshotId = timing?.decisionSnapshotId;
-    if (apiUp !== true || !currentSnapshotId || !decisionSnapshotId ||
-        decisionSnapshotId === currentSnapshotId) return;
+    const production = data?.status.dataMode !== "SYNTHETIC";
+    const decisionSnapshotId = production ? timing?.decisionSnapshotId : timing?.decisionSnapshotId ?? currentSnapshotId;
+    if (apiUp !== true || !currentSnapshotId || tab !== "portfolio" || portfolioMode !== "baseline") return;
+    if (!decisionSnapshotId) {
+      if (production && planCandidatesSnapshotId !== currentSnapshotId) {
+        setPlanCandidates([]);
+        setPlanCandidatesSnapshotId(null);
+        setSelectedInstrumentIds(null);
+      }
+      return;
+    }
+    if (planCandidatesSnapshotId === decisionSnapshotId) return;
     let active = true;
+    setPlanCandidates([]);
+    setPlanCandidatesSnapshotId(null);
+    setSelectedInstrumentIds(null);
     void api.candidates(decisionSnapshotId)
       .then((response) => {
         if (!active) return;
@@ -342,13 +457,15 @@ export default function App() {
           throw new Error("候选快照与计划决策快照不一致：" + response.snapshotId);
         }
         setPlanCandidates(response.candidates);
+        setPlanCandidatesSnapshotId(response.snapshotId);
         setSelectedInstrumentIds(null);
       })
       .catch((err) => {
         if (active) setNotice("决策快照候选加载失败：" + explain(err));
       });
     return () => { active = false; };
-  }, [apiUp, data?.status.snapshotId, timing?.decisionSnapshotId, explain]);
+  }, [apiUp, data?.status.snapshotId, data?.status.dataMode, timing?.decisionSnapshotId, tab, portfolioMode,
+      planCandidatesSnapshotId, explain]);
 
   const onOpenResearch = useCallback((instrumentId: string) => {
     setSelectedCard(instrumentId); setTab("research");
@@ -375,8 +492,18 @@ export default function App() {
   const onRequestPreview = useCallback(async () => {
     if (!data || demoMode) return;
     const production = data.status.dataMode !== "SYNTHETIC";
+    if (production && snapshotCatalogState !== "ready") {
+      setNotice(snapshotCatalogState === "error"
+        ? "已发布快照历史读取失败，尚未生成模拟预览。请先重读快照历史。"
+        : "正在读取已发布快照历史；完成前不能生成模拟预览。");
+      return;
+    }
     if (production && !timing) {
       setNotice("生产预览需要两个满足先后顺序的同源已发布快照。");
+      return;
+    }
+    if (selectedInstrumentIds !== null && timing && planCandidatesSnapshotId !== timing.decisionSnapshotId) {
+      setNotice("决策快照候选尚未按当前版本读取完成；不能使用其他版本的候选生成预览。");
       return;
     }
     setNotice(null); setConfirmResult(null);
@@ -401,10 +528,14 @@ export default function App() {
       setNotice("服务端预览已生成：" + pv.orders.length + " 笔订单，参考价日 " +
                 (pv.reference_price_day ?? "—") + "（执行日之前）。仍未冻结。");
     } catch (err) { setNotice("预览失败：" + explain(err)); }
-  }, [data, demoMode, explain, timing, selectedInstrumentIds]);
+  }, [data, demoMode, explain, timing, selectedInstrumentIds, snapshotCatalogState, planCandidatesSnapshotId]);
 
   const onConfirm = useCallback(async () => {
     if (!data || demoMode || (data.status.dataMode !== "SYNTHETIC" && !timing)) return;
+    if (data.status.dataMode !== "SYNTHETIC" && snapshotCatalogState !== "ready") {
+      setNotice("已发布快照历史尚未读取完成，不能确认模拟计划。");
+      return;
+    }
     setConfirming(true); setConfirmResult(null);
     try {
       let pv = livePreview;
@@ -433,7 +564,7 @@ export default function App() {
         "。冻结后不可修改；可在下方「账本」区执行本交易日。" });
     } catch (err) { setConfirmResult({ ok: false, message: explain(err) }); }
     finally { setConfirming(false); }
-  }, [data, demoMode, livePreview, explain, timing, selectedInstrumentIds]);
+  }, [data, demoMode, livePreview, explain, timing, selectedInstrumentIds, snapshotCatalogState]);
 
   const onPlanSelectionChange = useCallback((ids: string[] | null) => {
     setSelectedInstrumentIds(ids);
@@ -488,6 +619,10 @@ export default function App() {
       if (!card || card.snapshotId !== decisionSnapshotId) {
         setNotice("本研究卡与规则方案的决策资料版本不同。请在模拟组合查看该方案的原决策候选；当前研究依据不会被静默替换。"); return;
       }
+      const expectedCandidatesSnapshot = timing?.decisionSnapshotId ?? data?.status.snapshotId;
+      if (planCandidatesSnapshotId !== expectedCandidatesSnapshot) {
+        setNotice("当前模拟候选尚未按所选决策版本读取完成；请等待读取或重试后再选择。"); return;
+      }
       const candidate = planCandidates.find(item => item.instrumentId === cardId && item.simulatable);
       if (!candidate) { setNotice("当前股票不在本次规则决策的可模拟范围。请查看当前资格与适用日期后再选择。"); return; }
       onPlanSelectionChange([cardId]); setPortfolioMode("baseline"); setTab("portfolio");
@@ -502,7 +637,7 @@ export default function App() {
       setNotice(cardId + " 已从服务端自选移除。自选变化不影响模拟持仓。");
     }
     window.setTimeout(() => setNotice(null), 5000);
-  }, [setTab, planCandidates, onPlanSelectionChange, data, timing]);
+  }, [setTab, planCandidates, planCandidatesSnapshotId, onPlanSelectionChange, data, timing]);
 
   const onOpenPortfolio = useCallback(() => {
     const hasUserDraft = researchDrafts.some(item => item.source === "USER_SELECTION" &&
@@ -530,6 +665,29 @@ export default function App() {
       <main className="page" tabIndex={-1}>
         {state.kind === "loading" && tab !== "settings" && <Loading />}
         {state.kind === "error" && tab !== "settings" && <ErrorState message={state.message} onRetry={load} />}
+        {(tab === "today" || tab === "portfolio") && draftReadError && (
+          <div className="section"><Callout tone="warn" title="已保存方案状态尚未完整恢复">
+            {draftReadError}
+            <div style={{ marginTop: 8 }}>
+              <button className="btn btn-sm" onClick={() => setReviewRevision(value => value + 1)}>
+                重读已保存方案
+              </button>
+            </div>
+          </Callout></div>
+        )}
+        {tab === "portfolio" && portfolioMode === "baseline" && snapshotCatalogState === "loading" && (
+          <div className="section" role="status"><Callout title="正在读取已发布快照">
+            读取完成前，模拟预览和确认不会使用其他版本的资料。
+          </Callout></div>
+        )}
+        {tab === "portfolio" && portfolioMode === "baseline" && snapshotCatalogState === "error" && (
+          <div className="section"><Callout tone="warn" title="模拟预览所需快照暂不可用">
+            {snapshotCatalogError}
+            <div style={{ marginTop: 8 }}>
+              <button className="btn btn-sm" onClick={() => void loadSnapshotCatalog()}>重读快照历史</button>
+            </div>
+          </Callout></div>
+        )}
         {tab === "settings" && <SettingsView />}
         {data && (
           <>
@@ -547,12 +705,15 @@ export default function App() {
               <TodayView data={data} onOpenCard={onOpenResearch}
                 onOpenDraft={onOpenPortfolio} onOpenResearch={() => setTab("research")}
                 livePreview={livePreview} persistedPlanStatus={persistedPlanStatus} researchDrafts={researchDrafts}
-                draftReadError={draftReadError} watchIds={watchIds} />
+                watchIds={watchIds} legacyS1State={legacyS1ViewState} legacyS1Error={legacyS1Error}
+                onRetryLegacyS1={() => void loadLegacyS1(true)} />
             </section>}
             {visitedTabs.includes("research") && <section hidden={tab !== "research"} aria-label="研究">
               <ResearchView data={data} selectedId={selectedCard}
               onSelect={setSelectedCard} onOpenEvidence={setEvidenceFor} onAction={onAction}
               onRequestResearch={onOpenResearch} loadingResearchId={researchLoadingId}
+              legacyS1State={legacyS1ViewState} legacyS1Error={legacyS1Error}
+              onLoadLegacyS1={() => void loadLegacyS1()} onRetryLegacyS1={() => void loadLegacyS1(true)}
               focusedInstrumentId={focusedInstrumentId} onPrepareSimulation={onPrepareResearchSimulation} />
             </section>}
             {visitedTabs.includes("portfolio") && <section hidden={tab !== "portfolio"} aria-label="模拟组合">

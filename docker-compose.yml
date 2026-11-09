@@ -29,5 +29,23 @@ services:
       - aquant-data:/data
     restart: unless-stopped
 
+  financial-worker:
+    image: ${AQUANT_FINANCIAL_WORKER_IMAGE:-aquant-lab:local}
+    command: ["python", "tools/research_job_worker.py", "--data-dir", "/data"]
+    depends_on:
+      aquant:
+        condition: service_healthy
+    environment:
+      AQUANT_DATA_DIR: /data
+    volumes:
+      - aquant-data:/data
+    healthcheck:
+      test: ["CMD", "python", "tools/research_job_worker.py", "--healthcheck", "--data-dir", "/data"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+
 volumes:
   aquant-data:

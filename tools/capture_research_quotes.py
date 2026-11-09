@@ -14,7 +14,7 @@ import re
 import sys
 from collections import Counter
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,6 +24,7 @@ from aquant.adapters.providers.resilience import CircuitBreaker, RateLimiter  # 
 from aquant.adapters.providers.tencent import TencentClient  # noqa: E402
 from aquant.domain.data.db import connect  # noqa: E402
 from aquant.domain.data.forward_archive import ForwardArchive  # noqa: E402
+from aquant.operations.scheduler import MARKET_TIMEZONE, market_now  # noqa: E402
 
 UNIVERSE = ROOT / "data" / "s2-structured" / "universe.txt"
 ORG_MAP = ROOT / "data" / "s2-structured" / "universe-orgids.json"
@@ -49,6 +50,20 @@ def json_write(path: Path, value: dict) -> None:
     finally:
         if tmp.exists():
             tmp.unlink()
+
+
+def validate_close_capture_window(target: date, *, now: datetime,
+                                  pending_count: int) -> None:
+    """Do not recapture current quotes under a past or not-yet-closed date."""
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("market time must be timezone-aware")
+    if type(pending_count) is not int or pending_count < 0:
+        raise ValueError("pending quote count must be a non-negative integer")
+    local_now = now.astimezone(MARKET_TIMEZONE)
+    if target > local_now.date() or (target == local_now.date() and local_now.hour < 15):
+        raise ValueError("requested market close has not occurred; no provider requests started")
+    if target < local_now.date() and pending_count:
+        raise ValueError("past market day lacks a complete verified quote checkpoint; no provider requests started")
 
 
 def map_code(code: str) -> tuple[str, str, str, str]:
@@ -236,7 +251,6 @@ def main() -> int:
     batches: list[list[dict]] = []
     if args.trusted_proxy_network:
         os.environ["AQUANT_TRUSTED_PROXY_NETWORKS"] = ",".join(args.trusted_proxy_network)
-    args.checkpoint.parent.mkdir(parents=True, exist_ok=True)
     results: dict[str, dict] = {}
     receipts: list[dict] = []
     failures_in_a_row = 0
@@ -260,6 +274,9 @@ def main() -> int:
         reusable_entries = [e for e in reusable_entries
                             if all(s in selected_by_symbol for s in e["requested_symbols"])]
         pending = [x for x in selected if x["symbol"] not in valid_by_symbol]
+        if args.close_date:
+            validate_close_capture_window(date.fromisoformat(args.close_date), now=market_now(),
+                                          pending_count=len(pending))
         batches = [pending[i:i + args.batch_size] for i in range(0, len(pending), args.batch_size)]
         receipts = [{**e, "reused_from_verified_checkpoint": True} for e in reusable_entries]
         for entry in receipts:
@@ -270,16 +287,19 @@ def main() -> int:
             if args.close_date:
                 annotate_close_validation(rows, args.close_date)
             results[entry["batch_key"]] = {"rows": rows, "exclusions": excluded}
-        client = TencentClient(
-            archive,
-            limiter=RateLimiter(min_interval_seconds=1.5),
-            breaker=CircuitBreaker(failure_threshold=1000, cooldown_seconds=120),
-        )
+        client: TencentClient | None = None
+        args.checkpoint.parent.mkdir(parents=True, exist_ok=True)
         with args.checkpoint.open("a", encoding="utf-8", newline="\n") as cp:
             for ix, batch in enumerate(batches, 1):
                 batch_key = hashlib.sha256(",".join(x["symbol"] for x in batch).encode()).hexdigest()
                 url = QUOTE_URL + ",".join(x["symbol"] for x in batch)
                 label = "after-close-research-quotes" if args.close_date else "intraday-research-quotes"
+                if client is None:
+                    client = TencentClient(
+                        archive,
+                        limiter=RateLimiter(min_interval_seconds=1.5),
+                        breaker=CircuitBreaker(failure_threshold=1000, cooldown_seconds=120),
+                    )
                 out = client.fetch(url, label=f"{label}:{len(batch)}")
                 receipt = con.execute(
                     "SELECT receipt_id,url,requested_at,responded_at,first_seen_at,outcome,http_status,"

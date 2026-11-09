@@ -253,6 +253,9 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; }
 .kv dt { color: var(--text-3); }
 .kv dd { margin: 0; }
+.fee-source-kv { grid-template-columns: minmax(0, auto) minmax(0, 1fr); align-items: start; }
+.fee-source-kv dd { min-width: 0; overflow-wrap: anywhere; }
+.fee-source-kv .badge { max-width: 100%; white-space: normal; overflow-wrap: anywhere; text-align: left; }
 
 /* 文本输入：与按钮同高同圆角，避免在操作行里显得突兀 */
 .input {
@@ -353,6 +356,10 @@ table.data td.num, table.data th.num { text-align: right; font-variant-numeric: 
   .tabs { width: 100%; overflow-x: auto; }
   table.data { font-size: 12.5px; }
   table.data th, table.data td { padding: 9px 10px; }
+}
+@media (max-width: 420px) {
+  .fee-source-kv { grid-template-columns: minmax(0, 1fr); gap: 3px 0; }
+  .fee-source-kv dd { margin-bottom: 6px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

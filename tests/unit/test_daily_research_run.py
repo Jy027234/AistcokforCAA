@@ -27,6 +27,95 @@ def _json(path, payload):
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
+def _failed_timeout_attempts(stamp):
+    attempt = lambda number: {
+        "attempt": number, "started_at": stamp, "finished_at": stamp,
+        "status": "failed", "error_type": "BaostockUnavailable",
+        "error": "baostock login failed: 10002007 网络接收错误。",
+        "error_code": "10002007", "diagnostic": "socket recv timed out",
+        "retryable": True,
+    }
+    return {"schema": "aquant.baostock_login_attempts.v1", "provider": "baostock",
+            "status": "FAILED", "attempts": [attempt(1), attempt(2)]}
+
+
+def _capture_transport_checkpoint(args, *, problem=None):
+    from capture_research_simulation_evidence import (
+        select_candidates, validate_retained_document,
+    )
+
+    def arg(name):
+        return Path(args[args.index(name) + 1])
+
+    output = arg("--output-dir")
+    research_path, retained_path = arg("--research"), arg("--retain-instruments")
+    day = args[args.index("--day") + 1]
+    research = json.loads(research_path.read_text(encoding="utf-8"))
+    retained = json.loads(retained_path.read_text(encoding="utf-8"))
+    retained_ids = validate_retained_document(retained, day)
+    selected = select_candidates(research, limit=int(args[args.index("--limit") + 1]),
+                                 retained_ids=retained_ids)
+    selected_ids = [item["instrumentId"] for item in selected]
+    stamp_time = datetime.now(timezone.utc)
+    stamp = stamp_time.isoformat()
+    iid = selected_ids[0]
+    failures = [{"instrument_id": iid, "stage": "history",
+                 "detail": "BaostockUnavailable: history failed: 10002007 网络接收错误。"}]
+    if problem == "without_transport":
+        failures = [{"instrument_id": iid, "stage": "stock_basic",
+                     "detail": "no exact code row"}]
+    elif problem != "unbound_no_row":
+        failures.append({"instrument_id": iid, "stage": "stock_basic",
+                         "detail": "no exact code row"})
+    checkpoint = {
+        "schema": "aquant.simulation_evidence_checkpoint.v1",
+        "created_at": stamp, "updated_at": stamp,
+        "research_input_hash": daily.file_hash(research_path),
+        "research_input_path": str(research_path.resolve()),
+        "capture_market_date": day, "instruments": {}, "failures": failures,
+        "capture_binding": {
+            "target_day": day, "research_path": str(research_path.resolve()),
+            "research_hash": daily.file_hash(research_path),
+            "selected_instrument_ids": selected_ids,
+            "retained_path": str(retained_path.resolve()),
+            "retained_hash": daily.file_hash(retained_path),
+        },
+    }
+    if problem == "wrong_target":
+        checkpoint["capture_binding"]["target_day"] = "2026-10-11"
+    elif problem == "wrong_research_hash":
+        checkpoint["capture_binding"]["research_hash"] = "sha256:wrong"
+    elif problem == "wrong_selected_ids":
+        checkpoint["capture_binding"]["selected_instrument_ids"] = ["SH.600002"]
+    elif problem == "other_error":
+        checkpoint["failures"] = [{"instrument_id": iid, "stage": "history",
+                                   "detail": "TimeoutError: unknown transport state"}]
+    elif problem == "unbound_no_row":
+        checkpoint["failures"] = [{"instrument_id": iid, "stage": "stock_basic",
+                                   "detail": "no exact code row"}]
+    elif problem == "extra_nontransport":
+        checkpoint["failures"].append({"instrument_id": iid, "stage": "identity",
+                                        "detail": "identity mismatch"})
+    elif problem == "old_updated_at":
+        checkpoint["updated_at"] = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    elif problem == "all_complete":
+        checkpoint["instruments"][iid] = {
+            "bars": [{"trading_day": day, "tradestatus": "0", "isST": "0"}],
+            "simulation_eligibility": {"status": "VERIFIED"},
+        }
+    checkpoint_path = output / "checkpoint.json"
+    _json(checkpoint_path, checkpoint)
+    # Keep this synthetic checkpoint's filesystem timestamp inside the run's
+    # evidence window even when the test's simulated subprocess finishes fast.
+    import os
+    os.utime(checkpoint_path, (stamp_time.timestamp(), stamp_time.timestamp()))
+    if problem == "old_checkpoint":
+        import time
+        old = time.time() - 24 * 60 * 60
+        os.utime(checkpoint_path, (old, old))
+    return checkpoint_path, selected_ids
+
+
 @pytest.fixture()
 def calendar(tmp_path):
     first = date(2026, 1, 1)
@@ -138,7 +227,7 @@ def pipeline(tmp_path, monkeypatch):
         elif args[0].endswith("refresh_research_publication.py"):
             _json(arg("--output"), {"poolSize": 3, "snapshotId": "new-research", "candidates": [
                 {"instrumentId": "SH.600001", "code": "600001", "displayName": "candidate",
-                 "status": "RANKED", "position": 1}]})
+                 "board": "MAIN", "status": "RANKED", "position": 1}]})
         elif args[0].endswith("capture_research_announcements.py"):
             selected = json.loads(arg("--targets").read_text())
             _json(arg("--output"), {"target_codes": [t["code"] for t in selected],
@@ -164,6 +253,21 @@ def pipeline(tmp_path, monkeypatch):
     return argv, research, data, calls, tmp_path
 
 
+def test_legacy_pipeline_lock_stays_skipped_and_preserves_evidence(pipeline):
+    argv, _research, _data, calls, root = pipeline
+    lock = Path(argv[argv.index("--lock") + 1])
+    original = b"pid=18544 at=2026-10-29T13:09:13.346410+00:00\n"
+    lock.write_bytes(original)
+
+    assert daily.main(argv) == 0
+
+    result = json.loads((root / "result.json").read_text(encoding="utf-8"))
+    assert result["outcome"] == "SKIPPED"
+    assert "旧格式" in result["reason"]
+    assert lock.read_bytes() == original
+    assert calls == []
+
+
 def test_closed_day_has_no_provider_subprocesses(pipeline, monkeypatch):
     argv, research, data, calls, root = pipeline
     before = research.read_bytes()
@@ -185,6 +289,128 @@ def test_core_failure_never_replaces_research_or_current(pipeline, monkeypatch):
     assert (data / "current_snapshot.json").read_bytes() == pointer
     assert json.loads((root / "result.json").read_text())["outcome"] == "FAILED"
     assert "ERROR" in (root / "alerts.jsonl").read_text()
+
+
+def test_fresh_confirmed_simulation_login_timeout_is_structured(pipeline, monkeypatch):
+    argv, _, _, calls, root = pipeline
+    original = daily.run_step
+
+    def failed_capture(args, *, label):
+        if args[0].endswith("capture_research_simulation_evidence.py"):
+            calls.append(args)
+            output = Path(args[args.index("--output-dir") + 1])
+            stamp = datetime.now(timezone.utc)
+            attempts = output / "login-attempts.json"
+            _json(attempts, _failed_timeout_attempts(stamp.isoformat()))
+            # Keep this zero-duration simulated capture inside the run's clock.
+            # Filesystem timestamps can lag wall time by several milliseconds.
+            import os
+            os.utime(attempts, (stamp.timestamp(), stamp.timestamp()))
+            return {"step": label, "ok": False, "seconds": 0, "exitCode": 1}
+        return original(args, label=label)
+
+    monkeypatch.setattr(daily, "run_step", failed_capture)
+    assert daily.main(argv) == 1
+    result = json.loads((root / "result.json").read_text())
+    assert result["outcome"] == "FAILED"
+    assert result["retryableFailure"] == {"kind": "BAOSTOCK_LOGIN_TIMEOUT"}
+    saved = json.loads(next((root / "artifacts").glob("**/login-attempts.json")).read_text())
+    assert saved["status"] == "FAILED" and len(saved["attempts"]) == 2
+
+
+def test_fresh_bound_checkpoint_transport_failures_are_structured(pipeline, monkeypatch):
+    argv, _, _, calls, root = pipeline
+    original = daily.run_step
+    saved: dict = {}
+
+    def failed_capture(args, *, label):
+        if args[0].endswith("capture_research_simulation_evidence.py"):
+            calls.append(args)
+            saved["path"], saved["ids"] = _capture_transport_checkpoint(args)
+            return {"step": label, "ok": False, "seconds": 0, "exitCode": 1}
+        return original(args, label=label)
+
+    monkeypatch.setattr(daily, "run_step", failed_capture)
+    assert daily.main(argv) == 1
+    result = json.loads((root / "result.json").read_text())
+    assert result["outcome"] == "FAILED"
+    assert result["retryableFailure"] == {
+        "kind": "BAOSTOCK_CAPTURE_TRANSPORT_FAILURE",
+        "checkpointPath": str(saved["path"].resolve()),
+        "checkpointSha256": daily.file_hash(saved["path"]),
+        "missingInstrumentIds": saved["ids"],
+    }
+    assert saved["path"].is_file()
+
+
+@pytest.mark.parametrize("problem", [
+    "wrong_target", "wrong_research_hash", "wrong_selected_ids", "old_checkpoint",
+    "old_updated_at", "without_transport", "unbound_no_row", "other_error",
+    "extra_nontransport", "all_complete", "wrong_step",
+])
+def test_checkpoint_without_current_complete_transport_binding_is_not_retryable(
+    pipeline, monkeypatch, problem,
+):
+    argv, _, _, calls, root = pipeline
+    original = daily.run_step
+
+    def failed_capture(args, *, label):
+        if args[0].endswith("capture_research_simulation_evidence.py"):
+            calls.append(args)
+            _capture_transport_checkpoint(args, problem=problem)
+            return {"step": ("另一步骤" if problem == "wrong_step" else label),
+                    "ok": False, "seconds": 0, "exitCode": 1}
+        return original(args, label=label)
+
+    monkeypatch.setattr(daily, "run_step", failed_capture)
+    assert daily.main(argv) == 1
+    result = json.loads((root / "result.json").read_text())
+    assert result["outcome"] == "FAILED"
+    assert "retryableFailure" not in result
+
+
+@pytest.mark.parametrize("problem", ["login_denied", "missing_timeout_classification",
+                                     "wrong_provider_error", "one_attempt", "old_evidence",
+                                     "wrong_failed_step"])
+def test_simulation_failure_without_fresh_confirmed_login_timeout_is_not_retryable(
+    pipeline, monkeypatch, problem,
+):
+    argv, _, _, calls, root = pipeline
+    original = daily.run_step
+
+    def failed_capture(args, *, label):
+        if args[0].endswith("capture_research_simulation_evidence.py"):
+            calls.append(args)
+            output = Path(args[args.index("--output-dir") + 1])
+            evidence = _failed_timeout_attempts(datetime.now(timezone.utc).isoformat())
+            if problem == "login_denied":
+                evidence["attempts"] = [{
+                    **attempt, "error": "baostock login failed: 10001003 access denied",
+                    "error_code": "10001003", "retryable": False,
+                    "diagnostic": "access denied",
+                } for attempt in evidence["attempts"]]
+            elif problem == "missing_timeout_classification":
+                evidence["attempts"][1]["diagnostic"] = "network receive error"
+            elif problem == "wrong_provider_error":
+                evidence["attempts"][1]["error_type"] = "RuntimeError"
+            elif problem == "one_attempt":
+                evidence["attempts"].pop()
+            attempts_path = output / "login-attempts.json"
+            _json(attempts_path, evidence)
+            if problem == "old_evidence":
+                import os
+                import time
+                old = time.time() - 24 * 60 * 60
+                os.utime(attempts_path, (old, old))
+            return {"step": ("另一步骤" if problem == "wrong_failed_step" else label),
+                    "ok": False, "seconds": 0, "exitCode": 1}
+        return original(args, label=label)
+
+    monkeypatch.setattr(daily, "run_step", failed_capture)
+    assert daily.main(argv) == 1
+    result = json.loads((root / "result.json").read_text())
+    assert result["outcome"] == "FAILED"
+    assert "retryableFailure" not in result
 
 
 def test_partial_promotion_restores_both_publications(pipeline, monkeypatch):

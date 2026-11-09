@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, type FeeStatus, type ReadinessResponse } from "../lib/api";
 import type { DataStatus } from "../lib/types";
 import { formatAsOf, readinessTone } from "../lib/format";
 import { Badge, Callout } from "./ui";
+import { useModalDialog } from "./useModalDialog";
 
 export type Tab = "today" | "research" | "portfolio" | "workspace" | "experiments" | "settings";
 
@@ -28,6 +29,30 @@ export function TopBar({
   lastLoadedAt: string | null;
   loading: boolean;
 }) {
+  const freshness = status.freshness;
+  const lastAttempt = freshness?.lastAttempt;
+  // 运行状态 API 会保留已核验日历门的单字段结果；旧的本地类型未声明
+  // 这个可选字段，因此在使用前作窄化读取。
+  const calendarGate = lastAttempt && "calendarGate" in lastAttempt
+    ? (lastAttempt as typeof lastAttempt & {
+      calendarGate?: { isTradingDay?: boolean };
+    }).calendarGate
+    : undefined;
+  const verifiedMarketClosure = lastAttempt?.outcome === "SKIPPED" &&
+    calendarGate?.isTradingDay === false;
+  const duplicatePublishedDay = lastAttempt?.outcome === "SKIPPED" &&
+    !!lastAttempt.tradingDay && lastAttempt.tradingDay === freshness?.lastPublishedDay;
+  const previousFailureUnresolved = lastAttempt?.outcome === "SKIPPED" &&
+    !!freshness?.detail.includes("此前日更") &&
+    freshness.detail.includes("尚未由后续成功发布恢复");
+  const latestRunFailed = lastAttempt?.outcome === "FAILED";
+  const latestRunSkipped = lastAttempt?.outcome === "SKIPPED" &&
+    !verifiedMarketClosure && !duplicatePublishedDay;
+  const updateFailureUnresolved = latestRunFailed || previousFailureUnresolved;
+  const lockConflict = /锁|lock/i.test(lastAttempt?.reason ?? "");
+  const freshnessUnknown = !freshness?.dataLastDay && !updateFailureUnresolved &&
+    !latestRunSkipped && !verifiedMarketClosure && !freshness?.stale;
+
   return (
     <header className="topbar">
       <div className="brand">
@@ -55,9 +80,29 @@ export function TopBar({
         {/* 数据新鲜度。**落后了必须显眼**：界面一切正常、数字自洽、
             对账通过，而它们基于的是几天前的数据——没人会自己注意到。
             读不出新鲜度时不显示徽章，也不声称"数据是新的"。 */}
-        {status.freshness?.stale && (
-          <Badge tone="warn">数据落后 {status.freshness.stalenessDays} 天</Badge>
-        )}
+        {updateFailureUnresolved ? (
+          <Badge tone="warn">
+            {freshness?.snapshotDay
+              ? previousFailureUnresolved
+                ? `日更失败未恢复${lockConflict ? "，后续又遇锁冲突" : "，后续运行跳过"} · 仍用 ${freshness.snapshotDay} 快照`
+                : `日更失败 · 仍用 ${freshness.snapshotDay} 快照`
+              : "最近日更失败"}
+          </Badge>
+        ) : latestRunSkipped ? (
+          <Badge tone="warn">
+            {freshness?.snapshotDay
+              ? `${lockConflict ? "日更因锁冲突跳过" : "日更异常跳过"} · 仍用 ${freshness.snapshotDay} 快照`
+              : lockConflict ? "日更因锁冲突跳过" : "日更异常跳过"}
+          </Badge>
+        ) : freshness?.stale ? (
+          <Badge tone="warn">
+            {freshness.stalenessDays == null
+              ? "数据可能已过期"
+              : `数据落后 ${freshness.stalenessDays} 天`}
+          </Badge>
+        ) : freshnessUnknown ? (
+          <Badge tone="warn">日更状态未知</Badge>
+        ) : null}
         <Badge tone="accent">{status.accountLabel}</Badge>
         <button className="btn btn-sm" onClick={onOpenStatus}>
           {loading ? "载入中…" : "数据状态"}
@@ -79,10 +124,13 @@ export function TopBar({
 export function StatusDrawer({
   status, onClose,
 }: { status: DataStatus; onClose: () => void }) {
+  const dialogRef = useRef<HTMLElement>(null);
   const [fees, setFees] = useState<FeeStatus | null>(null);
   const [trial, setTrial] = useState<ReadinessResponse["trial"] | null>(null);
   const [feeError, setFeeError] = useState<string | null>(null);
   const [trialError, setTrialError] = useState<string | null>(null);
+
+  useModalDialog(dialogRef, onClose);
 
   useEffect(() => {
     let active = true;
@@ -107,7 +155,8 @@ export function StatusDrawer({
   return (
     <>
       <div className="drawer-scrim" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label="运行状态">
+      <aside ref={dialogRef} className="drawer" role="dialog" aria-modal="true"
+        aria-label="运行状态" tabIndex={-1}>
         <header className="drawer-head">
           <h3>运行状态</h3>
           <div className="spacer" />
@@ -163,7 +212,7 @@ export function StatusDrawer({
             <Callout tone="danger" title="无法读取费率口径">{feeError}</Callout>
           ) : fees ? (
             <>
-              <dl className="kv">
+              <dl className="kv fee-source-kv">
                 <dt>佣金来源</dt>
                 <dd><Badge tone={feeIsAssumption ? "warn" : feeIsUsable ? "ok" : "warn"}>
                   {feeIsAssumption

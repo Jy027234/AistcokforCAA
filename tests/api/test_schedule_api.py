@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -53,6 +54,49 @@ def test_default_schedule_is_disabled(client):
     assert body["schedule"]["enabled"] is False
     assert body["nextFireAt"] is None
     assert body["lastRun"] is None
+
+
+def test_readiness_exposes_unfinished_lock_skip_without_blocking_manual_data(client, tmp_path, monkeypatch):
+    c, state = client
+    run_log = tmp_path / "daily-runs.jsonl"
+    monkeypatch.setenv("AQUANT_DAILY_RUN_LOG", str(run_log))
+    monkeypatch.setattr(sys.modules["main"], "_snapshot_last_day", lambda _s: "2026-10-28")
+    before = c.get("/api/v1/readiness").json()
+    entries = [
+        {"trading_day": "2026-10-28", "outcome": "PUBLISHED", "data_last_day": "2026-10-28"},
+        {"trading_day": "2026-10-29", "outcome": "FAILED", "data_last_day": None,
+         "reason": "BaoStock 登录超时"},
+        {"trading_day": "2026-10-30", "outcome": "SKIPPED", "data_last_day": None,
+         "reason": "流水线正在运行中（锁文件 daily-run.lock）",
+         "calendarGate": {"isTradingDay": True}},
+    ]
+    run_log.write_text("\n".join(json.dumps(row) for row in entries), encoding="utf-8")
+    body = c.get("/api/v1/readiness").json()
+    assert body["ready"] == before["ready"]
+    assert body["trial"]["ready"] == before["trial"]["ready"]
+    assert body["dailyOperationReady"] is False
+    assert body["data"]["freshness"]["stale"] is True
+    assert body["data"]["freshness"]["lastAttempt"]["tradingDay"] == "2026-10-30"
+    warning = next(x for x in body["trial"]["operationalWarnings"]
+                   if x["code"] == "DAILY_REFRESH_SKIPPED")
+    assert "锁" in warning["message"]
+
+
+def test_readiness_does_not_warn_about_verified_closed_day(client, tmp_path, monkeypatch):
+    c, _state = client
+    run_log = tmp_path / "daily-runs.jsonl"
+    monkeypatch.setenv("AQUANT_DAILY_RUN_LOG", str(run_log))
+    monkeypatch.setattr(sys.modules["main"], "_snapshot_last_day", lambda _s: "2026-10-30")
+    entries = [
+        {"trading_day": "2026-10-30", "outcome": "PUBLISHED", "data_last_day": "2026-10-30"},
+        {"trading_day": "2026-11-01", "outcome": "SKIPPED", "data_last_day": None,
+         "calendarGate": {"isTradingDay": False}},
+    ]
+    run_log.write_text("\n".join(json.dumps(row) for row in entries), encoding="utf-8")
+    body = c.get("/api/v1/readiness").json()
+    codes = {x["code"] for x in body["trial"]["operationalWarnings"]}
+    assert "DAILY_REFRESH_SKIPPED" not in codes
+    assert body["data"]["freshness"]["stale"] is False
 
 
 def test_saving_requires_an_authenticated_subject(client):
@@ -120,6 +164,49 @@ def test_readiness_warns_when_enabled_worker_has_no_fresh_heartbeat(client):
     }
 
 
+def test_readiness_reports_daily_failure_without_blocking_manual_trial(
+    client, tmp_path, monkeypatch,
+):
+    c, _state = client
+    run_log = tmp_path / "daily-runs.jsonl"
+    monkeypatch.setenv("AQUANT_DAILY_RUN_LOG", str(run_log))
+
+    before = c.get("/api/v1/readiness").json()["trial"]
+    entries = [
+        {"trading_day": "2026-10-20", "outcome": "PUBLISHED",
+         "data_last_day": "2026-10-20"},
+        {"trading_day": "2026-10-21", "outcome": "FAILED",
+         "data_last_day": None, "reason": "BaoStock 登录超时"},
+        {"trading_day": "2026-10-22", "outcome": "FAILED",
+         "data_last_day": None, "reason": "BaoStock 登录超时"},
+        {"trading_day": "2026-10-23", "outcome": "FAILED",
+         "data_last_day": None, "reason": "BaoStock 登录超时"},
+        {"trading_day": "2026-10-25", "outcome": "SKIPPED",
+         "data_last_day": None, "calendarGate": {"isTradingDay": False}},
+    ]
+    run_log.write_text("\n".join(json.dumps(item) for item in entries), encoding="utf-8")
+
+    after = c.get("/api/v1/readiness").json()["trial"]
+    warning = next(
+        item for item in after["operationalWarnings"]
+        if item["code"] == "DAILY_REFRESH_FAILED"
+    )
+    assert after["ready"] == before["ready"]
+    assert "DATA_NOT_READY" not in {
+        item["code"] for item in after["blockingIssues"]
+    }
+    assert "BaoStock 登录超时" in warning["message"]
+    assert "2026-10-23" in warning["message"]
+
+    entries.append({"trading_day": "2026-10-26", "outcome": "PUBLISHED",
+                    "data_last_day": "2026-10-26"})
+    run_log.write_text("\n".join(json.dumps(item) for item in entries), encoding="utf-8")
+    after_publish = c.get("/api/v1/readiness").json()["trial"]
+    assert "DAILY_REFRESH_FAILED" not in {
+        item["code"] for item in after_publish["operationalWarnings"]
+    }
+
+
 def test_run_now_registers_a_request_but_does_not_execute(client):
     """「立刻运行」只登记请求：执行是 worker 的事。
 
@@ -155,7 +242,7 @@ def test_run_now_is_idempotent_while_pending(client):
 
 
 # ====================================================================== worker
-def _worker(tmp_path, monkeypatch, *, enabled: bool, interpreter: str = INTERPRETER):
+def _worker(tmp_path, monkeypatch, *, enabled: bool, interpreter: str = sys.executable):
     """一个可测的 worker 环境：真实的（空）快照库 + 真实的数据目录。"""
 
     import scheduler_worker as worker
@@ -177,9 +264,9 @@ def _worker(tmp_path, monkeypatch, *, enabled: bool, interpreter: str = INTERPRE
     return worker, con, data_dir
 
 
-def _write_record(json_out: Path, *, outcome: str) -> None:
+def _write_record(json_out: Path, *, outcome: str, source: str | None = None) -> None:
     json_out.parent.mkdir(parents=True, exist_ok=True)
-    json_out.write_text(json.dumps({
+    record = {
         "trading_day": "2026-09-18", "snapshot_id": "snap-universe",
         "outcome": outcome, "reason": None,
         "started_at": "2026-09-18T12:30:00+00:00",
@@ -187,7 +274,262 @@ def _write_record(json_out: Path, *, outcome: str) -> None:
         "duration_seconds": 9.0,
         "steps": [{"step": "采集行情", "ok": True, "seconds": 4.0},
                   {"step": "发布快照", "ok": True, "seconds": 1.4}],
-    }, ensure_ascii=False), encoding="utf-8")
+    }
+    if source is not None:
+        record["source"] = source
+    json_out.write_text(json.dumps(record, ensure_ascii=False), encoding="utf-8")
+
+
+def _seed_timeout_failure(worker, con, *, root: Path,
+                          finished_at: datetime | None = None,
+                          source: str = "scheduler",
+                          outcome: str = "FAILED",
+                          retry_kind: str = "BAOSTOCK_LOGIN_TIMEOUT") -> tuple[str, Path, dict]:
+    finished = finished_at or datetime(2026, 9, 18, 20, 30, tzinfo=CST)
+    day = finished.date().isoformat()
+    started = finished - timedelta(minutes=1)
+    request_id = scheduler.request_run(
+        con, source=source, requested_by=("scheduler" if source == "scheduler" else "user:alice"),
+        now=started)
+    status = "FAILED" if outcome == "FAILED" else "DONE"
+    code = 1 if outcome == "FAILED" else 0
+    scheduler.finish_request(con, request_id=request_id, status=status,
+                             exit_code=code, detail="test daily result", now=finished)
+    record = {
+        "trading_day": day, "snapshot_id": "pending", "outcome": outcome,
+        "source": source, "mode": "RESEARCH_SIMULATION", "reason": "test daily result",
+        "started_at": started.isoformat(), "finished_at": finished.isoformat(),
+        "retryableFailure": {"kind": retry_kind},
+    }
+    if retry_kind == "BAOSTOCK_CAPTURE_TRANSPORT_FAILURE":
+        attempt_dir = root / "artifacts" / "transport-failure"
+        checkpoint_path = attempt_dir / "simulation-evidence" / "checkpoint.json"
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint_path.write_text('{"checkpoint":"current"}', encoding="utf-8")
+        record["artifactDirectory"] = str(attempt_dir)
+        record["retryableFailure"].update({
+            "checkpointPath": str(checkpoint_path.resolve()),
+            "checkpointSha256": "sha256:" + hashlib.sha256(checkpoint_path.read_bytes()).hexdigest(),
+            "missingInstrumentIds": ["SH.600001"],
+        })
+    scheduler.record_last_run(con, request_id=request_id, source=source,
+                              record=record, exit_code=code, now=finished)
+    last_run_path = root / "deploy" / "agentctl-q0" / "last-run.json"
+    last_run_path.parent.mkdir(parents=True, exist_ok=True)
+    last_run_path.write_text(json.dumps(record), encoding="utf-8")
+    return request_id, last_run_path, record
+
+
+@pytest.mark.parametrize(("delay", "expected"), [
+    (timedelta(minutes=14, seconds=59), "idle"),
+    (timedelta(minutes=15), "fired"),
+])
+def test_tick_registers_same_day_timeout_retry_only_after_fifteen_minutes(
+    tmp_path, monkeypatch, delay, expected,
+):
+    worker, con, data_dir = _worker(tmp_path, monkeypatch, enabled=True)
+    monkeypatch.setenv("AQUANT_DAILY_MODE", "RESEARCH_SIMULATION")
+    _original, _last_run_path, _record = _seed_timeout_failure(worker, con, root=tmp_path)
+    initial_count = con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0]
+    failed_at = datetime.fromisoformat(_record["finished_at"])
+    result = worker.tick(con, worker_id="w1", data_dir=data_dir,
+                         schedule=scheduler.load_schedule(con), now=failed_at + delay)
+    assert result == expected
+    rows = con.execute("SELECT requested_by,status FROM pipeline_run_request ORDER BY requested_at").fetchall()
+    assert con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0] == (
+        initial_count + (1 if expected == "fired" else 0))
+    if expected == "fired":
+        assert rows[0]["status"] == "FAILED"
+        assert rows[1]["requested_by"] == worker._retry_marker_for_day("2026-09-18")
+        assert rows[1]["status"] == "PENDING"
+    con.close()
+
+
+def test_timeout_retry_is_one_request_across_restart_and_next_tick(tmp_path, monkeypatch):
+    worker, con, data_dir = _worker(tmp_path, monkeypatch, enabled=True)
+    monkeypatch.setenv("AQUANT_DAILY_MODE", "RESEARCH_SIMULATION")
+    original_id, _path, record = _seed_timeout_failure(worker, con, root=tmp_path)
+    failed_at = datetime.fromisoformat(record["finished_at"])
+    first_tick = failed_at + timedelta(minutes=15)
+    assert worker.tick(con, worker_id="w1", data_dir=data_dir,
+                       schedule=scheduler.load_schedule(con), now=first_tick) == "fired"
+    assert con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0] == 2
+    # A restarted worker sees and reuses the same pending request.
+    assert scheduler.startup_recovery(con, now=first_tick + timedelta(minutes=1)) == 0
+    monkeypatch.setattr(worker, "_preflight", lambda *a, **kw: [])
+
+    def successful_run(*, interpreter, window_start, source, json_out):
+        _write_record(json_out, outcome="PUBLISHED", source=source)
+        return 0, "published"
+
+    monkeypatch.setattr(worker, "_run_pipeline", successful_run)
+    assert worker.tick(con, worker_id="w2", data_dir=data_dir,
+                       schedule=scheduler.load_schedule(con),
+                       now=first_tick + timedelta(minutes=1)) == "ran:DONE"
+    assert worker.tick(con, worker_id="w2", data_dir=data_dir,
+                       schedule=scheduler.load_schedule(con),
+                       now=first_tick + timedelta(minutes=2)) == "idle"
+    assert con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0] == 2
+    original = con.execute("SELECT status FROM pipeline_run_request WHERE request_id=?",
+                           (original_id,)).fetchone()
+    assert original["status"] == "FAILED"
+    retries = con.execute("SELECT requested_by,status FROM pipeline_run_request "
+                          "WHERE requested_by=?", (worker._retry_marker_for_day("2026-09-18"),)).fetchall()
+    assert len(retries) == 1 and retries[0]["status"] == "DONE"
+    con.close()
+
+
+@pytest.mark.parametrize("problem", [
+    "disabled", "manual", "success", "wrong_kind", "different_day",
+    "finished_mismatch", "cross_day", "existing_retry_marker", "daily_lock",
+    "not_research_mode", "wrong_mode", "malformed_record", "pending_request", "claimed_request",
+    "capture_checkpoint_changed", "naive_clock",
+])
+def test_tick_does_not_register_retry_without_all_required_conditions(
+    tmp_path, monkeypatch, problem,
+):
+    worker, con, data_dir = _worker(tmp_path, monkeypatch, enabled=problem != "disabled")
+    monkeypatch.setenv("AQUANT_DAILY_MODE", "RESEARCH_SIMULATION")
+    finished = (datetime(2026, 9, 18, 23, 50, tzinfo=CST)
+                if problem == "cross_day" else datetime(2026, 9, 18, 20, 30, tzinfo=CST))
+    source = "manual" if problem == "manual" else "scheduler"
+    outcome = "PUBLISHED" if problem == "success" else "FAILED"
+    _request_id, path, record = _seed_timeout_failure(
+        worker, con, root=tmp_path, finished_at=finished, source=source, outcome=outcome,
+        retry_kind=("BAOSTOCK_CAPTURE_TRANSPORT_FAILURE"
+                    if problem == "capture_checkpoint_changed" else "BAOSTOCK_LOGIN_TIMEOUT"))
+    if problem == "wrong_kind":
+        record["retryableFailure"]["kind"] = "OTHER"
+        path.write_text(json.dumps(record), encoding="utf-8")
+    elif problem == "different_day":
+        record["trading_day"] = "2026-09-17"
+        path.write_text(json.dumps(record), encoding="utf-8")
+    elif problem == "finished_mismatch":
+        record["finished_at"] = (finished + timedelta(seconds=1)).isoformat()
+        path.write_text(json.dumps(record), encoding="utf-8")
+    elif problem == "wrong_mode":
+        record["mode"] = "PRICE_ONLY"
+        path.write_text(json.dumps(record), encoding="utf-8")
+    elif problem == "malformed_record":
+        path.write_text("{", encoding="utf-8")
+    elif problem == "existing_retry_marker":
+        for attempt in (1, 2):
+            retry_id = scheduler.request_run(
+                con, source="scheduler",
+                requested_by=worker._retry_marker_for_day("2026-09-18", attempt), now=finished)
+            scheduler.finish_request(con, request_id=retry_id, status="FAILED",
+                                     exit_code=1, detail="already attempted", now=finished)
+    elif problem == "daily_lock":
+        lock = tmp_path / "deploy" / "agentctl-q0" / "daily-run.lock"
+        lock.write_text("pid=another-writer", encoding="utf-8")
+    elif problem == "capture_checkpoint_changed":
+        Path(record["retryableFailure"]["checkpointPath"]).write_text(
+            '{"checkpoint":"changed after failure"}', encoding="utf-8")
+    elif problem in {"pending_request", "claimed_request"}:
+        scheduler.request_run(con, source="manual", requested_by="user:alice", now=finished)
+        if problem == "claimed_request":
+            scheduler.claim_next(con, worker_id="other-worker", now=finished)
+    elif problem == "not_research_mode":
+        monkeypatch.delenv("AQUANT_DAILY_MODE")
+    elif problem == "manual":
+        # A manual result cannot authorize a scheduler retry.
+        pass
+    now = (datetime(2026, 9, 19, 0, 10, tzinfo=CST)
+           if problem == "cross_day" else finished + timedelta(minutes=15))
+    if problem == "naive_clock":
+        now = now.replace(tzinfo=None)
+    before = con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0]
+    result = worker.tick(con, worker_id="w1", data_dir=data_dir,
+                         schedule=scheduler.load_schedule(con), now=now)
+    assert result == ("ran:FAILED" if problem == "pending_request" else "idle")
+    assert con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0] == before
+    con.close()
+
+
+def test_timeout_retry_dry_run_does_not_register_request(tmp_path, monkeypatch):
+    worker, con, data_dir = _worker(tmp_path, monkeypatch, enabled=True)
+    monkeypatch.setenv("AQUANT_DAILY_MODE", "RESEARCH_SIMULATION")
+    _request_id, _path, record = _seed_timeout_failure(worker, con, root=tmp_path)
+    failed_at = datetime.fromisoformat(record["finished_at"])
+    before = con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0]
+    result = worker.tick(con, worker_id="w1", data_dir=data_dir,
+                         schedule=scheduler.load_schedule(con),
+                         now=failed_at + timedelta(minutes=15), dry_run=True)
+    assert result == "fired"
+    assert con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0] == before
+    con.close()
+
+
+def test_timeout_retry_stops_after_two_additional_requests_in_one_day(tmp_path, monkeypatch):
+    worker, con, data_dir = _worker(tmp_path, monkeypatch, enabled=True)
+    monkeypatch.setenv("AQUANT_DAILY_MODE", "RESEARCH_SIMULATION")
+    original_id, _path, original = _seed_timeout_failure(worker, con, root=tmp_path)
+    finish = datetime.fromisoformat(original["finished_at"])
+
+    assert worker.tick(con, worker_id="w1", data_dir=data_dir,
+                       schedule=scheduler.load_schedule(con),
+                       now=finish + timedelta(minutes=15)) == "fired"
+    retry1 = con.execute("SELECT request_id FROM pipeline_run_request WHERE requested_by=?",
+                         (worker._retry_marker_for_day("2026-09-18", 1),)).fetchone()[0]
+    failure1 = datetime(2026, 9, 18, 20, 55, tzinfo=CST)
+    _record_retry_failure(worker, con, root=tmp_path, request_id=retry1,
+                          finished_at=failure1,
+                          retry_kind="BAOSTOCK_CAPTURE_TRANSPORT_FAILURE")
+    assert worker.tick(con, worker_id="w2", data_dir=data_dir,
+                       schedule=scheduler.load_schedule(con),
+                       now=failure1 + timedelta(minutes=15)) == "fired"
+
+    retry2 = con.execute("SELECT request_id FROM pipeline_run_request WHERE requested_by=?",
+                         (worker._retry_marker_for_day("2026-09-18", 2),)).fetchone()[0]
+    failure2 = datetime(2026, 9, 18, 21, 20, tzinfo=CST)
+    _record_retry_failure(worker, con, root=tmp_path, request_id=retry2,
+                          finished_at=failure2,
+                          retry_kind="BAOSTOCK_LOGIN_TIMEOUT")
+    before_third_tick = con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0]
+    assert worker.tick(con, worker_id="w3", data_dir=data_dir,
+                       schedule=scheduler.load_schedule(con),
+                       now=failure2 + timedelta(minutes=15)) == "idle"
+    assert con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0] == before_third_tick == 3
+    assert con.execute("SELECT status FROM pipeline_run_request WHERE request_id=?",
+                       (original_id,)).fetchone()[0] == "FAILED"
+    markers = con.execute("SELECT requested_by,status FROM pipeline_run_request "
+                          "WHERE requested_by LIKE ? ORDER BY requested_by",
+                          (worker.DAILY_TIMEOUT_RETRY_REQUESTED_BY + ":2026-09-18:%",)).fetchall()
+    assert [row["requested_by"] for row in markers] == [
+        worker._retry_marker_for_day("2026-09-18", 1),
+        worker._retry_marker_for_day("2026-09-18", 2),
+    ]
+    assert [row["status"] for row in markers] == ["FAILED", "FAILED"]
+    con.close()
+
+
+def _record_retry_failure(worker, con, *, root: Path, request_id: str,
+                          finished_at: datetime, retry_kind: str) -> None:
+    started = finished_at - timedelta(minutes=2)
+    record = {
+        "trading_day": finished_at.date().isoformat(), "snapshot_id": "pending",
+        "outcome": "FAILED", "source": "scheduler", "mode": "RESEARCH_SIMULATION",
+        "reason": "test retry failure",
+        "started_at": started.isoformat(), "finished_at": finished_at.isoformat(),
+        "retryableFailure": {"kind": retry_kind},
+    }
+    if retry_kind == "BAOSTOCK_CAPTURE_TRANSPORT_FAILURE":
+        attempt_dir = root / "artifacts" / "retry-transport-failure"
+        checkpoint_path = attempt_dir / "simulation-evidence" / "checkpoint.json"
+        checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        checkpoint_path.write_text('{"checkpoint":"second failure"}', encoding="utf-8")
+        record["artifactDirectory"] = str(attempt_dir)
+        record["retryableFailure"].update({
+            "checkpointPath": str(checkpoint_path.resolve()),
+            "checkpointSha256": "sha256:" + hashlib.sha256(checkpoint_path.read_bytes()).hexdigest(),
+            "missingInstrumentIds": ["SH.600001"],
+        })
+    scheduler.finish_request(con, request_id=request_id, status="FAILED",
+                             exit_code=1, detail=record["reason"], now=finished_at)
+    scheduler.record_last_run(con, request_id=request_id, source="scheduler",
+                              record=record, exit_code=1, now=finished_at)
+    path = root / "deploy" / "agentctl-q0" / "last-run.json"
+    path.write_text(json.dumps(record), encoding="utf-8")
 
 
 def test_tick_is_idle_when_nothing_is_requested_and_not_due(tmp_path, monkeypatch):
@@ -270,10 +612,10 @@ def test_tick_fails_the_request_when_preflight_fails(tmp_path, monkeypatch):
 
 
 def test_failed_run_does_not_leave_the_request_pending(tmp_path, monkeypatch):
-    """失败的请求必须落到终态。
+    """普通手动失败必须落到终态。
 
-    留在 PENDING/CLAIMED 会让下一次 tick 反复重跑同一件事——
-    而"数据源坏了"会因此变成"每 20 秒重试一次"，把告警淹没。
+    留在 PENDING/CLAIMED 会让下一次 tick 反复重跑同一件事；受限恢复只
+    对另有严格结构证据的定时登录接收超时失败开放。
     """
 
     worker, con, data_dir = _worker(tmp_path, monkeypatch, enabled=False)

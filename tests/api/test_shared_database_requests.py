@@ -1,4 +1,5 @@
 """The workbench's parallel bootstrap must not overlap shared SQLite access."""
+import json
 import sys
 import threading
 import time
@@ -38,6 +39,87 @@ def test_financial_replay_does_not_block_shared_workspace_requests(tmp_path, mon
         finally:
             release.set()
         assert financial.result(timeout=5).json() == {"snapshotId": SNAPSHOT_ID, "fixture": True}
+    state.con.close()
+
+
+def test_research_rebuild_does_not_block_workspace_status(tmp_path, monkeypatch):
+    import main
+    monkeypatch.setenv("AQUANT_IDENTITY_MODE", "LOCAL_LOOPBACK_DEMO")
+    monkeypatch.setenv("AQUANT_TRIAL_SUBJECT", "user:demo")
+    research = tmp_path / "research.json"
+    research.write_text(json.dumps({"schema": "aquant.research-candidates.v2"}), encoding="utf-8")
+    monkeypatch.setenv("AQUANT_RESEARCH_CANDIDATES_FILE", str(research))
+    state = build_state(tmp_path / "state")
+    entered, release = threading.Event(), threading.Event()
+
+    def paused_rebuild(path, **kwargs):
+        assert path == research
+        entered.set()
+        assert release.wait(timeout=10)
+        return {"snapshotId": "research-fixture", "candidates": []}
+
+    monkeypatch.setattr(main, "load_verified_research_scan", paused_rebuild)
+    with TestClient(create_app(state)) as client, ThreadPoolExecutor(max_workers=2) as pool:
+        research_request = pool.submit(client.get, "/api/v1/research/candidates")
+        try:
+            assert entered.wait(timeout=5)
+            status = pool.submit(client.get, "/api/v1/status").result(timeout=5)
+            assert status.status_code == 200 and not release.is_set()
+            assert status.json()["snapshotId"] == SNAPSHOT_ID
+        finally:
+            release.set()
+        assert research_request.result(timeout=5).json()["snapshotId"] == "research-fixture"
+    state.con.close()
+
+
+def test_slow_snapshot_catalog_does_not_block_shared_reads_and_keeps_detail_contract(
+        tmp_path, monkeypatch):
+    import main
+
+    state = build_state(tmp_path)
+    state.con.execute(
+        "INSERT INTO snapshot (snapshot_id,kind,data_mode,status,input_cutoff_at,"
+        "as_of_time,published_at,created_at,code_version,data_version,quality_status) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("snap-draft-catalog-block", "EOD", "PRODUCTION", "DRAFT",
+         "2026-09-12T12:30:00+00:00", "2026-09-12T12:30:00+00:00", None,
+         "2026-09-12T12:00:00+00:00", "test", "test", "BLOCKING"),
+    )
+    entered, release = threading.Event(), threading.Event()
+    original = main.SnapshotReader.published_snapshot
+
+    def paused_catalog_item(reader, snapshot_id):
+        if reader is not state.reader:
+            entered.set()
+            assert release.wait(timeout=10), "test must release the independent catalog reader"
+        return original(reader, snapshot_id)
+
+    monkeypatch.setattr(main.SnapshotReader, "published_snapshot", paused_catalog_item)
+    with TestClient(create_app(state)) as client, ThreadPoolExecutor(max_workers=2) as pool:
+        catalog = pool.submit(client.get, "/api/v1/snapshots")
+        try:
+            assert entered.wait(timeout=5)
+            health = pool.submit(client.get, "/api/v1/health").result(timeout=5)
+            status = pool.submit(client.get, "/api/v1/status").result(timeout=5)
+            schedule = pool.submit(client.get, "/api/v1/schedule").result(timeout=5)
+            detail = pool.submit(
+                client.get, "/api/v1/snapshots/snap-syn-001").result(timeout=5)
+            unpublished = pool.submit(
+                client.get, "/api/v1/snapshots/snap-draft-catalog-block").result(timeout=5)
+            assert not release.is_set()
+            assert health.status_code == 200
+            assert status.status_code == 200 and status.json()["snapshotId"] == SNAPSHOT_ID
+            assert schedule.status_code == 200
+            assert detail.status_code == 200
+            assert unpublished.status_code == 409
+            assert "unknown published snapshot" in unpublished.json()["error"]["message"]
+        finally:
+            release.set()
+        response = catalog.result(timeout=5)
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["count"] == 1
+        assert body["snapshots"][0] == detail.json()
     state.con.close()
 
 

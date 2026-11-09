@@ -4,18 +4,25 @@ from __future__ import annotations
 import json
 import hashlib
 import re
-from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
+from copy import deepcopy
+from collections import Counter, OrderedDict, defaultdict
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
-from functools import lru_cache
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from threading import RLock
+from types import MappingProxyType
 
 from aquant.artifact_paths import resolve_artifact_path
+from aquant.domain.data.db import connect
 from aquant.domain.fundamentals.fact_repository import FinancialFactRepository
 from aquant.domain.fundamentals.versioned import VersionedFinancialFactStore
 from aquant.domain.research.s2 import build_s2_signals
-from aquant.operations.research_candidates import ResearchCandidateError, file_hash
+from aquant.operations.research_candidates import ResearchCandidateError
 from aquant.operations.research_industry import resolve_industries, resolve_disclosures
+from aquant.operations.research_stage_process import provenance_hash, verify_staged_scan
 
 SCHEMA = "aquant.research-candidates.v2"
 FACTORS = ("F07", "F08", "F09", "F10")
@@ -514,47 +521,448 @@ def build_research_scan(quote_packet, *, facts, bound, industries, history, name
             "archivedDocuments": len(announcements["documents"]) if announcements else 0}}
 
 
-@lru_cache(maxsize=2)
-def rebuild_scan(sources):
+_SCAN_JSON_INPUTS = frozenset({"quotes", "bound_records", "price_history", "company_names",
+    "price_history_refresh", "announcements", "industry_supplement", "industry_disclosures"})
+_SCAN_INPUTS = _SCAN_JSON_INPUTS | {"industry_snapshot"}
+_SCAN_CACHE = OrderedDict()
+_SCAN_CACHE_LOCK = RLock()
+_VERIFIED_SCAN_CACHE = OrderedDict()
+_SCAN_FACTS_CACHE = None
+_PREPARED_SCAN = None
+_RESEARCH_SCAN_CACHE_VERSION = "research-scan-exact-gate-v1"
+_SCAN_CACHE_LIMIT = 1
+
+
+class ResearchScanSchemaMismatch(ResearchCandidateError):
+    """The configured artifact uses the legacy candidate schema."""
+
+
+def _read_verified_json(path, expected_hash, role):
+    content = resolve_artifact_path(path).read_bytes()
+    actual_hash = "sha256:" + hashlib.sha256(content).hexdigest()
+    if actual_hash != expected_hash:
+        raise ResearchCandidateError("frozen research input has changed: " + role)
+    return json.loads(content)
+
+
+def _hash_resolved_file(path):
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return "sha256:" + digest.hexdigest()
+
+
+def _verify_source_hash(path, expected_hash, role):
+    source = resolve_artifact_path(path)
+    if role == "facts_db":
+        _assert_checkpointed_facts_db(source)
+    actual_hash = _hash_resolved_file(source)
+    if role == "facts_db":
+        _assert_checkpointed_facts_db(source)
+    if actual_hash != expected_hash:
+        raise ResearchCandidateError("frozen research input has changed: " + role)
+
+
+def _assert_checkpointed_facts_db(path):
+    """Reject a facts database whose readable state extends beyond its hashed file."""
+    wal_path = Path(str(path) + "-wal")
+    try:
+        wal_size = wal_path.stat().st_size
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise ResearchCandidateError(
+            f"cannot verify frozen research facts database WAL: {exc}") from exc
+    if wal_size:
+        raise ResearchCandidateError(
+            "frozen research facts database has a nonempty SQLite WAL")
+
+
+def _snapshot_verified_facts_db(path, expected_hash, destination):
+    """Stream a checkpointed database into a private copy while hashing those bytes."""
+    source = resolve_artifact_path(path)
+    _assert_checkpointed_facts_db(source)
+    digest = hashlib.sha256()
+    try:
+        with source.open("rb") as src, Path(destination).open("xb") as dst:
+            for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                digest.update(chunk)
+                dst.write(chunk)
+    except OSError as exc:
+        raise ResearchCandidateError(
+            f"cannot snapshot frozen research facts database: {exc}") from exc
+    _assert_checkpointed_facts_db(source)
+    actual_hash = "sha256:" + digest.hexdigest()
+    if actual_hash != expected_hash:
+        raise ResearchCandidateError("frozen research input has changed: facts_db")
+    return Path(destination)
+
+
+def _read_verified_scan_inputs(sources, *, facts_snapshot_dir):
+    """Verify every source and bind SQLite reads to the exact hashed file bytes."""
     paths = {role: resolve_artifact_path(path) for role, path, _ in sources}
     required = {"quotes", "bound_records", "facts_db", "industry_snapshot", "price_history", "company_names"}
     if not required <= paths.keys():
         raise ResearchCandidateError("missing research scan inputs")
-    store, _ = FinancialFactRepository.open_existing(paths["facts_db"]).load_with_accepted_s2_pdf_reviews()
-    read = lambda role: json.loads(paths[role].read_text(encoding="utf-8"))
-    names = {r["code"]: r.get("zwjc", r["code"]) for r in read("company_names")["stockList"]}
-    history = read("price_history")
-    if "price_history_refresh" in paths:
-        history = _refresh_history(history, read("price_history_refresh"))
-    packet = build_research_scan(read("quotes"), facts=store.facts, bound=read("bound_records"),
-        industries=read("industry_snapshot"), history=history, names=names, provenance=[],
-        announcements=read("announcements") if "announcements" in paths else None,
-        industry_supplement=read("industry_supplement") if "industry_supplement" in paths else None,
-        industry_disclosures=read("industry_disclosures") if "industry_disclosures" in paths else None)
+    selected = {role: (path, digest) for role, path, digest in sources}
+    inputs = {}
+    facts_snapshot = None
+    for role, path, expected_hash in sources:
+        is_selected_input = role in _SCAN_INPUTS and selected[role] == (path, expected_hash)
+        if role == "facts_db" and selected[role] == (path, expected_hash):
+            if facts_snapshot is None:
+                facts_snapshot = _snapshot_verified_facts_db(
+                    path, expected_hash,
+                    Path(facts_snapshot_dir) / "facts_db.sqlite")
+            else:
+                _verify_source_hash(path, expected_hash, role)
+        elif is_selected_input:
+            inputs[role] = _read_verified_json(path, expected_hash, role)
+        else:
+            _verify_source_hash(path, expected_hash, role)
+    if facts_snapshot is None:
+        raise ResearchCandidateError("missing research scan inputs")
+    paths["facts_db"] = facts_snapshot
+    return paths, inputs
+
+
+def _load_scan_facts(path, expected_hash):
+    """Reuse decoded facts only from a previously verified, proof-free copy."""
+    global _SCAN_FACTS_CACHE
+    # rebuild_scan holds _SCAN_CACHE_LOCK and supplies a private copy that
+    # already passed the original byte hash and source WAL checks.
+    if _SCAN_FACTS_CACHE is not None and _SCAN_FACTS_CACHE[0] == expected_hash:
+        return _SCAN_FACTS_CACHE[1]
+
+    _SCAN_FACTS_CACHE = None
+    store, _ = FinancialFactRepository.open_existing(path).load_with_accepted_s2_pdf_reviews()
+    facts = store.facts
+    with closing(connect(path, read_only=True)) as con:
+        has_proofs = con.execute(
+            "SELECT EXISTS (SELECT 1 FROM financial_fact_review) "
+            "OR EXISTS (SELECT 1 FROM financial_fact_review_member) "
+            "OR EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' "
+            "AND name='financial_fact_proof_supplement')"
+        ).fetchone()[0]
+    # Proof review can depend on external archives, calendars and current time.
+    # A hash of just the SQLite bytes cannot authorize reuse in those cases.
+    if not has_proofs:
+        _SCAN_FACTS_CACHE = (expected_hash, facts)
+    return facts
+
+
+def _build_research_scan(sources, paths, inputs):
+    required_inputs = {"quotes", "bound_records", "industry_snapshot", "price_history", "company_names"}
+    if not required_inputs <= inputs.keys():
+        raise ResearchCandidateError("missing research scan inputs")
+    hashes = {role: digest for role, _, digest in sources}
+    facts = _load_scan_facts(paths["facts_db"], hashes["facts_db"])
+    names = {r["code"]: r.get("zwjc", r["code"]) for r in inputs["company_names"]["stockList"]}
+    history = inputs["price_history"]
+    if "price_history_refresh" in inputs:
+        history = _refresh_history(history, inputs["price_history_refresh"])
+    packet = build_research_scan(inputs["quotes"], facts=facts, bound=inputs["bound_records"],
+        industries=inputs["industry_snapshot"], history=history, names=names, provenance=[],
+        announcements=inputs.get("announcements"), industry_supplement=inputs.get("industry_supplement"),
+        industry_disclosures=inputs.get("industry_disclosures"))
     packet["capturedTo"] = packet["asOfTime"]
     packet["snapshotId"] = ("research-closing-" if packet["quoteMode"] == "CLOSING_RESEARCH" else "research-intraday-") + hashlib.sha256(
         "|".join(digest for _, _, digest in sources).encode()).hexdigest()[:20]
     return packet
 
 
-def load_research_scan(path, *, limit=20, offset=0, q="", board="", industry="", view="candidates"):
+def _verify_scan_sources(sources):
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="research-scan-hash") as pool:
+        checks = [pool.submit(_verify_source_hash, path, expected_hash, role)
+                  for role, path, expected_hash in sources]
+        for check in checks:
+            check.result()
+    for role, path, _expected_hash in sources:
+        if role == "facts_db":
+            _assert_checkpointed_facts_db(resolve_artifact_path(path))
+
+
+def rebuild_scan(sources):
+    sources = tuple(sources)
+    with _SCAN_CACHE_LOCK:
+        if sources in _SCAN_CACHE:
+            # Cached explanations are reused only after current source bytes pass
+            # the same content-hash check as a cold rebuild.
+            _verify_scan_sources(sources)
+            _SCAN_CACHE.move_to_end(sources)
+            return _SCAN_CACHE[sources]
+        with TemporaryDirectory(prefix="aquant-research-scan-") as snapshot_dir:
+            paths, inputs = _read_verified_scan_inputs(
+                sources, facts_snapshot_dir=snapshot_dir)
+            packet = _build_research_scan(sources, paths, inputs)
+        _SCAN_CACHE[sources] = packet
+        while len(_SCAN_CACHE) > _SCAN_CACHE_LIMIT:
+            _SCAN_CACHE.popitem(last=False)
+        # The validation cache retains the same single derived packet. Do not
+        # keep an older candidate pool alive after a new source set arrives.
+        for key in tuple(_VERIFIED_SCAN_CACHE):
+            if key[2] != sources:
+                del _VERIFIED_SCAN_CACHE[key]
+        return packet
+
+
+def _clear_rebuild_scan_cache():
+    global _SCAN_FACTS_CACHE, _PREPARED_SCAN
+    with _SCAN_CACHE_LOCK:
+        _SCAN_CACHE.clear()
+        _VERIFIED_SCAN_CACHE.clear()
+        _SCAN_FACTS_CACHE = None
+        _PREPARED_SCAN = None
+
+
+rebuild_scan.cache_clear = _clear_rebuild_scan_cache
+
+
+def _query_research_scan(packet, *, limit, offset, q, board, industry, view):
     if not 1 <= limit <= 100 or offset < 0 or view not in {"candidates", "all", "financial"}:
         raise ResearchCandidateError("invalid research scan query")
-    packet = json.loads(resolve_artifact_path(path).read_text(encoding="utf-8"))
-    if packet.get("schema") != SCHEMA or packet.get("researchOnly") is not True or packet.get("simulationAvailable") is not False:
-        raise ResearchCandidateError("not a read-only current research scan")
-    provenance = packet["provenance"]
-    for item in provenance:
-        if file_hash(Path(item["path"])) != item["contentHash"]:
-            raise ResearchCandidateError("frozen research input has changed: " + item["role"])
-    expected = rebuild_scan(tuple(sorted((s["role"], s["path"], s["contentHash"]) for s in provenance)))
-    if any(packet.get(k) != v for k, v in expected.items() if k not in {"generatedAt", "provenance"}):
-        raise ResearchCandidateError("research explanations differ from frozen inputs")
     query = q.strip().casefold()
     chosen = [r for r in packet["candidates"] if
         (view == "all" or (view == "candidates" and r["status"] == "RANKED") or (view == "financial" and r["status"] == "FINANCIAL"))
         and (not query or any(query in str(r[k]).casefold() for k in ("code", "instrumentId", "displayName")))
         and (not board or r["board"] == board)
         and (not industry or industry.casefold() in r["industry"].casefold())]
-    return dict(packet, candidates=chosen[offset:offset + limit], offset=offset, filteredCount=len(chosen),
-                returnedCount=len(chosen[offset:offset + limit]), nextOffset=offset + limit if offset + limit < len(chosen) else None)
+    # Candidate rows live in the process cache. Replace the full list before
+    # copying so only the small response page and metadata are duplicated.
+    response = dict(packet, candidates=chosen[offset:offset + limit], offset=offset,
+                    filteredCount=len(chosen),
+                    returnedCount=min(limit, max(0, len(chosen) - offset)),
+                    nextOffset=offset + limit if offset + limit < len(chosen) else None)
+    return deepcopy(response)
+
+
+def _scan_sources(packet):
+    if packet.get("schema") != SCHEMA or packet.get("researchOnly") is not True or packet.get("simulationAvailable") is not False:
+        raise ResearchCandidateError("not a read-only current research scan")
+    provenance = packet["provenance"]
+    return tuple(sorted((s["role"], s["path"], s["contentHash"]) for s in provenance))
+
+
+def _require_matching_scan(packet, expected):
+    if any(packet.get(k) != v for k, v in expected.items() if k not in {"generatedAt", "provenance"}):
+        raise ResearchCandidateError("research explanations differ from frozen inputs")
+
+
+def _validated_scan_sources(packet):
+    sources = _scan_sources(packet)
+    expected = rebuild_scan(sources)
+    _require_matching_scan(packet, expected)
+    return sources, expected
+
+
+def load_research_scan(path, *, limit=20, offset=0, q="", board="", industry="", view="candidates", packet=None):
+    if not 1 <= limit <= 100 or offset < 0 or view not in {"candidates", "all", "financial"}:
+        raise ResearchCandidateError("invalid research scan query")
+    if packet is None:
+        packet = json.loads(resolve_artifact_path(path).read_text(encoding="utf-8"))
+    _validated_scan_sources(packet)
+    return _query_research_scan(packet, limit=limit, offset=offset, q=q, board=board,
+                                industry=industry, view=view)
+
+
+def _read_scan_bytes(path, expected_hash):
+    body = path.read_bytes()
+    if "sha256:" + hashlib.sha256(body).hexdigest() != expected_hash:
+        raise ResearchCandidateError("research candidate artifact changed while verifying")
+    return body
+
+
+def _committed_scan(path, artifact_hash):
+    try:
+        record = json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return False
+    return (isinstance(record, dict) and record.get("state") == "COMMITTED"
+            and record.get("researchHash") == artifact_hash)
+
+
+def prepare_research_scan(staged_path, *, published_path, expected_hash, metadata_db) -> bool | None:
+    """Prepare a receipt, returning None only for temporary guard denials."""
+    global _PREPARED_SCAN
+    current = str(Path(resolve_artifact_path(published_path)).resolve(strict=True))
+    staged = Path(resolve_artifact_path(staged_path)).resolve(strict=True)
+    if str(staged) == current:
+        return False
+    commit_record = staged.with_name("publication-commit.json")
+    with _SCAN_CACHE_LOCK:
+        if _PREPARED_SCAN is not None and _PREPARED_SCAN[:3] == (current, expected_hash, commit_record):
+            return True
+        if any(key[:2] == (current, expected_hash) for key in _VERIFIED_SCAN_CACHE):
+            return False
+
+    receipt, outcome = verify_staged_scan(
+        staged, expected_hash, metadata_db, _RESEARCH_SCAN_CACHE_VERSION)
+    if receipt is None:
+        if outcome in {"financial_busy", "insufficient_memory"}:
+            return None
+        return False
+    with _SCAN_CACHE_LOCK:
+        if any(key[:2] == (current, expected_hash) for key in _VERIFIED_SCAN_CACHE):
+            return False
+        _PREPARED_SCAN = (current, expected_hash, commit_record, receipt)
+    return True
+
+
+def _verified_research_scan_packet(path):
+    """Return the fully compared packet, hash and immutable artifact bytes."""
+    global _PREPARED_SCAN
+    resolved = Path(resolve_artifact_path(path)).resolve(strict=True)
+    artifact_hash = _hash_resolved_file(resolved)
+    path_key = str(resolved)
+
+    with _SCAN_CACHE_LOCK:
+        # The artifact hash commits to its serialized provenance. Keep the
+        # provenance tuple in the cache key as an explicit part of the source
+        # binding, together with the semantic implementation version.
+        for key, cached in tuple(_VERIFIED_SCAN_CACHE.items()):
+            if key[0] == path_key and key[1] == artifact_hash and key[3] == _RESEARCH_SCAN_CACHE_VERSION:
+                if cached.get("prepared"):
+                    _verify_scan_sources(cached["sources"])
+                else:
+                    rebuild_scan(cached["sources"])
+                _VERIFIED_SCAN_CACHE.move_to_end(key)
+                return cached["packet"], artifact_hash, cached["body"]
+
+        body = _read_scan_bytes(resolved, artifact_hash)
+        packet = json.loads(body.decode("utf-8"))
+        if packet.get("schema") != SCHEMA:
+            raise ResearchScanSchemaMismatch("configured research artifact uses another schema")
+        if _PREPARED_SCAN is not None and _PREPARED_SCAN[:2] == (path_key, artifact_hash):
+            _, _, commit_record, receipt = _PREPARED_SCAN
+            _PREPARED_SCAN = None
+            if _committed_scan(commit_record, artifact_hash):
+                sources = _scan_sources(packet)
+                facts_hash = {role: digest for role, _, digest in sources}.get("facts_db")
+                if (receipt["version"] == _RESEARCH_SCAN_CACHE_VERSION
+                        and receipt["artifactHash"] == artifact_hash
+                        and receipt["sourcesHash"] == provenance_hash(sources)
+                        and receipt["factsHash"] == facts_hash):
+                    _verify_scan_sources(sources)
+                    _SCAN_CACHE.clear()
+                    _VERIFIED_SCAN_CACHE.clear()
+                    key = (path_key, artifact_hash, sources, _RESEARCH_SCAN_CACHE_VERSION)
+                    _VERIFIED_SCAN_CACHE[key] = {
+                        "sources": sources, "packet": packet, "body": body, "prepared": True,
+                    }
+                    return packet, artifact_hash, body
+        sources, expected = _validated_scan_sources(packet)
+
+        # The deep equality above proves the frozen artifact matches the full
+        # source-derived result. Reuse that derived candidate list and retain
+        # only the artifact's small top-level metadata and provenance. Keep the
+        # rebuild cache itself as the pure source-derived packet so direct and
+        # legacy callers retain the existing comparison contract.
+        validated_packet = dict(packet)
+        validated_packet["candidates"] = expected["candidates"]
+
+        _VERIFIED_SCAN_CACHE.clear()
+        key = (path_key, artifact_hash, sources, _RESEARCH_SCAN_CACHE_VERSION)
+        _VERIFIED_SCAN_CACHE[key] = {"sources": sources, "packet": validated_packet, "body": body}
+        return validated_packet, artifact_hash, body
+
+
+def _project_research_scan_for_simulation_context(packet):
+    """Keep only fields read by context binding and eligibility evaluation."""
+    timestamp_fields = ("observedAt", "availableAt")
+
+    def timestamp_item(item):
+        return MappingProxyType({key: item[key] for key in timestamp_fields if key in item})
+
+    candidates = []
+    for card in packet["candidates"]:
+        quote = card.get("quote") or {}
+        industry = card.get("industryClassification") or {}
+        evidence = card.get("evidence", [])
+        candidates.append(MappingProxyType({
+            "status": card.get("status"),
+            "instrumentId": card.get("instrumentId"),
+            "displayName": card.get("displayName"),
+            "position": card.get("position"),
+            "exchange": card.get("exchange"),
+            "board": card.get("board"),
+            "signalRank": card.get("signalRank"),
+            "quote": MappingProxyType({key: quote[key] for key in
+                ("providerName", *timestamp_fields) if key in quote}),
+            "industryClassification": timestamp_item(industry),
+            "evidence": tuple(timestamp_item(item) for item in evidence),
+        }))
+    return MappingProxyType({
+        "snapshotId": packet["snapshotId"],
+        "dataAsOf": packet["dataAsOf"],
+        "capturedTo": packet["capturedTo"],
+        "generatedAt": packet["generatedAt"],
+        "asOfTime": packet["asOfTime"],
+        "candidates": tuple(candidates),
+    })
+
+
+def load_verified_research_scan_context_projection(path):
+    """Return a small immutable context view after the usual full verification.
+
+    The cached view is keyed by the same artifact SHA, provenance tuple and
+    verifier version as the fully compared packet. Every call still checks all
+    source bytes and re-hashes the artifact after obtaining the projection.
+    """
+    resolved = Path(resolve_artifact_path(path)).resolve(strict=True)
+    packet, digest, _body = _verified_research_scan_packet(resolved)
+    path_key = str(resolved)
+    sources = tuple(sorted((item["role"], item["path"], item["contentHash"])
+                           for item in packet["provenance"]))
+    key = (path_key, digest, sources, _RESEARCH_SCAN_CACHE_VERSION)
+
+    with _SCAN_CACHE_LOCK:
+        cached = _VERIFIED_SCAN_CACHE.get(key)
+        projection = cached.get("context_projection") if cached is not None else None
+        if projection is None:
+            projection = _project_research_scan_for_simulation_context(packet)
+            if cached is not None:
+                cached["context_projection"] = projection
+
+    if _hash_resolved_file(resolved) != digest:
+        raise ResearchCandidateError("research artifact changed during verification")
+    return projection, digest
+
+
+def load_verified_research_scan_packet(path):
+    """Return an independently mutable copy of the fully verified packet.
+
+    The shared process cache stays isolated from callers. Every call hashes the
+    complete artifact before and after verification and rechecks all source
+    bytes, including the facts database WAL guard.
+    """
+    resolved = Path(resolve_artifact_path(path)).resolve(strict=True)
+    _packet, digest, body = _verified_research_scan_packet(resolved)
+    # Decoding the already verified bytes is faster than Python's full-tree
+    # deepcopy and preserves the artifact's exact JSON types. It creates a
+    # private mutable packet without exposing either shared cached object.
+    packet = json.loads(body)
+    # Keep the original full-read boundary: replacement during the source
+    # checks or private packet construction must reject this simulation read.
+    if _hash_resolved_file(resolved) != digest:
+        raise ResearchCandidateError("research artifact changed during verification")
+    return packet, digest
+
+
+def load_verified_research_scan(path, *, limit=20, offset=0, q="", board="", industry="", view="candidates"):
+    """Read, validate and query the frozen research artifact.
+
+    Every call hashes the complete candidate artifact and every provenance
+    source. A warm hit reuses the parsed, fully compared packet, but still goes
+    through ``rebuild_scan``'s exact source-byte checks and SQLite WAL guard.
+    Only one fully verified pool is retained; the cache is process-local and
+    is cleared with ``rebuild_scan.cache_clear``.
+    """
+    if not 1 <= limit <= 100 or offset < 0 or view not in {"candidates", "all", "financial"}:
+        raise ResearchCandidateError("invalid research scan query")
+    packet, _artifact_hash, _body = _verified_research_scan_packet(path)
+    return _query_research_scan(packet, limit=limit, offset=offset,
+                                q=q, board=board, industry=industry, view=view)
+
+
+load_verified_research_scan.cache_clear = _clear_rebuild_scan_cache

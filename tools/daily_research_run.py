@@ -38,10 +38,56 @@ DEFAULT_ARTIFACT_ROOT = ROOT / "data/s2-structured/daily"
 DEFAULT_ARCHIVE = ROOT / "deploy/agentctl-q0/forward-archive"
 DEFAULT_ALERTS = ROOT / "deploy/agentctl-q0/alerts.jsonl"
 MAIN_ID = re.compile(r"^(?:SH\.60\d{4}|SZ\.00\d{4})$")
+SIMULATION_CAPTURE_STEP = "Luna采集工具更新限定模拟池证据"
+BAOSTOCK_LOGIN_RECEIVE_RETRY_KIND = "BAOSTOCK_LOGIN_RECEIVE_FAILURE"
+_LOGIN_TIMEOUT_DIAGNOSTIC = re.compile(r"timed\s*out|timeout|超时", re.IGNORECASE)
+_LOGIN_RECEIVE_ERROR = re.compile(r"recv|receive|接收", re.IGNORECASE)
+_LOGIN_RECEIVE_DIAGNOSTIC = re.compile(
+    r"BaoStock socket closed before response completed|接收数据异常", re.IGNORECASE)
 
 
 def file_hash(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def notify_publication_warmup(phase: str) -> dict | None:
+    """Wake the existing API queue once; normal health polls recover failures."""
+    target = os.environ.get("AQUANT_PUBLICATION_WARMUP_URL", "").strip()
+    if not target:
+        return None
+    import http.client
+    import urllib.request
+    from urllib.parse import urlsplit
+
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
+    started = time.monotonic()
+    event = {"event": "publication_warmup_notification", "phase": phase}
+    try:
+        parsed = urlsplit(target)
+        if (parsed.scheme not in {"http", "https"} or not parsed.hostname
+                or parsed.username is not None or parsed.password is not None
+                or parsed.path != "/api/v1/health" or parsed.query or parsed.fragment):
+            raise ValueError("warmup target must be a health endpoint without credentials/query")
+        # Accessing port also rejects a malformed port before making a request.
+        parsed.port
+        request = urllib.request.Request(target, method="GET",
+                                         headers={"Accept": "application/json"})
+        with urllib.request.build_opener(NoRedirect()).open(request, timeout=2.0) as response:
+            payload = response.read(64 * 1024 + 1)
+            if len(payload) > 64 * 1024:
+                raise ValueError("warmup health response exceeds its bound")
+            if response.status != 200 or not isinstance(json.loads(payload), dict):
+                raise ValueError("warmup health endpoint did not return a JSON object")
+        event["outcome"] = "NOTIFIED"
+    except (OSError, ValueError, http.client.HTTPException) as exc:
+        event.update(outcome="DEFERRED", errorType=type(exc).__name__,
+                     recovery="existing_health_poll")
+    event["elapsedSeconds"] = round(time.monotonic() - started, 6)
+    print(json.dumps(event, ensure_ascii=False), file=sys.stderr, flush=True)
+    return event
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -52,6 +98,245 @@ def write_json(path: Path, value: dict) -> None:
         os.replace(temp, path)
     finally:
         temp.unlink(missing_ok=True)
+
+
+def _aware_utc_timestamp(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def confirmed_baostock_login_timeout(*, attempt_dir: Path,
+                                     started_at: str,
+                                     finished_at: str) -> bool:
+    """Require this run's saved, structured proof of two retryable recv timeouts."""
+
+    started = _aware_utc_timestamp(started_at)
+    finished = _aware_utc_timestamp(finished_at)
+    if started is None or finished is None or finished < started:
+        return False
+    attempts_path = attempt_dir / "simulation-evidence" / "login-attempts.json"
+    try:
+        attempt_root = attempt_dir.resolve()
+        resolved_path = attempts_path.resolve(strict=True)
+        if (attempts_path.is_symlink() or not resolved_path.is_file()
+                or not resolved_path.is_relative_to(attempt_root)):
+            return False
+        generated = datetime.fromtimestamp(resolved_path.stat().st_mtime, timezone.utc)
+        if generated < started or generated > finished:
+            return False
+        packet = json.loads(resolved_path.read_text(encoding="utf-8"))
+    except Exception:
+        # Unreadable or malformed evidence cannot promote the failure to retryable.
+        return False
+    if (not isinstance(packet, dict)
+            or packet.get("schema") != "aquant.baostock_login_attempts.v1"
+            or packet.get("provider") != "baostock"
+            or packet.get("status") != "FAILED"):
+        return False
+    attempts = packet.get("attempts")
+    if not isinstance(attempts, list) or len(attempts) != 2:
+        return False
+    parsed_attempts: list[tuple[datetime, datetime]] = []
+    for index, attempt in enumerate(attempts, start=1):
+        if (not isinstance(attempt, dict)
+                or type(attempt.get("attempt")) is not int
+                or attempt.get("attempt") != index
+                or attempt.get("status") != "failed"
+                or attempt.get("retryable") is not True
+                or attempt.get("error_type") != "BaostockUnavailable"
+                or attempt.get("error_code") != "10002007"
+                or not isinstance(attempt.get("diagnostic"), str)
+                or not _LOGIN_TIMEOUT_DIAGNOSTIC.search(attempt["diagnostic"])
+                or not isinstance(attempt.get("error"), str)
+                or not _LOGIN_RECEIVE_ERROR.search(attempt["error"])):
+            return False
+        attempt_started = _aware_utc_timestamp(attempt.get("started_at"))
+        attempt_finished = _aware_utc_timestamp(attempt.get("finished_at"))
+        if (attempt_started is None or attempt_finished is None
+                or attempt_started < started or attempt_finished < attempt_started
+                or attempt_finished > finished):
+            return False
+        parsed_attempts.append((attempt_started, attempt_finished))
+    return parsed_attempts[1][0] >= parsed_attempts[0][1]
+
+
+def confirmed_baostock_login_receive_failure(*, attempt_dir: Path,
+                                             started_at: str,
+                                             finished_at: str) -> dict | None:
+    """Bind one failed login to BaoStock's specific network-receive code."""
+    started = _aware_utc_timestamp(started_at)
+    finished = _aware_utc_timestamp(finished_at)
+    if started is None or finished is None or finished < started:
+        return None
+    attempts_path = attempt_dir / "simulation-evidence" / "login-attempts.json"
+    try:
+        attempt_root = attempt_dir.resolve(strict=True)
+        resolved_path = attempts_path.resolve(strict=True)
+        if (attempts_path.is_symlink() or not resolved_path.is_file()
+                or not resolved_path.is_relative_to(attempt_root)):
+            return None
+        generated = datetime.fromtimestamp(resolved_path.stat().st_mtime, timezone.utc)
+        if generated < started or generated > finished:
+            return None
+        packet = json.loads(resolved_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    retry_policy = packet.get("retry_policy") if isinstance(packet, dict) else None
+    attempts = packet.get("attempts") if isinstance(packet, dict) else None
+    if (not isinstance(packet, dict)
+            or packet.get("schema") != "aquant.baostock_login_attempts.v1"
+            or packet.get("provider") != "baostock"
+            or packet.get("status") != "FAILED"
+            or not isinstance(retry_policy, dict)
+            or retry_policy.get("max_attempts") != 2
+            or type(retry_policy.get("delay_seconds")) is not int
+            or retry_policy["delay_seconds"] <= 0
+            or not isinstance(attempts, list) or len(attempts) != 1):
+        return None
+    attempt = attempts[0]
+    if (not isinstance(attempt, dict)
+            or type(attempt.get("attempt")) is not int or attempt["attempt"] != 1
+            or attempt.get("status") != "failed"
+            or attempt.get("retryable") is not False
+            or attempt.get("error_type") != "BaostockUnavailable"
+            or attempt.get("error_code") != "10002007"
+            or not isinstance(attempt.get("error"), str)
+            or "10002007" not in attempt["error"]
+            or not _LOGIN_RECEIVE_ERROR.search(attempt["error"])
+            or not isinstance(attempt.get("diagnostic"), str)
+            or not _LOGIN_RECEIVE_DIAGNOSTIC.search(attempt["diagnostic"])
+            or not _LOGIN_RECEIVE_ERROR.search(attempt["diagnostic"])):
+        return None
+    cleanup = attempt.get("cleanup")
+    if (not isinstance(cleanup, dict) or cleanup.get("socket_closed") is not True
+            or cleanup.get("context_cleared") is not True):
+        return None
+    attempt_started = _aware_utc_timestamp(attempt.get("started_at"))
+    attempt_finished = _aware_utc_timestamp(attempt.get("finished_at"))
+    if (attempt_started is None or attempt_finished is None
+            or attempt_started < started or attempt_finished < attempt_started
+            or attempt_finished > finished):
+        return None
+    return {
+        "kind": BAOSTOCK_LOGIN_RECEIVE_RETRY_KIND,
+        "loginAttemptsPath": str(resolved_path),
+        "loginAttemptsSha256": file_hash(resolved_path),
+    }
+
+
+def confirmed_baostock_capture_transport_failure(*, attempt_dir: Path,
+                                                  trading_day: str,
+                                                  simulation_limit: int,
+                                                  started_at: str,
+                                                  finished_at: str) -> dict | None:
+    """Bind incomplete selected securities to this run's checkpoint transport errors."""
+
+    started = _aware_utc_timestamp(started_at)
+    finished = _aware_utc_timestamp(finished_at)
+    if started is None or finished is None or finished < started:
+        return None
+    checkpoint_path = attempt_dir / "simulation-evidence" / "checkpoint.json"
+    research_path = attempt_dir / "research-candidates.json"
+    retained_path = attempt_dir / "retained-instruments.json"
+    try:
+        attempt_root = attempt_dir.resolve()
+        files = [checkpoint_path, research_path, retained_path]
+        resolved = [path.resolve(strict=True) for path in files]
+        if any(path.is_symlink() or not path.is_file()
+               or not path.is_relative_to(attempt_root) for path in resolved):
+            return None
+        checkpoint_path, research_path, retained_path = resolved
+        checkpoint_stat = checkpoint_path.stat()
+        generated = datetime.fromtimestamp(checkpoint_stat.st_mtime, timezone.utc)
+        if generated < started or generated > finished:
+            return None
+        checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+        research = json.loads(research_path.read_text(encoding="utf-8"))
+        retained = json.loads(retained_path.read_text(encoding="utf-8"))
+        updated = _aware_utc_timestamp(checkpoint.get("updated_at"))
+        if updated is None or updated < started or updated > finished:
+            return None
+        from capture_research_simulation_evidence import (
+            select_candidates, target_bar_is_complete, validate_retained_document,
+        )
+        retained_ids = validate_retained_document(retained, trading_day)
+        selected = select_candidates(research, limit=simulation_limit,
+                                     retained_ids=retained_ids)
+        selected_ids = [item["instrumentId"] for item in selected]
+        if not selected_ids or len(selected_ids) != len(set(selected_ids)):
+            return None
+        research_hash = file_hash(research_path)
+        retained_hash = file_hash(retained_path)
+        expected_binding = {
+            "target_day": trading_day,
+            "research_path": str(research_path),
+            "research_hash": research_hash,
+            "selected_instrument_ids": selected_ids,
+            "retained_path": str(retained_path),
+            "retained_hash": retained_hash,
+        }
+        if (checkpoint.get("schema") != "aquant.simulation_evidence_checkpoint.v1"
+                or checkpoint.get("capture_binding") != expected_binding
+                or checkpoint.get("capture_market_date") != trading_day
+                or checkpoint.get("research_input_hash") != research_hash
+                or checkpoint.get("research_input_path") != str(research_path)):
+            return None
+        instruments = checkpoint.get("instruments")
+        failures = checkpoint.get("failures")
+        if not isinstance(instruments, dict) or not isinstance(failures, list):
+            return None
+        incomplete = []
+        for iid in selected_ids:
+            item = instruments.get(iid)
+            eligibility = item.get("simulation_eligibility") if isinstance(item, dict) else None
+            if (not isinstance(item, dict)
+                    or not target_bar_is_complete(item.get("bars", []), trading_day)
+                    or not isinstance(eligibility, dict)
+                    or eligibility.get("status") != "VERIFIED"):
+                incomplete.append(iid)
+        if not incomplete:
+            return None
+        failures_by_id: dict[str, list[dict]] = {}
+        for failure in failures:
+            if not isinstance(failure, dict) or failure.get("instrument_id") not in incomplete:
+                return None
+            failures_by_id.setdefault(failure["instrument_id"], []).append(failure)
+        if set(failures_by_id) != set(incomplete):
+            return None
+        for iid in incomplete:
+            entries = failures_by_id[iid]
+            has_transport = False
+            for failure in entries:
+                detail = failure.get("detail")
+                transport = (isinstance(detail, str)
+                             and detail.startswith("BaostockUnavailable:")
+                             and "10002007" in detail
+                             and _LOGIN_RECEIVE_ERROR.search(detail) is not None)
+                if transport:
+                    has_transport = True
+                    continue
+                if (failure.get("stage") == "stock_basic"
+                        and detail == "no exact code row"):
+                    continue
+                return None
+            if not has_transport:
+                return None
+        digest = file_hash(checkpoint_path)
+        return {"kind": "BAOSTOCK_CAPTURE_TRANSPORT_FAILURE",
+                "checkpointPath": str(checkpoint_path),
+                "checkpointSha256": digest,
+                "missingInstrumentIds": incomplete}
+    except Exception:
+        # Classification is an optional hint: malformed/unavailable evidence
+        # keeps the original capture failure, never replaces it.
+        return None
 
 
 def verified_calendar_day(summary_path: Path, target: date, *, now: datetime) -> dict:
@@ -617,6 +902,28 @@ def main(argv: list[str] | None = None) -> int:
     def finish(code: int) -> int:
         record.finished_at = datetime.now(timezone.utc).isoformat()
         record.duration_seconds = round(time.monotonic() - started, 1)
+        if (record.outcome == "FAILED" and extra.get("mode") == "RESEARCH_SIMULATION"
+                and record.steps and record.steps[-1].get("step") == SIMULATION_CAPTURE_STEP
+                and record.steps[-1].get("ok") is False):
+            attempt_dir = extra.get("artifactDirectory")
+            if isinstance(attempt_dir, str) and attempt_dir:
+                if confirmed_baostock_login_timeout(
+                        attempt_dir=Path(attempt_dir), started_at=record.started_at,
+                        finished_at=record.finished_at):
+                    extra["retryableFailure"] = {"kind": "BAOSTOCK_LOGIN_TIMEOUT"}
+                else:
+                    login_retry_hint = confirmed_baostock_login_receive_failure(
+                        attempt_dir=Path(attempt_dir), started_at=record.started_at,
+                        finished_at=record.finished_at)
+                    if login_retry_hint is not None:
+                        extra["retryableFailure"] = login_retry_hint
+                    else:
+                        retry_hint = confirmed_baostock_capture_transport_failure(
+                            attempt_dir=Path(attempt_dir), trading_day=day,
+                            simulation_limit=args.simulation_limit,
+                            started_at=record.started_at, finished_at=record.finished_at)
+                        if retry_hint is not None:
+                            extra["retryableFailure"] = retry_hint
         payload = dict(record.as_dict(), **extra)
         args.run_log.parent.mkdir(parents=True, exist_ok=True)
         with args.run_log.open("a", encoding="utf-8") as handle:
@@ -660,6 +967,7 @@ def main(argv: list[str] | None = None) -> int:
                 write_json(state_path, {"state": "COMMITTED", "path": str(attempt.resolve()),
                                         "snapshotId": committed})
                 record.snapshot_id, record.outcome, record.data_last_day = committed, "PUBLISHED", day
+                notify_publication_warmup("publication_recovered")
                 record.reason = "恢复已完成的联合发布记录；未重复采集或覆盖来源"
                 advance_forward_after_publication(data_dir=args.data_dir, snapshot_id=committed,
                     attempt=attempt, record=record, extra=extra, alerts=args.alerts)
@@ -734,6 +1042,7 @@ def main(argv: list[str] | None = None) -> int:
                     refresh_daily_announcements(attempt=attempt, ranking=ranking, staged=staged,
                         retained=json.loads(retained_path.read_text(encoding="utf-8")), target=target,
                         archive_root=args.archive_root, alerts=args.alerts, record=record, extra=extra)
+                    notify_publication_warmup("announcements_ready")
             summary = evidence / "summary.json"
             cache, pool = publication_files(summary, research=staged, day=day)
             market_caps = refresh_daily_market_caps(attempt=attempt, pool=pool, target=target,
@@ -766,6 +1075,7 @@ def main(argv: list[str] | None = None) -> int:
                          snapshot_id=record.snapshot_id, attempt=attempt)
             write_json(state_path, {"state": "COMMITTED", "path": str(attempt.resolve()),
                                     "snapshotId": record.snapshot_id})
+            notify_publication_warmup("publication_committed")
             record.outcome, record.data_last_day = "PUBLISHED", day
             record.reason = "全范围研究刷新已发布；模拟为已核验的主板限定池，财务及行业来源日期保留"
             extra["simulationLimit"] = args.simulation_limit

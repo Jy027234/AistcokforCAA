@@ -429,29 +429,44 @@ class SnapshotStore:
         ).fetchall()
         return [dict(r) for r in rows]
 
-    def verify_dataset(self, snapshot_id: str, name: str) -> str:
-        """读取时重算哈希，防止已发布内容被替换。"""
-
+    def _dataset_ref(self, snapshot_id: str, name: str) -> DatasetRef:
         for d in self.datasets(snapshot_id):
             if d["name"] == name:
-                ref = DatasetRef(
+                return DatasetRef(
                     name=d["name"], path=d["path"], sha256=d["sha256"],
                     record_count=d["record_count"],
                     as_of_upper_bound=_parse(d["as_of_upper_bound"]),
                 )
-                actual = ref.recompute_sha256(self.root)
-                if actual != ref.sha256:
-                    raise SnapshotError(
-                        "DATA_NOT_READY",
-                        f"dataset {name!r} of {snapshot_id} failed hash verification",
-                        snapshot_id,
-                        "the published content changed after publication; restore it or republish",
-                    )
-                return actual
         raise SnapshotError(
             "DATA_NOT_READY", f"snapshot {snapshot_id!r} has no dataset {name!r}",
             snapshot_id, "check the snapshot manifest for available dataset names",
         )
+
+    @staticmethod
+    def _check_dataset_hash(snapshot_id: str, ref: DatasetRef, actual: str) -> None:
+        if actual != ref.sha256:
+            raise SnapshotError(
+                "DATA_NOT_READY",
+                f"dataset {ref.name!r} of {snapshot_id} failed hash verification",
+                snapshot_id,
+                "the published content changed after publication; restore it or republish",
+            )
+
+    def verify_dataset(self, snapshot_id: str, name: str) -> str:
+        """读取时重算哈希，防止已发布内容被替换。"""
+
+        ref = self._dataset_ref(snapshot_id, name)
+        actual = ref.recompute_sha256(self.root)
+        self._check_dataset_hash(snapshot_id, ref, actual)
+        return actual
+
+    def read_verified_dataset(self, snapshot_id: str, name: str) -> bytes:
+        """Read and verify the exact bytes that the caller will parse."""
+
+        ref = self._dataset_ref(snapshot_id, name)
+        body = (self.root / ref.path).read_bytes()
+        self._check_dataset_hash(snapshot_id, ref, "sha256:" + hashlib.sha256(body).hexdigest())
+        return body
 
     def blocking_issues(self, snapshot_id: str) -> list[dict]:
         rows = self.con.execute(

@@ -46,7 +46,7 @@ from ..domain.fundamentals.versioned import VersionedFinancialFactStore
 from ..domain.research.s2 import (S2Template, S2ComputationError, build_s2_signals,
                                 compute_s2_financial_inputs, required_s2_periods)
 from .decision_market_caps import (
-    DecisionMarketCapError, load_sidecar, normalize_instrument_id,
+    DecisionMarketCapError, REPLAY_SCHEMA_VERSION, load_sidecar, normalize_instrument_id,
     SUPPORTED_SOURCE_IDS, _parse_aware_datetime, _validate_observation_time,
     verify_frozen_market_caps_archive,
 )
@@ -445,14 +445,19 @@ def _build_s2_readiness_report_and_inventory(
             verify_frozen_market_caps_archive(
                 [row for row in instruments if row["instrument_id"] in caps],
                 archive_root=market_caps_archive_root, expected_as_of=snapshot.trading_day,
-                cutoff=ref.as_of_time)
+                cutoff=ref.as_of_time, expected_instrument_ids=ids)
             cap_evidence.update(mode="RECEIPT_VERIFIED_FROZEN_SNAPSHOT",
                                 archive_root=str(market_caps_archive_root))
     if market_caps_path is not None:
         if market_caps_archive_root is None:
             raise S2ReadinessError("explicit market-cap sidecar requires archive_root")
         sidecar = load_sidecar(market_caps_path, expected_as_of=snapshot.trading_day,
-                               archive_root=market_caps_archive_root)
+                               archive_root=market_caps_archive_root,
+                               cutoff=ref.as_of_time)
+        if (sidecar.schema_version == REPLAY_SCHEMA_VERSION
+                and set(sidecar.items) != {normalize_instrument_id(iid) for iid in ids}):
+            raise S2ReadinessError(
+                "historical replay market-cap pool differs from the frozen snapshot pool")
         if sidecar.observed_at_dt > ref.as_of_time:
             raise S2ReadinessError("market-cap observation is after the frozen decision cutoff")
         for iid in ids:
@@ -466,7 +471,10 @@ def _build_s2_readiness_report_and_inventory(
         cap_evidence.update(mode="RECEIPT_VERIFIED_SIDECAR", sidecar_path=str(market_caps_path),
                             archive_root=str(market_caps_archive_root), source_id=sidecar.source_id,
                             receipt_id=sidecar.receipt_id, content_hash=sidecar.content_hash,
-                            observed_at=sidecar.observed_at, market_cap_as_of=sidecar.market_cap_as_of)
+                            observed_at=sidecar.observed_at,
+                            market_cap_as_of=sidecar.market_cap_as_of)
+        if sidecar.derived_at is not None:
+            cap_evidence["derived_at"] = sidecar.derived_at
     templates = _industry_templates(instruments)
     target_periods, explicit_overrides = normalize_s2_target_periods(
         ids, latest_period_end=latest_period_end, latest_period_ends=latest_period_ends,
@@ -503,9 +511,13 @@ def _build_s2_readiness_report_and_inventory(
             "as_of": snapshot.trading_day if iid in caps else None,
             **{name: frozen.get("market_cap_" + name) for name in
                ("source_id", "receipt_id", "content_hash", "observed_at")}}
+        if frozen.get("market_cap_derived_at") is not None:
+            row["market_cap"]["derived_at"] = frozen["market_cap_derived_at"]
         if market_caps_path is not None and normalize_instrument_id(iid) in sidecar.items:
             row["market_cap"].update({name: getattr(sidecar, name) for name in
                                      ("source_id", "receipt_id", "content_hash", "observed_at")})
+            if sidecar.derived_at is not None:
+                row["market_cap"]["derived_at"] = sidecar.derived_at
         row["financial_inputs"] = None
         try:
             bridge = compute_s2_financial_inputs(store=store, instrument_id=iid,

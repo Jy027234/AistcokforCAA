@@ -1,6 +1,9 @@
+import { useRef } from "react";
 import type { ResearchCard as ResearchCardModel } from "../lib/types";
 import { formatAsOf } from "../lib/format";
 import { Badge, Callout, RankBar } from "./ui";
+import { ResearchAssistantPanel, type ResearchAssistantOption } from "./ResearchAssistantPanel";
+import { useModalDialog } from "./useModalDialog";
 
 /** 股票研究卡片（主文档 §5.3）。
  *
@@ -11,11 +14,12 @@ import { Badge, Callout, RankBar } from "./ui";
  *   - 不可模拟时显示规则、适用日期与修复方法，而不是一句"失败"
  */
 export function ResearchCard({
-  card, onOpenEvidence, onAction,
+  card, onOpenEvidence, onAction, allowAssistant = false,
 }: {
   card: ResearchCardModel;
   onOpenEvidence: (id: string) => void;
   onAction: (id: string, cardId: string) => void;
+  allowAssistant?: boolean;
 }) {
   const t = card.tradability;
 
@@ -84,6 +88,19 @@ export function ResearchCard({
             ))}
           </div>
         </div>
+
+        {allowAssistant && (
+          <ResearchAssistantPanel
+            binding={{ kind: "ARCHIVED_CARD", cardId: card.cardId ?? null }}
+            options={(card.evidence as AssistantCardEvidence[]).map((item) => ({
+              selectionId: item.citationId ?? "",
+              label: item.statement ?? item.quote ?? "公告摘录",
+              quote: item.quote ?? "",
+              eligible: item.located === true && Boolean(item.citationId && item.documentId &&
+                item.availableAt && item.locatorKind),
+            } satisfies ResearchAssistantOption))}
+            onOpenEvidence={() => onOpenEvidence(card.instrumentId)} />
+        )}
 
         {/* 不确定性 */}
         <div>
@@ -171,14 +188,24 @@ export function ResearchCard({
   );
 }
 
+type AssistantCardEvidence = ResearchCardModel["evidence"][number] & {
+  located?: boolean;
+  availableAt?: string;
+  locatorKind?: string | null;
+};
+
 /** 证据抽屉：引用必须可定位，链回原材料。 */
 export function EvidenceDrawer({
   card, onClose,
 }: { card: ResearchCardModel; onClose: () => void }) {
+  const dialogRef = useRef<HTMLElement>(null);
+  useModalDialog(dialogRef, onClose);
+
   return (
     <>
       <div className="drawer-scrim" onClick={onClose} />
-      <aside className="drawer" role="dialog" aria-modal="true" aria-label="证据链">
+      <aside ref={dialogRef} className="drawer" role="dialog" aria-modal="true"
+        aria-label="证据链" tabIndex={-1}>
         <header className="drawer-head">
           <h3>{card.displayName} · 证据链</h3>
           <div className="spacer" />

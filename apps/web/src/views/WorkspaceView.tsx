@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import {
   api, AquantApiError, type DecisionRow, type ExperimentRow,
   type FactorRowValue, type ResearchRunResponse, type StrategyVersionsResponse,
@@ -6,6 +6,16 @@ import {
 } from "../lib/api";
 import type { ResearchCard, S2DiagnosticPreviewResponse } from "../lib/types";
 import { Badge, Callout, Card, Empty, Section } from "../components/ui";
+
+type LocalRead<T> = { value: T | null; loading: boolean; error: string | null };
+const initialRead = <T,>(): LocalRead<T> => ({ value: null, loading: true, error: null });
+
+function ReadFailure({ title, error, loading, onRetry }: {
+  title: string; error: string | null; loading: boolean; onRetry: () => void;
+}) {
+  return error ? <Callout tone="danger" title={title}>{error}<div style={{ marginTop: 8 }}>
+    <button className="btn" disabled={loading} onClick={onRetry}>重试读取</button></div></Callout> : null;
+}
 
 function formatS2Percent(value: string | null): string {
   if (value === null) return "—";
@@ -45,15 +55,17 @@ export function WorkspaceView({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [watch, setWatch] = useState<WatchItem[] | null>(null);
+  const [watchRead, setWatchRead] = useState<LocalRead<WatchItem[]>>(initialRead);
   const [watchInput, setWatchInput] = useState("");
   const [run, setRun] = useState<ResearchRunResponse | null>(null);
   const [factorRows, setFactorRows] = useState<FactorRowValue[] | null>(null);
   const [card, setCard] = useState<ResearchCard | null>(null);
+  const [cardInstrumentId, setCardInstrumentId] = useState<string | null>(null);
+  const [cardLoading, setCardLoading] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
-  const [decisions, setDecisions] = useState<DecisionRow[] | null>(null);
-  const [experiments, setExperiments] = useState<ExperimentRow[] | null>(null);
-  const [strategyStatus, setStrategyStatus] = useState<StrategyVersionsResponse | null>(null);
+  const [decisionsRead, setDecisionsRead] = useState<LocalRead<DecisionRow[]>>(initialRead);
+  const [experimentsRead, setExperimentsRead] = useState<LocalRead<ExperimentRow[]>>(initialRead);
+  const [strategyRead, setStrategyRead] = useState<LocalRead<StrategyVersionsResponse>>(initialRead);
   const [s2Preview, setS2Preview] = useState<S2DiagnosticPreviewResponse | null>(null);
   const [s2PreviewLoading, setS2PreviewLoading] = useState(false);
   const [s2PreviewError, setS2PreviewError] = useState<string | null>(null);
@@ -78,14 +90,24 @@ export function WorkspaceView({
     }
   }
 
-  const loadWatch = useCallback(() => step("载入自选",
-    () => api.watchlist(), (r) => setWatch(r.items)), []);
-  const loadDecisions = useCallback(() => step("载入决策日志",
-    () => api.decisions(portfolioId), (r) => setDecisions(r.decisions)), [portfolioId]);
-  const loadExperiments = useCallback(() => step("载入实验",
-    () => api.experiments(), (r) => setExperiments(r.experiments)), []);
-  const loadStrategies = useCallback(() => step("载入策略能力",
-    () => api.strategyVersions(), setStrategyStatus), []);
+  async function loadRead<T>(name: string, request: () => Promise<T>, setRead: Dispatch<SetStateAction<LocalRead<T>>>) {
+    setRead(previous => ({ ...previous, loading: true, error: null }));
+    try {
+      setRead({ value: await request(), loading: false, error: null });
+    } catch (err) {
+      setRead(previous => ({ ...previous, loading: false, error: `${name}读取失败：${explain(err)}` }));
+    }
+  }
+
+  const loadWatch = useCallback(() => loadRead("自选", async () => (await api.watchlist()).items, setWatchRead), []);
+  const loadDecisions = useCallback(() => loadRead("决策日志", async () => (await api.decisions(portfolioId)).decisions, setDecisionsRead), [portfolioId]);
+  const loadExperiments = useCallback(() => loadRead("实验登记", async () => (await api.experiments()).experiments, setExperimentsRead), []);
+  const loadStrategies = useCallback(() => loadRead("策略能力", () => api.strategyVersions(), setStrategyRead), []);
+
+  const watch = watchRead.value;
+  const decisions = decisionsRead.value;
+  const experiments = experimentsRead.value;
+  const strategyStatus = strategyRead.value;
 
   const loadS2Preview = async () => {
     setS2Preview(null);
@@ -111,12 +133,18 @@ export function WorkspaceView({
   }, [apiUp, loadWatch, loadDecisions, loadExperiments, loadStrategies]);
 
   /** 看某只证券的研究卡。此时不再只看排名，而是看数值、证据、反证与限制。 */
-  const onOpenCard = (instrumentId: string) => {
+  const onOpenCard = async (instrumentId: string) => {
+    setCardInstrumentId(instrumentId);
     setCardError(null);
     setCard(null);
-    void step("载入研究卡",
-      () => api.research(instrumentId, tradingDay),
-      setCard).catch(() => undefined);
+    setCardLoading(true);
+    try {
+      setCard(await api.research(instrumentId, tradingDay));
+    } catch (err) {
+      setCardError("研究卡读取失败：" + explain(err));
+    } finally {
+      setCardLoading(false);
+    }
   };
 
   if (apiUp === false) {
@@ -168,8 +196,11 @@ export function WorkspaceView({
             >加入自选</button>
           </div>
 
+          <ReadFailure title="自选读取失败" error={watchRead.error} loading={watchRead.loading}
+            onRetry={() => void loadWatch()} />
+          {watchRead.loading && watch !== null && <p className="note" aria-live="polite" style={{ marginTop: 10 }}>正在刷新自选…</p>}
           {watch === null ? (
-            <p className="note" style={{ marginTop: 10 }}>正在载入自选…</p>
+            watchRead.loading ? <p className="note" style={{ marginTop: 10 }}>正在读取自选…</p> : null
           ) : watch.length === 0 ? (
             <div style={{ marginTop: 12 }}>
               <Empty title="自选为空">
@@ -191,8 +222,8 @@ export function WorkspaceView({
                       <td className="mono">{w.added_at.slice(0, 10)}</td>
                       <td className="note">{w.note ?? "—"}</td>
                       <td style={{ display: "flex", gap: 6 }}>
-                        <button className="btn btn-sm" disabled={busy !== null}
-                          onClick={() => onOpenCard(w.instrument_id)}>研究卡</button>
+                        <button className="btn btn-sm" disabled={busy !== null || cardLoading}
+                          onClick={() => void onOpenCard(w.instrument_id)}>研究卡</button>
                         <button className="btn btn-sm" disabled={busy !== null}
                           onClick={() => step("移出自选",
                             () => api.removeWatch(w.instrument_id), loadWatch)}>
@@ -211,8 +242,11 @@ export function WorkspaceView({
       {/* -------------------------------------------- 策略能力 */}
       <Section title="策略能力" hint="缺失的数据只关闭受影响的策略族" dataSource="api">
         <Card>
+          <ReadFailure title="策略能力读取失败" error={strategyRead.error} loading={strategyRead.loading}
+            onRetry={() => void loadStrategies()} />
+          {strategyRead.loading && strategyStatus !== null && <p className="note" aria-live="polite">正在刷新策略能力…</p>}
           {strategyStatus === null ? (
-            <p className="note">正在载入策略能力…</p>
+            strategyRead.loading ? <p className="note">正在读取策略能力…</p> : null
           ) : (
             <>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
@@ -353,11 +387,13 @@ export function WorkspaceView({
       </Section>
 
       {/* ---------------------------------------------- 研究卡 */}
-      {(card || cardError || busy === "载入研究卡") && (
+      {(card || cardError || cardLoading) && (
         <Section title="研究卡" hint="数值、证据、反证与限制（§5.1）" dataSource="api">
           <Card>
-            {busy === "载入研究卡" && <p className="note">正在载入研究卡…</p>}
-            {cardError && <Callout tone="danger" title="无法载入研究卡">{cardError}</Callout>}
+            {cardLoading && <p className="note" aria-live="polite">正在读取研究卡…</p>}
+            {cardError && <Callout tone="danger" title="无法载入研究卡">{cardError}<div style={{ marginTop: 8 }}>
+              <button className="btn" disabled={cardLoading || cardInstrumentId === null}
+                onClick={() => cardInstrumentId && void onOpenCard(cardInstrumentId)}>重试读取</button></div></Callout>}
             {card && (
               <>
                 <div style={{ display: "flex", alignItems: "center", gap: 8,
@@ -541,8 +577,11 @@ export function WorkspaceView({
       <Section title="决策日志" hint="模型原方案与人工方案分开保存（§11.3）"
         dataSource="api" noNumericValue>
         <Card>
+          <ReadFailure title="决策日志读取失败" error={decisionsRead.error} loading={decisionsRead.loading}
+            onRetry={() => void loadDecisions()} />
+          {decisionsRead.loading && decisions !== null && <p className="note" aria-live="polite">正在刷新决策日志…</p>}
           {decisions === null ? (
-            <p className="note">正在载入决策日志…</p>
+            decisionsRead.loading ? <p className="note">正在读取决策日志…</p> : null
           ) : decisions.length === 0 ? (
             <Empty title="还没有决策记录">
               冻结计划时的选择会记在这里：模型建议了什么、人最终做了什么、
@@ -581,8 +620,11 @@ export function WorkspaceView({
       <Section title="实验登记" hint="先登记、后看结果（§13.2）" dataSource="api"
         noNumericValue>
         <Card>
+          <ReadFailure title="实验登记读取失败" error={experimentsRead.error} loading={experimentsRead.loading}
+            onRetry={() => void loadExperiments()} />
+          {experimentsRead.loading && experiments !== null && <p className="note" aria-live="polite">正在刷新实验登记…</p>}
           {experiments === null ? (
-            <p className="note">正在载入实验…</p>
+            experimentsRead.loading ? <p className="note">正在读取实验登记…</p> : null
           ) : experiments.length === 0 ? (
             <Empty title="还没有登记的实验">
               实验必须在看结果之前登记输入条件；失败与负收益的实验同样保留。

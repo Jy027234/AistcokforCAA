@@ -1,20 +1,17 @@
-"""助手问答的外发闸门（§17.2、§826、ADR-012）。
-
-这个接口是**唯一**一条"把材料发给模型"的路径，因此它必须证明：
-
-  1. 已授权来源的材料能发出去，并且**留档**（成功与失败都留）；
-  2. 未登记来源被拒，且**材料没有被发出去**——不是"发出去了再报错"；
-  3. 被拒与失败同样留档：否则预算与责任都无从核对；
-  4. 真实数据语境里混入合成材料会被拦下——这类错误会让结论
-     看起来完全正常，只是基于一份示例数据。
-
-测试不联网、不需要密钥：用的是确定性替身（ADR-012 的离线路径）。
-"""
+"""Card-bound assistant egress, citation verification and fail-closed tests."""
 
 from __future__ import annotations
 
+import json
+import hashlib
+import re
+import sqlite3
 import sys
+from contextlib import closing
+from concurrent.futures import ThreadPoolExecutor
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from threading import Event
 
 import pytest
 from fastapi.testclient import TestClient
@@ -23,26 +20,54 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 sys.path.insert(0, str(ROOT / "src"))
 
-from aquant.domain.ai.model import ModelResponse  # noqa: E402
+from aquant.application.assistant import AssistantError, Material, ask_assistant  # noqa: E402
+from aquant.application import assistant as assistant_module  # noqa: E402
+from aquant.application import assistant_materials as assistant_materials_module  # noqa: E402
+from aquant.application.assistant_budget import daily_budget_status, load_budget_config  # noqa: E402
+from aquant.domain.ai.model import ModelResponse, ModelUnavailable  # noqa: E402
+from aquant.domain.ai.archive import ArchivedModelProvider  # noqa: E402
+from aquant.domain.evidence.store import record_evidence  # noqa: E402
+from aquant.domain.data.db import connect  # noqa: E402
+from aquant.domain.data.reader import SnapshotRef  # noqa: E402
 from main import build_state, create_app  # noqa: E402
+import main as api_main  # noqa: E402
 
 USER = {"X-Aquant-Subject": "user:alice"}
+INSTRUMENT = "SYN.A.600519"
+DAY = "2026-09-08"
+QUOTE = "A股每股现金红利0.50元"
+UNRELATED_TEXT = "除权（息）日为2026/9/10"
 
 
 class StubProvider:
-    """确定性替身。**记录它收到了什么**——这是"材料到底发出去没有"的证据。"""
+    """Explicit non-network provider for test-only assistant calls."""
 
     provider_name = "stub"
     model_name = "stub-model"
+    test_only = True
 
     def __init__(self) -> None:
         self.calls: list = []
 
     def complete(self, request) -> ModelResponse:
         self.calls.append(request)
-        return ModelResponse(text="依据材料，结论如下。", provider=self.provider_name,
-                             model=self.model_name, input_tokens=123, output_tokens=45,
-                             content_hash="sha256:" + "a" * 64)
+        citation_ids = re.findall(r"\[citation_id: ([^\]\n]+)\]", request.context)
+        return ModelResponse(
+            text=json.dumps({"answer": "依据所选摘录，材料记录每股现金红利为 0.50 元。",
+                             "citationIds": citation_ids[:1]}, ensure_ascii=False),
+            provider=self.provider_name, model=self.model_name,
+            input_tokens=123, output_tokens=45,
+        )
+
+
+class InvalidCitationProvider(StubProvider):
+    def complete(self, request) -> ModelResponse:
+        self.calls.append(request)
+        return ModelResponse(
+            text='{"answer":"未经核实的回答","citationIds":["invented-citation"]}',
+            provider=self.provider_name, model=self.model_name,
+            input_tokens=1, output_tokens=1,
+        )
 
 
 class FailingProvider(StubProvider):
@@ -52,6 +77,87 @@ class FailingProvider(StubProvider):
         raise ModelUnavailable("上游 503", repair_action="稍后重试")
 
 
+class NeverCallProvider:
+    """Looks like the configured live provider but must be stopped pre-call."""
+
+    provider_name = "deepseek"
+    model_name = "unconfigured-test-model"
+    base_url = "https://api.deepseek.com"
+
+    def __init__(self) -> None:
+        self.calls: list = []
+
+    def complete(self, request):
+        self.calls.append(request)
+        raise AssertionError("live provider must never be called in these tests")
+
+
+class BudgetPathFakeProvider:
+    """Offline fake that deliberately exercises the configured live budget path."""
+
+    provider_name = "deepseek"
+    model_name = "deepseek-budget-test-model"
+    base_url = "https://api.deepseek.com"
+
+    def __init__(self, *, usage=(11, 5), failure=None,
+                 before_complete=None) -> None:
+        self.calls: list = []
+        self.usage = usage
+        self.failure = failure
+        self.before_complete = before_complete
+
+    def complete(self, request) -> ModelResponse:
+        self.calls.append(request)
+        if self.before_complete is not None:
+            self.before_complete()
+        if self.failure is not None:
+            raise self.failure
+        input_tokens, output_tokens = self.usage
+        return ModelResponse(
+            text="受控测试回答", provider=self.provider_name, model=self.model_name,
+            input_tokens=input_tokens, output_tokens=output_tokens,
+        )
+
+
+class PausingStubProvider(StubProvider):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started = Event()
+        self.release = Event()
+
+    def complete(self, request) -> ModelResponse:
+        self.calls.append(request)
+        self.started.set()
+        if not self.release.wait(timeout=15):
+            raise RuntimeError("test provider was not released")
+        citation_ids = re.findall(r"\[citation_id: ([^\]\n]+)\]", request.context)
+        return ModelResponse(
+            text=json.dumps({"answer": "等待结束后的合成测试回答。",
+                             "citationIds": citation_ids[:1]}, ensure_ascii=False),
+            provider=self.provider_name, model=self.model_name,
+            input_tokens=123, output_tokens=45,
+        )
+
+
+def configure_budget_path(monkeypatch, tmp_path, *, daily_cap="10000"):
+    key_file = tmp_path / "offline-test-provider-marker.txt"
+    key_file.write_text("offline test fixture; not a credential", encoding="utf-8")
+    values = {
+        "AQUANT_DEEPSEEK_MODEL": BudgetPathFakeProvider.model_name,
+        "AQUANT_DEEPSEEK_BASE_URL": BudgetPathFakeProvider.base_url,
+        "AQUANT_DEEPSEEK_KEY_FILE": str(key_file),
+        "AQUANT_ASSISTANT_PRICE_MODEL": BudgetPathFakeProvider.model_name,
+        "AQUANT_ASSISTANT_PRICE_VERSION": "unit-test-only",
+        "AQUANT_ASSISTANT_PRICE_SOURCE": "https://www.deepseek.com/pricing",
+        "AQUANT_ASSISTANT_PRICE_EFFECTIVE_FROM": date.today().isoformat(),
+        "AQUANT_ASSISTANT_INPUT_PRICE_UPPER_BOUND_MICRO_CNY_PER_MILLION_TOKENS": "1000000",
+        "AQUANT_ASSISTANT_OUTPUT_PRICE_UPPER_BOUND_MICRO_CNY_PER_MILLION_TOKENS": "1000000",
+        "AQUANT_ASSISTANT_DAILY_CAP_MICRO_CNY": daily_cap,
+    }
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
+
+
 @pytest.fixture()
 def ctx(tmp_path):
     state = build_state(tmp_path)
@@ -59,217 +165,526 @@ def ctx(tmp_path):
     state.model_provider = stub
     app = create_app(state=state)
     with TestClient(app) as client:
-        yield client, state.con, stub
+        yield client, state.con, stub, state
 
 
-def ask(client, materials, *, purpose="测试用途"):
-    return client.post("/api/v1/assistant/messages",
-                       json={"purpose": purpose, "materials": materials},
-                       headers=USER)
+def card_with_evidence(client, con, *, source_id="synthetic-fixture", quote=QUOTE,
+                       unlocatable=False):
+    source_text = f"重要内容提示：{QUOTE}；{UNRELATED_TEXT}"
+    if quote not in source_text and not unlocatable:
+        source_text = quote
+    con.execute(
+        "INSERT OR IGNORE INTO source_registry "
+        "(source_id,display_name,created_at,updated_at) VALUES (?,?,?,?)",
+        (source_id, "离线助手测试来源", "2026-09-01T00:00:00Z", "2026-09-01T00:00:00Z"))
+    bundle = record_evidence(
+        con, instrument_id=INSTRUMENT, source_id=source_id,
+        source_url="https://example.invalid/notice.pdf", source_title="测试披露摘录",
+        source_text=source_text,
+        available_at=datetime(2026, 9, 7, 15, 0, tzinfo=timezone.utc),
+        fact_summary="每股现金红利 0.50 元", verification_status="VERIFIED",
+        extra={"announced_on": "2026-09-07", "citations": [quote]},
+    )
+    response = client.get(
+        f"/api/v1/instruments/{INSTRUMENT}/research", params={"trading_day": DAY})
+    assert response.status_code == 200, response.text
+    card = response.json()
+    # The seed also contains an intentionally untrusted prompt-injection
+    # sample. Select this test's located citation, never the newest seed row.
+    own_ids = {item["citation_id"] for item in bundle.citations}
+    card["evidence"].sort(key=lambda item: item["citationId"] not in own_ids)
+    return card
 
 
-def mat(source="cninfo", text="某公司公告正文"):
-    return {"source_id": source, "text": text, "contains_personal_data": False}
+def ask_card(client, card, *, citation_ids=None, question_id="EVIDENCE_SUMMARY",
+             confirm=True, **extra):
+    body = {
+        "card_id": card["cardId"],
+        "question_id": question_id,
+        "citation_ids": ([card["evidence"][0]["citationId"]]
+                         if citation_ids is None else citation_ids),
+        "confirm_external_send": confirm,
+        **extra,
+    }
+    return client.post("/api/v1/assistant/messages", json=body, headers=USER)
 
 
-# ============================================================ 放行与留档
-def test_authorised_material_is_sent_and_recorded(ctx):
-    client, con, stub = ctx
-    r = ask(client, [mat(), mat(source="baostock", text="日线数据")])
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["text"], body
-    assert body["sourcesUsed"] == ["cninfo", "baostock"]
-    assert body["modelCallId"]
+def verified_scan_fixture():
+    return json.loads((ROOT / "tests/fixtures/assistant_research_scan_v2.json")
+                      .read_text(encoding="utf-8"))
 
-    # 材料真的到了模型手上（不是"通过了检查但没发"）
+
+def scan_message_body(packet, *, snapshot_id=None, receipt_id=None):
+    event = packet["candidates"][0]["events"][0]
+    return {
+        "snapshot_id": snapshot_id or packet["snapshotId"],
+        "instrument_id": packet["candidates"][0]["instrumentId"],
+        "receipt_ids": [receipt_id or event["receiptId"]],
+        "question_id": "EVIDENCE_SUMMARY",
+        "confirm_external_send": True,
+    }
+
+
+def install_verified_scan_fixture(monkeypatch, packet):
+    raw = json.dumps(packet, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    monkeypatch.setattr(
+        assistant_materials_module, "load_verified_research_scan_packet",
+        lambda _path: (packet, "sha256:" + hashlib.sha256(raw).hexdigest()),
+    )
+    scan_as_of = datetime.fromisoformat(packet["asOfTime"])
+    current_ref = SnapshotRef(
+        snapshot_id="test-formal-snapshot", as_of_time=scan_as_of + timedelta(days=2),
+        published_at=None, data_mode="SYNTHETIC", watermark="test-only",
+    )
+    monkeypatch.setattr(api_main, "active_snapshot",
+                        lambda *_args, **_kwargs: "test-formal-snapshot")
+    monkeypatch.setattr(api_main.SnapshotReader, "ref", lambda _self, _sid: current_ref)
+
+
+def test_selected_current_excerpt_is_sent_and_audited(ctx):
+    client, con, stub, _state = ctx
+    card = card_with_evidence(client, con)
+    response = ask_card(client, card)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["citationIds"] == [card["evidence"][0]["citationId"]]
+    assert body["citations"][0]["documentId"] == card["evidence"][0]["documentId"]
+    assert body["basedOn"]["snapshotId"] == card["snapshotId"]
+    assert body["basedOn"]["asOfTime"] == card["asOfTime"]
+
     assert len(stub.calls) == 1
-    assert "某公司公告正文" in stub.calls[0].context
+    context = stub.calls[0].context
+    assert QUOTE in context and "概括所选公开摘录能够确认的内容" in context
+    assert UNRELATED_TEXT not in context, "未选中的正文不能进入模型上下文"
+    assert "citation_id: " + card["evidence"][0]["citationId"] in context
+    for forbidden in ("概率", "预期收益", "目标价", "买卖建议"):
+        assert forbidden in stub.calls[0].instructions
 
-    row = con.execute("SELECT * FROM model_call WHERE model_call_id=?",
-                      (body["modelCallId"],)).fetchone()
-    assert row is not None, "成功的调用也必须留档"
+    row = con.execute(
+        "SELECT * FROM model_call WHERE model_call_id=?", (body["modelCallId"],)
+    ).fetchone()
     assert row["outcome"] == "OK"
     assert row["input_tokens"] == 123 and row["output_tokens"] == 45
-    assert row["content_hash"] == body["contentHash"]
+    audit = json.loads(row["contract_version"])
+    assert audit["audit"]["cardId"] == card["cardId"]
+    assert audit["audit"]["snapshotId"] == card["snapshotId"]
+    assert audit["audit"]["citations"][0]["documentHash"]
+    assert audit["audit"]["citations"][0]["quoteHash"].startswith("sha256:")
 
 
-def test_answer_is_bound_to_a_published_snapshot(ctx):
-    """§5.5：助手回答系统状态前必须先读快照，回答里要能看出依据哪个时点。"""
+def test_verified_scan_receipt_is_bound_to_current_research_and_formal_snapshots(
+    ctx, monkeypatch,
+):
+    client, shared_con, stub, _state = ctx
+    packet = verified_scan_fixture()
+    install_verified_scan_fixture(monkeypatch, packet)
 
-    client, _con, stub = ctx
-    body = ask(client, [mat()]).json()
-    based = body.get("basedOn")
-    assert based, "回答没有标注所依据的快照与时点"
-    assert based["snapshotId"], based
-    assert based["asOfTime"], based
-    assert based["dataMode"], based
-    # 系统状态注记确实进入了模型上下文（不是只在响应里回显）
-    assert "系统状态" in stub.calls[-1].context, stub.calls[-1].context[:200]
-    assert based["snapshotId"] in stub.calls[-1].context
+    response = client.post("/api/v1/assistant/messages", json=scan_message_body(packet),
+                           headers=USER)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["researchBinding"] == {
+        "snapshotId": packet["snapshotId"],
+        "asOfTime": packet["asOfTime"],
+        "dataAsOf": packet["dataAsOf"],
+        "instrumentId": "SH.600415",
+    }
+    citation = body["citations"][0]
+    event = packet["candidates"][0]["events"][0]
+    assert citation["receiptId"] == event["receiptId"]
+    assert citation["documentHash"] == event["contentHash"]
+    assert citation["quoteHash"].startswith("sha256:")
+    assert citation["locatorKind"] == "PDF_PAGE_CHARS"
+    assert (citation["page"], citation["locatorStart"], citation["locatorEnd"]) == (1, 155, 235)
+    assert citation["url"] == event["url"]
+    assert len(stub.calls) == 1
+    assert event["quote"] in stub.calls[0].context
+    assert "账户" not in stub.calls[0].context and "持仓" not in stub.calls[0].context
 
-
-def test_state_note_uses_a_registered_source(ctx):
-    """注记的来源必须已登记，否则会被闸门拦下（而原因看起来像别的问题）。"""
-
-    client, con, stub = ctx
-    body = ask(client, [mat()]).json()
-    registered = {r[0] for r in con.execute("SELECT source_id FROM source_registry")}
-    assert body["basedOn"]["stateSourceId"] in registered, (
-        body["basedOn"]["stateSourceId"] + " 不在已登记来源里")
-
-
-def test_instructions_forbid_probability_outputs(ctx):
-    """§5.3 的要求在提示词层面也要落一次。"""
-
-    client, _con, stub = ctx
-    ask(client, [mat()])
-    instructions = stub.calls[0].instructions
-    for forbidden in ("概率", "预期收益", "目标价"):
-        assert forbidden in instructions, f"指令里没有禁止 {forbidden}"
-
-
-# ============================================================ 拒绝路径
-def test_unregistered_source_is_rejected_and_never_sent(ctx):
-    """未登记来源必须**发不出去**，而不是"发了再报错"。"""
-
-    client, con, stub = ctx
-    r = ask(client, [mat(source="some-unknown-site")])
-    assert r.status_code == 403, r.text
-    detail = r.json()["detail"]
-    assert detail["code"] == "SOURCE_PERMISSION_MISSING"
-    assert detail["repair_action"], "被拒时必须给出可操作的修复动作"
-    assert detail["blockers"][0]["source_id"] == "some-unknown-site"
-
-    assert stub.calls == [], "材料在闸门拦下之后仍然被发出去了"
-
-    # 被拒同样留档：否则"试过哪些来源、被拦了几次"无从核对
-    row = con.execute("SELECT outcome,error_code FROM model_call").fetchone()
-    assert row is not None, "被拒的尝试没有留档"
-    assert row["outcome"] == "REJECTED"
-    assert row["error_code"] == "SOURCE_PERMISSION_MISSING"
+    audit_row = shared_con.execute(
+        "SELECT contract_version FROM model_call WHERE model_call_id=?",
+        (body["modelCallId"],),
+    ).fetchone()
+    audit = json.loads(audit_row["contract_version"])["audit"]
+    assert audit["flow"] == "verified-research-scan-assistant-v1"
+    assert audit["scanBinding"]["researchSnapshotId"] == packet["snapshotId"]
+    assert audit["scanBinding"]["instrumentId"] == "SH.600415"
+    assert audit["scanBinding"]["receiptIds"] == [event["receiptId"]]
+    assert audit["currentFormalSnapshotId"] == "test-formal-snapshot"
+    assert audit["citations"][0]["documentHash"] == event["contentHash"]
 
 
-def test_one_bad_source_rejects_the_whole_batch(ctx):
-    """整批拒绝，不静默过滤：过滤会让调用方以为材料都用上了。"""
+def test_verified_scan_old_version_and_missing_receipt_fail_then_recover(ctx, monkeypatch):
+    client, _shared_con, stub, _state = ctx
+    packet = verified_scan_fixture()
+    install_verified_scan_fixture(monkeypatch, packet)
 
-    client, _con, stub = ctx
-    r = ask(client, [mat(), mat(source="some-unknown-site")])
-    assert r.status_code == 403
+    stale = client.post("/api/v1/assistant/messages",
+                        json=scan_message_body(packet, snapshot_id="old-snapshot"),
+                        headers=USER)
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"]["code"] == "STALE_RESEARCH_CARD"
+
+    legacy = dict(packet, schema="aquant.research-candidates.v1")
+    install_verified_scan_fixture(monkeypatch, legacy)
+    old_version = client.post("/api/v1/assistant/messages",
+                              json=scan_message_body(legacy), headers=USER)
+    assert old_version.status_code == 409, old_version.text
+    assert old_version.json()["detail"]["code"] == "PIT_UNVERIFIED"
+
+    no_material_packet = json.loads(json.dumps(packet))
+    no_material_packet["candidates"][0]["events"] = []
+    install_verified_scan_fixture(monkeypatch, no_material_packet)
+    no_material = client.post("/api/v1/assistant/messages",
+                              json=scan_message_body(packet), headers=USER)
+    assert no_material.status_code == 409, no_material.text
+    assert no_material.json()["detail"]["code"] == "PIT_UNVERIFIED"
+    assert stub.calls == []
+
+    install_verified_scan_fixture(monkeypatch, packet)
+    recovered = client.post("/api/v1/assistant/messages",
+                            json=scan_message_body(packet), headers=USER)
+    assert recovered.status_code == 200, recovered.text
+    assert len(stub.calls) == 1
+
+
+def test_slow_assistant_uses_independent_connection_and_leaves_status_reads_available(
+    ctx, monkeypatch,
+):
+    client, shared_con, _stub, state = ctx
+    card = card_with_evidence(client, shared_con)
+    provider = PausingStubProvider()
+    state.model_provider = provider
+
+    observed_connections: list[sqlite3.Connection] = []
+    resolve_original = api_main.resolve_research_card_materials
+    ask_original = api_main.ask_assistant
+    record_original = assistant_module._record_call
+
+    def track_resolve(con, **kwargs):
+        observed_connections.append(con)
+        assert con is not shared_con
+        return resolve_original(con, **kwargs)
+
+    def track_ask(con, *args, **kwargs):
+        observed_connections.append(con)
+        assert con is not shared_con
+        return ask_original(con, *args, **kwargs)
+
+    def track_record(con, *args, **kwargs):
+        observed_connections.append(con)
+        assert con is not shared_con
+        return record_original(con, *args, **kwargs)
+
+    monkeypatch.setattr(api_main, "resolve_research_card_materials", track_resolve)
+    monkeypatch.setattr(api_main, "ask_assistant", track_ask)
+    monkeypatch.setattr(assistant_module, "_record_call", track_record)
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        assistant_future = pool.submit(ask_card, client, card)
+        assert provider.started.wait(timeout=5), "assistant provider was not entered"
+        status_future = pool.submit(client.get, "/api/v1/status")
+        schedule_future = pool.submit(client.get, "/api/v1/schedule")
+        try:
+            status = status_future.result(timeout=3)
+            schedule = schedule_future.result(timeout=3)
+        finally:
+            provider.release.set()
+        assistant = assistant_future.result(timeout=10)
+
+    assert status.status_code == 200, status.text
+    assert schedule.status_code == 200, schedule.text
+    assert assistant.status_code == 200, assistant.text
+    assert len(observed_connections) == 3
+    assert all(con is not shared_con for con in observed_connections)
+    assert shared_con.execute(
+        "SELECT count(*) FROM model_call WHERE outcome='OK'"
+    ).fetchone()[0] == 1
+
+
+def test_readiness_reports_only_blockers_and_live_gate_never_calls_provider(
+    tmp_path, monkeypatch,
+):
+    for name in ("AQUANT_DEEPSEEK_MODEL", "AQUANT_DEEPSEEK_BASE_URL",
+                 "AQUANT_DEEPSEEK_KEY_FILE",
+                 "AQUANT_ASSISTANT_PRICE_MODEL",
+                 "AQUANT_ASSISTANT_PRICE_VERSION",
+                 "AQUANT_ASSISTANT_PRICE_SOURCE",
+                 "AQUANT_ASSISTANT_PRICE_EFFECTIVE_FROM",
+                 "AQUANT_ASSISTANT_INPUT_PRICE_UPPER_BOUND_MICRO_CNY_PER_MILLION_TOKENS",
+                 "AQUANT_ASSISTANT_OUTPUT_PRICE_UPPER_BOUND_MICRO_CNY_PER_MILLION_TOKENS",
+                 "AQUANT_ASSISTANT_DAILY_CAP_MICRO_CNY"):
+        monkeypatch.delenv(name, raising=False)
+    state = build_state(tmp_path)
+    provider = NeverCallProvider()
+    state.model_provider = provider
+    app = create_app(state=state)
+    with TestClient(app) as client:
+        status = client.get("/api/v1/assistant/readiness", headers=USER)
+        assert status.status_code == 200, status.text
+        body = status.json()
+        assert body["enabled"] is False
+        codes = {item["code"] for item in body["blockingIssues"]}
+        assert {"MODEL_SELECTION_UNCONFIGURED", "MODEL_ENDPOINT_UNCONFIGURED",
+                "MODEL_CREDENTIAL_UNCONFIGURED", "ASSISTANT_BUDGET_CONFIG_MISSING",
+                "SYNTHETIC_DATA_EGRESS_DISABLED"}.issubset(codes)
+        assert "path" not in json.dumps(body).lower()
+
+    with pytest.raises(AssistantError) as raised:
+        ask_assistant(
+            state.con, provider,
+            materials=[Material("cninfo", "公开披露测试摘录", False)],
+            purpose="测试真实门禁", data_mode="PRODUCTION", subject_id="user:alice")
+    error = raised.value
+    assert getattr(error, "code", None) == "DATA_NOT_READY"
+    assert provider.calls == []
+    row = state.con.execute(
+        "SELECT outcome,error_code,contract_version FROM model_call ORDER BY called_at DESC LIMIT 1"
+    ).fetchone()
+    assert row["outcome"] == "REJECTED" and row["error_code"] == "DATA_NOT_READY"
+    assert "ASSISTANT_BUDGET_CONFIG_MISSING" in row["contract_version"]
+
+
+def test_live_budget_upper_bound_rejects_before_provider_call(tmp_path, monkeypatch):
+    configure_budget_path(monkeypatch, tmp_path, daily_cap="10")
+    state = build_state(tmp_path)
+    provider = BudgetPathFakeProvider()
+
+    with pytest.raises(AssistantError) as raised:
+        ask_assistant(
+            state.con, provider,
+            materials=[Material("cninfo", "公开披露摘录", False)],
+            purpose="测试调用前费用上界", data_mode="PRODUCTION",
+            subject_id="user:alice")
+
+    assert raised.value.code == "ASSISTANT_DAILY_BUDGET_EXCEEDED"
+    assert provider.calls == []
+    assert state.con.execute(
+        "SELECT count(*) FROM assistant_budget_reservation"
+    ).fetchone()[0] == 0
+    row = state.con.execute(
+        "SELECT outcome,error_code FROM model_call ORDER BY called_at DESC LIMIT 1"
+    ).fetchone()
+    assert tuple(row) == ("REJECTED", "ASSISTANT_DAILY_BUDGET_EXCEEDED")
+    state.con.close()
+
+
+def test_live_budget_settles_usage_based_price_upper_bound(tmp_path, monkeypatch):
+    configure_budget_path(monkeypatch, tmp_path)
+    state = build_state(tmp_path)
+    def assert_reservation_committed_before_provider():
+        with closing(connect(state.data_dir / "meta.sqlite", read_only=True)) as observer:
+            row = observer.execute(
+                "SELECT status FROM assistant_budget_reservation"
+            ).fetchone()
+            assert row is not None and row["status"] == "RESERVED"
+
+    provider = BudgetPathFakeProvider(
+        usage=(11, 5), before_complete=assert_reservation_committed_before_provider)
+    config, blockers = load_budget_config(provider.model_name)
+    assert config is not None and blockers == []
+
+    answer = ask_assistant(
+        state.con, provider,
+        materials=[Material("cninfo", "公开披露摘录", False)],
+        purpose="测试用量结算", data_mode="PRODUCTION",
+        max_output_tokens=50, subject_id="user:alice")
+
+    call = state.con.execute(
+        "SELECT cost_micro_cny,input_tokens,output_tokens,contract_version FROM model_call "
+        "WHERE model_call_id=?", (answer["modelCallId"],)
+    ).fetchone()
+    reservation = state.con.execute(
+        "SELECT status,reserved_micro_cny,settled_micro_cny,model_call_id "
+        "FROM assistant_budget_reservation"
+    ).fetchone()
+    assert (call["cost_micro_cny"], call["input_tokens"], call["output_tokens"]) == (16, 11, 5)
+    call_audit = json.loads(call["contract_version"])
+    assert call_audit["audit"]["costBasis"] == "REGISTERED_PRICE_UPPER_BOUND"
+    assert call_audit["audit"]["budget"]["costBasis"] == "REGISTERED_PRICE_UPPER_BOUND"
+    assert reservation["status"] == "SETTLED"
+    assert reservation["settled_micro_cny"] == 16
+    assert reservation["model_call_id"] == answer["modelCallId"]
+    assert reservation["reserved_micro_cny"] > reservation["settled_micro_cny"]
+    assert answer["budget"]["status"] == "SETTLED"
+    assert answer["budget"]["usageCostUpperBoundMicroCny"] == 16
+    assert answer["budget"]["costBasis"] == "REGISTERED_PRICE_UPPER_BOUND"
+    assert daily_budget_status(state.con, config)["usageCostUpperBoundMicroCny"] == 16
+
+    replay_provider = ArchivedModelProvider(
+        state.con, answer["archiveId"], subject_id="user:alice")
+    replay = ask_assistant(
+        state.con, replay_provider,
+        materials=[Material("cninfo", "公开披露摘录", False)],
+        purpose="测试用量结算", data_mode="PRODUCTION",
+        max_output_tokens=50, subject_id="user:alice")
+    assert replay["text"] == answer["text"]
+    assert replay["budget"] is None
+    assert state.con.execute(
+        "SELECT count(*) FROM assistant_budget_reservation"
+    ).fetchone()[0] == 1
+    replay_call = state.con.execute(
+        "SELECT cost_micro_cny FROM model_call WHERE model_call_id=?",
+        (replay["modelCallId"],),
+    ).fetchone()
+    assert replay_call["cost_micro_cny"] is None
+    state.con.close()
+
+
+def test_missing_usage_and_timeout_keep_the_reservation_held(tmp_path, monkeypatch):
+    configure_budget_path(monkeypatch, tmp_path)
+    state = build_state(tmp_path)
+    provider = BudgetPathFakeProvider(usage=(None, None))
+    answer = ask_assistant(
+        state.con, provider,
+        materials=[Material("cninfo", "公开披露摘录", False)],
+        purpose="测试未知费用", data_mode="PRODUCTION",
+        max_output_tokens=50, subject_id="user:alice")
+    assert answer["budget"]["status"] == "HELD"
+    assert answer["budget"]["usageCostUpperBoundMicroCny"] is None
+    assert "不代表零费用" in answer["budget"]["message"]
+    row = state.con.execute(
+        "SELECT status,settled_micro_cny,reserved_micro_cny "
+        "FROM assistant_budget_reservation WHERE model_call_id=?",
+        (answer["modelCallId"],),
+    ).fetchone()
+    assert row["status"] == "HELD" and row["settled_micro_cny"] is None
+    held_amount = row["reserved_micro_cny"]
+    config, blockers = load_budget_config(provider.model_name)
+    assert config is not None and blockers == []
+    assert daily_budget_status(state.con, config)["usageCostUpperBoundMicroCny"] == held_amount
+
+    timeout_provider = BudgetPathFakeProvider(
+        failure=ModelUnavailable("simulated timeout"))
+    with pytest.raises(AssistantError) as raised:
+        ask_assistant(
+            state.con, timeout_provider,
+            materials=[Material("cninfo", "另一段公开披露摘录", False)],
+            purpose="测试超时费用未知", data_mode="PRODUCTION",
+            max_output_tokens=50, subject_id="user:alice")
+    assert raised.value.budget["status"] == "HELD"
+    assert "不代表零费用" in raised.value.message
+    assert state.con.execute(
+        "SELECT count(*) FROM assistant_budget_reservation WHERE status='HELD'"
+    ).fetchone()[0] == 2
+    state.con.close()
+
+
+def test_usage_upper_bound_over_reservation_is_recorded_and_blocks_next_call(
+    tmp_path, monkeypatch,
+):
+    configure_budget_path(monkeypatch, tmp_path, daily_cap="10000")
+    state = build_state(tmp_path)
+    provider = BudgetPathFakeProvider(usage=(50_000, 5))
+    answer = ask_assistant(
+        state.con, provider,
+        materials=[Material("cninfo", "公开披露摘录", False)],
+        purpose="测试供应商超出 token 上界", data_mode="PRODUCTION",
+        max_output_tokens=50, subject_id="user:alice")
+
+    assert answer["budget"]["status"] == "SETTLED"
+    assert answer["budget"]["reservationExceeded"] is True
+    assert answer["budget"]["usageCostUpperBoundMicroCny"] == 50_005
+    assert "超过调用前预留" in answer["budget"]["message"]
+    row = state.con.execute(
+        "SELECT cost_micro_cny FROM model_call WHERE model_call_id=?",
+        (answer["modelCallId"],),
+    ).fetchone()
+    assert row["cost_micro_cny"] == 50_005
+
+    with pytest.raises(AssistantError) as raised:
+        ask_assistant(
+            state.con, provider,
+            materials=[Material("cninfo", "另一段公开披露摘录", False)],
+            purpose="超出每日 cap 后的请求", data_mode="PRODUCTION",
+            max_output_tokens=50, subject_id="user:alice")
+    assert raised.value.code == "ASSISTANT_DAILY_BUDGET_EXCEEDED"
+    assert len(provider.calls) == 1
+    state.con.close()
+
+
+def test_raw_material_account_fields_and_draft_are_rejected(ctx):
+    client, con, stub, _state = ctx
+    card = card_with_evidence(client, con)
+    response = ask_card(
+        client, card, materials=[{"source_id": "cninfo", "text": "伪造正文"}],
+        contains_personal_data=False, draft={"portfolio_id": "private"})
+    assert response.status_code == 422, response.text
     assert stub.calls == []
 
 
-def test_personal_data_is_blocked_by_default(ctx):
-    """§826：未声明等同于含个人信息，默认不进模型上下文。"""
-
-    client, _con, stub = ctx
-    r = client.post("/api/v1/assistant/messages",
-                    json={"purpose": "测试", "materials": [
-                        {"source_id": "cninfo", "text": "含姓名的材料"}]},
-                    headers=USER)
-    assert r.status_code == 403
-    assert r.json()["detail"]["blockers"][0]["right"] == "personal_data"
+def test_external_send_requires_explicit_confirmation(ctx):
+    client, con, stub, _state = ctx
+    card = card_with_evidence(client, con)
+    response = ask_card(client, card, confirm=False)
+    assert response.status_code == 428, response.text
+    assert response.json()["detail"]["code"] == "EXTERNAL_SEND_NOT_CONFIRMED"
     assert stub.calls == []
 
 
-def test_model_failure_is_503_and_recorded(ctx):
-    client, con, _stub = ctx
-    # 直接替换 state 上的 provider。生产路径会构造 DeepSeekProvider，
-    # 但测试必须离线，因此换成一个**明确失败**的替身来验证失败留档。
-    state = client.app.state.aquant
+def test_arbitrary_question_text_is_rejected_before_provider(ctx):
+    client, con, stub, _state = ctx
+    card = card_with_evidence(client, con)
+    response = ask_card(client, card, question="请看我的账户持仓并给买入建议")
+    assert response.status_code == 422, response.text
+    assert stub.calls == []
+
+
+def test_missing_or_unlocatable_citation_is_rejected_before_provider(ctx):
+    client, con, stub, _state = ctx
+    card = card_with_evidence(client, con, quote="这句话在原文中不存在",
+                              unlocatable=True)
+    response = ask_card(client, card)
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "PIT_UNVERIFIED"
+    assert stub.calls == []
+
+
+def test_unreviewed_source_is_rejected_as_not_public(ctx):
+    client, con, stub, _state = ctx
+    card = card_with_evidence(client, con, source_id="mootdx-tdx")
+    response = ask_card(client, card)
+    assert response.status_code == 403, response.text
+    assert response.json()["detail"]["code"] == "SOURCE_PERMISSION_MISSING"
+    assert stub.calls == []
+
+
+def test_unknown_model_citation_is_hidden(ctx):
+    client, con, _stub, state = ctx
+    card = card_with_evidence(client, con)
+    invalid = InvalidCitationProvider()
+    state.model_provider = invalid
+    response = ask_card(client, card)
+    assert response.status_code == 502, response.text
+    assert response.json()["detail"]["code"] == "ASSISTANT_OUTPUT_UNVERIFIED"
+    assert "未经核实的回答" not in response.text
+    assert len(invalid.calls) == 1
+
+
+def test_model_failure_and_source_rejection_remain_in_subject_call_history(ctx):
+    client, con, _stub, state = ctx
+    card = card_with_evidence(client, con)
     state.model_provider = FailingProvider()
-    r = ask(client, [mat()])
-    assert r.status_code == 503, r.text
-    assert r.json()["detail"]["code"] == "DATA_NOT_READY"
+    response = ask_card(client, card)
+    assert response.status_code == 503, response.text
 
-    row = con.execute("SELECT outcome,error_code FROM model_call").fetchone()
-    assert row["outcome"] == "ERROR", "失败的调用没有留档"
-
-
-def test_calls_endpoint_exposes_the_audit_trail(ctx):
-    client, _con, _stub = ctx
-    ask(client, [mat()])
-    ask(client, [mat(source="some-unknown-site")])
-
-    r = client.get("/api/v1/assistant/calls", headers=USER)
-    assert r.status_code == 200, r.text
-    outcomes = {c["outcome"] for c in r.json()["calls"]}
-    assert outcomes == {"OK", "REJECTED"}, outcomes
+    with pytest.raises(AssistantError):
+        ask_assistant(
+            con, state.model_provider,
+            materials=[Material("unknown-site", "正文", False)],
+            purpose="测试未登记来源", data_mode="SYNTHETIC", subject_id="user:alice")
+    calls = client.get("/api/v1/assistant/calls", headers=USER)
+    assert calls.status_code == 200, calls.text
+    outcomes = {item["outcome"] for item in calls.json()["calls"]}
+    assert outcomes == {"ERROR", "REJECTED"}, outcomes
 
 
-# ==================================================== §5.5 写操作只给草稿
-DRAFT = {"portfolio_id": "pf-syn-m", "trading_day": "2026-09-08"}
-
-
-def _open_account(state, *, cash: int = 100_000_000) -> None:
-    """先给模拟账户建一笔期初资金。
-
-    不建账时预览会以 INSUFFICIENT_CASH 拒绝（现金 0）——助手会如实转达
-    这个错误，但那样用例测的就不是草稿而是报错了。
-    """
-
-    from datetime import datetime, timezone
-
-    state.service._ensure_account("pf-syn-m", initial_cash_cents=cash,
-                                  initial_lots=[],
-                                  now=datetime(2026, 9, 8, tzinfo=timezone.utc))
-
-
-def test_draft_request_returns_preview_without_writing(ctx):
-    """涉及写操作时只生成草稿与差异预览，绝不落库（§5.5、A08）。"""
-
-    client, con, _stub = ctx
-    _open_account(client.app.state.aquant)
-
-    def counts():
-        return {t: con.execute(f'SELECT COUNT(*) AS n FROM "{t}"').fetchone()["n"]
-                for t in ("simulation_plan", "order", "fill", "cash_entry",
-                          "position_lot")}
-
-    before = counts()
-    r = client.post("/api/v1/assistant/messages",
-                    json={"purpose": "去掉某行业后组合如何变化",
-                          "materials": [mat()], "draft": DRAFT},
-                    headers=USER)
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body.get("draft"), body
-    assert body["draft"]["portfolioId"] == "pf-syn-m"
-    assert "orders" in body["draft"]
-    assert body["draft"]["frozen"] is False, "草稿不得是已冻结状态"
-    assert "显式确认" in body["draftNote"], body["draftNote"]
-
-    after = counts()
-    assert after == before, (
-        "草稿请求改动了账本：" + str({k: (before[k], after[k])
-                                       for k in before if before[k] != after[k]}))
-
-
-def test_two_drafts_are_independent_previews(ctx):
-    """两次草稿各自独立：预览不入库，所以不应该互相覆盖或复用。"""
-
-    client, con, _stub = ctx
-    _open_account(client.app.state.aquant)
-    ids = []
-    for _ in range(2):
-        body = client.post("/api/v1/assistant/messages",
-                           json={"purpose": "草稿", "materials": [mat()],
-                                 "draft": DRAFT}, headers=USER).json()
-        ids.append(body["draft"]["planId"])
-    assert all(ids), ids
-    assert con.execute("SELECT COUNT(*) AS n FROM simulation_plan").fetchone()["n"] == 0, (
-        "草稿落库了——那就不再是「只算不写」")
-
-
-def test_answer_without_draft_has_no_draft_field(ctx):
-    client, _con, _stub = ctx
-    body = ask(client, [mat()]).json()
-    assert "draft" not in body
-
-
-def test_empty_materials_is_rejected(ctx):
-    client, _con, stub = ctx
-    r = client.post("/api/v1/assistant/messages",
-                    json={"purpose": "测试", "materials": []}, headers=USER)
-    assert r.status_code == 422
+def test_empty_or_duplicate_citation_selection_is_rejected(ctx):
+    client, con, stub, _state = ctx
+    card = card_with_evidence(client, con)
+    citation_id = card["evidence"][0]["citationId"]
+    empty = ask_card(client, card, citation_ids=[])
+    duplicate = ask_card(client, card, citation_ids=[citation_id, citation_id])
+    assert empty.status_code == 422
+    assert duplicate.status_code == 409
     assert stub.calls == []

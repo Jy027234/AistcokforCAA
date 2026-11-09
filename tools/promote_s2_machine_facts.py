@@ -190,10 +190,10 @@ def build_dispositions(result: CrossCategoryIndexResult, *, announcement_id: str
     规则是**窄**的，而且只有两类结论：
 
     * 被升仓的报告本身：``RELATED``，绑定它的官方 PDF 收据；
-    * 标题不含更正/修订/补充标记的其它公告：``UNRELATED``，理由写明"标题
-      未出现更正/修订标记"。
+    * 标题未指明财报更正/修订/补充的其它公告：``UNRELATED``，理由保留原标题，
+      不把公司章程修订等非财报公告误述为"没有修订标记"。
 
-    任何带更正/修订/补充标记的第三方候选**不被处置**，由调用方直接拒绝升仓
+    本报告发布窗口内标题指明财报更正的其它候选，由调用方先拒绝升仓
     ——标题只是召回信号，机器无权据此断定它对五字段的影响。
     """
 
@@ -214,7 +214,7 @@ def build_dispositions(result: CrossCategoryIndexResult, *, announcement_id: str
             announcement_id=entry.announcement_id, relevance="UNRELATED",
             reviewer_id=VERIFIER_ID, reviewed_at=reviewed_at,
             rationale=(
-                "machine: title carries no correction/revision/supplement marker "
+                "machine: title does not identify a FINANCIAL REPORT correction/revision/supplement "
                 f"({normalize_title(entry.title)[:60]})"),
         ))
     return tuple(dispositions)

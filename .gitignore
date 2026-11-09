@@ -115,3 +115,39 @@ deploy/screens*/
 deploy/agentctl-q0/alerts*.jsonl
 deploy/agentctl-q0/iso-status*.log
 tmp_probe_app.py
+
+# 本机一致性备份包含运行数据库、原始证据及私有配置副本。
+/work/product-execution-20261101/backups/
+# 五批次目标执行的本机元数据库一致备份；不随源码分发。
+/work/goal-five-batches-20261102/meta-before.sqlite
+/work/goal-five-batches-20261102/assistant/meta-before-assistant.sqlite
+/work/goal-five-batches-20261102/recovery/recovered/
+/work/goal-five-batches-20261102/backups/
+/work/goal-five-batches-20261102/scheduler-login-evidence-release-20261103-v10/qualified-scheduler-login-evidence-v10-config-20261103.zip
+/work/goal-five-batches-20261102/financial-page-corpus-release-20261104-v11/deployment/qualified-page-corpus-v11-code-config-20261104.zip
+/work/goal-five-batches-20261102/financial-page-corpus-release-20261104-v11/deployment/before-preparation-001/qualified-page-corpus-v11-code-config-20261104.zip
+/work/goal-five-batches-20261102/financial-page-corpus-release-20261104-v11/deployment/before-preparation-002/qualified-page-corpus-v11-code-config-20261104.zip
+/work/goal-five-batches-20261102/financial64/normal-preparation/facts-clone.sqlite*
+/work/goal-five-batches-20261102/financial64/normal-preparation/archive-clone/
+
+# 本机执行证据、备份、临时配置和第三方原文不随源码发布。
+/work/
+/tmp/
+/deploy/local-trial/
+/src/aquant/adapters/providers/_pdf_page_corpus_data/
+
+# 私有原报布局回归夹具只保留来源/哈希清单；本地原文件不删除。
+/tests/fixtures/cninfo_002517_sparse_revenue_note/native_note160.json
+/tests/fixtures/cninfo_002602_native_revenue_no_note/native_note_p188.json
+/tests/fixtures/cninfo_002602_native_revenue_no_note/native_primary_p99.json
+/tests/fixtures/cninfo_002946_interleaved_cash/gansu_h125_unknown_fx.json
+/tests/fixtures/cninfo_002946_interleaved_cash/native_p103_p104_with_cover_chain.json
+/tests/fixtures/cninfo_002946_interleaved_cash/native_p103_p104.json
+/tests/fixtures/cninfo_002946_interleaved_cash/old3_known_components.json
+/tests/fixtures/cninfo_600066_native_revenue/native-revenue-diagnostics.json
+/tests/fixtures/cninfo_600066_native_revenue/native-revenue-words.json
+/tests/fixtures/cninfo_600066_native_revenue_history44/history-source-diagnostic.json
+/tests/fixtures/cninfo_600066_native_revenue_history44/native-revenue-words.json
+/tests/fixtures/cninfo_601021_h1_note62/native_income_p65_p66.json
+/tests/fixtures/cninfo_601021_h1_note62/native_mixed_income_p71.json
+/tests/fixtures/cninfo_601021_h1_note62/native_note_p134_p135.json

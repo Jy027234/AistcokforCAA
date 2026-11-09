@@ -1,5 +1,5 @@
 """Offline tests for the daily simulation evidence capture helpers."""
-from datetime import date
+from datetime import date, timedelta
 import importlib.util
 import json
 from pathlib import Path
@@ -44,6 +44,26 @@ def test_resume_requires_same_date_research_hash_and_pool(tmp_path):
     with pytest.raises(ValueError, match="different target day"):
         MODULE.checkpoint_for_resume(checkpoint, target="2026-10-12", research_path=research,
             research_hash="sha256:changed", selected_ids=["SZ.000001"])
+
+
+def test_failed_resumed_package_records_current_attempt_time(tmp_path, monkeypatch):
+    current = "2026-10-26T14:55:00+00:00"
+    monkeypatch.setattr(MODULE, "now", lambda: current)
+    failure = {"instrument_id": "SH.600001", "stage": "history", "detail": "socket receive failed"}
+    checkpoint = {"updated_at": "2026-10-26T12:00:00+00:00", "instruments": {},
+                  "capture_binding": {"research_hash": "sha256:old"}, "failures": [failure]}
+    calendar = [{"calendar_date": (date(2026, 1, 1) + timedelta(days=i)).isoformat(),
+                 "is_trading_day": "1"} for i in range(365)]
+    with pytest.raises(SystemExit, match="capture incomplete"):
+        MODULE.finalize_capture_package(cp=checkpoint, research={}, selected=[{"instrumentId": "SH.600001"}],
+            retained_ids=[], retained_path=None, research_path=tmp_path / "research.json", output_dir=tmp_path,
+            target_day="2026-10-26", calendar_raw=calendar, calendar_rows=[], trade_calendar_receipt={},
+            calendar_receipt={}, calendar_available_at=current, allstock_rows=[], allstock_receipt={},
+            source_receipts=[], login_attempts=[], limit=120)
+    saved = json.loads((tmp_path / "checkpoint.json").read_text(encoding="utf-8"))
+    assert saved["updated_at"] == current
+    assert saved["failures"] == [failure] and saved["capture_binding"] == checkpoint["capture_binding"]
+    assert checkpoint["updated_at"] == "2026-10-26T12:00:00+00:00"
 
 
 def test_target_bar_requires_real_ohlc_and_status_fields():

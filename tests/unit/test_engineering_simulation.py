@@ -15,6 +15,7 @@ from aquant.domain.simulation.board_rules import BOARD_RULES
 from aquant.domain.simulation.verified_fees import verified_fee_table
 from aquant.operations.engineering_simulation import _run_lock, list_engineering_runs, run_engineering_simulation
 from aquant.operations.research_candidates import file_hash
+from aquant.operations import research_scan
 from aquant.operations.research_simulation import project_pending_draft
 
 DAY = date(2026, 10, 12)
@@ -72,7 +73,7 @@ class Reader:
 
 
 @pytest.fixture()
-def setup(tmp_path, monkeypatch):
+def setup(tmp_path, request):
     con = connect(tmp_path / "meta.sqlite")
     apply_migrations(con)
     for sid, stamp in (("decision", DECISION), ("execution", OBSERVED)):
@@ -91,12 +92,23 @@ def setup(tmp_path, monkeypatch):
         "candidates": [{"instrumentId": iid, "displayName": "local fixture", "position": i+1,
             "exchange": "SSE" if i == 0 else "SZSE", "board": "MAIN", "status": "RANKED",
             "signalRank": 1-i/2, "quote": {}, "evidence": []} for i, iid in enumerate(IIDS)]}
+    source_evidence = tmp_path / "research-source.json"
+    source_evidence.write_bytes(b"immutable synthetic research input")
+    packet.update({"schema": research_scan.SCHEMA, "researchOnly": True, "simulationAvailable": False,
+        "provenance": [{"role": "fixture", "path": str(source_evidence), "contentHash": file_hash(source_evidence)}]})
     source = tmp_path / "source.json"
-    source.write_text(json.dumps(packet), encoding="utf-8")
+    body = json.dumps(packet, ensure_ascii=False).encode("utf-8")
+    source.write_bytes(body)
     digest = file_hash(source)
+    sources = tuple(sorted((item["role"], item["path"], item["contentHash"]) for item in packet["provenance"]))
+    research_scan.rebuild_scan.cache_clear()
+    cache_key = (str(source.resolve()), digest, sources, research_scan._RESEARCH_SCAN_CACHE_VERSION)
+    research_scan._SCAN_CACHE[sources] = packet
+    research_scan._VERIFIED_SCAN_CACHE[cache_key] = {"sources": sources, "packet": packet, "body": body}
+    request.addfinalizer(research_scan.rebuild_scan.cache_clear)
     folder = tmp_path / "research_simulation_origins"
     folder.mkdir()
-    (folder / (digest.removeprefix("sha256:") + ".json")).write_bytes(source.read_bytes())
+    (folder / (digest.removeprefix("sha256:") + ".json")).write_bytes(body)
     projection = project_pending_draft(svc, portfolio_id="original-trial", snapshot_id="decision", trading_day=DAY,
         candidates=[Candidate(iid, "C39", 1-i/2) for i, iid in enumerate(IIDS)], cash_cents=100_000_000, lots=[])
     doc = {"draftId": "research-draft-" + "a" * 64, "source": "ENGINEERING_TRIAL", "portfolioId": "original-trial",
@@ -108,7 +120,6 @@ def setup(tmp_path, monkeypatch):
     con.execute("INSERT INTO research_simulation_draft VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (doc["draftId"], "user:test", doc["source"], doc["portfolioId"], doc["researchSnapshotId"], digest,
          "decision", DAY.isoformat(), doc["status"], json.dumps(doc), doc["createdAt"], doc["draftId"]))
-    monkeypatch.setattr("aquant.operations.research_simulation.load_research_scan", lambda *a, **k: {})
     yield svc, tmp_path, doc
     con.close()
 

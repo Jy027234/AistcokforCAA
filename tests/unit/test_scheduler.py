@@ -16,16 +16,23 @@
 from __future__ import annotations
 
 import sys
+import json
+import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from threading import Event
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "tools"))
 
 from aquant.domain.data.db import apply_migrations, connect  # noqa: E402
 from aquant.operations import scheduler  # noqa: E402
+from aquant.operations import pipeline  # noqa: E402
+import scheduler_worker as worker  # noqa: E402
 from aquant.operations.scheduler import (  # noqa: E402
     RunSchedule, ScheduleError, is_due, market_now, next_fire, validate_time_of_day,
 )
@@ -40,6 +47,266 @@ def con(tmp_path):
     apply_migrations(connection)
     yield connection
     connection.close()
+
+
+def _seed_retryable_worker_failure(con, root: Path, monkeypatch, *, lock_bytes: bytes):
+    finished = datetime(2026, 9, 18, 20, 30, tzinfo=CST)
+    started = finished - timedelta(minutes=1)
+    scheduler.save_schedule(con, enabled=True, run_at_local="20:30",
+                            weekdays_only=True, interpreter=INTERPRETER,
+                            data_dir="", window_start="2026-06-22", actor="user:test")
+    request_id = scheduler.request_run(con, source="scheduler", requested_by="scheduler",
+                                       now=started)
+    record = {
+        "trading_day": finished.date().isoformat(), "snapshot_id": "pending",
+        "outcome": "FAILED", "source": "scheduler", "mode": "RESEARCH_SIMULATION",
+        "reason": "isolated timeout", "started_at": started.isoformat(),
+        "finished_at": finished.isoformat(),
+        "retryableFailure": {"kind": "BAOSTOCK_LOGIN_TIMEOUT"},
+    }
+    scheduler.finish_request(con, request_id=request_id, status="FAILED", exit_code=1,
+                             detail=record["reason"], now=finished)
+    scheduler.record_last_run(con, request_id=request_id, source="scheduler", record=record,
+                              exit_code=1, now=finished)
+    state_dir = root / "deploy" / "agentctl-q0"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    (state_dir / "last-run.json").write_text(json.dumps(record), encoding="utf-8")
+    lock_path = state_dir / "daily-run.lock"
+    lock_path.write_bytes(lock_bytes)
+    monkeypatch.setattr(worker, "ROOT", root)
+    monkeypatch.setenv("AQUANT_DAILY_MODE", "RESEARCH_SIMULATION")
+    return finished, lock_path
+
+
+def _prepare_worker_completion_test(tmp_path: Path, monkeypatch) -> tuple[Path, Path]:
+    root = tmp_path / "worker-root"
+    (root / "deploy" / "agentctl-q0").mkdir(parents=True)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setattr(worker, "ROOT", root)
+    monkeypatch.setattr(worker, "_preflight", lambda *a, **kw: [])
+    return root, data_dir
+
+
+@pytest.mark.parametrize(("exit_code", "outcome", "expected_result"), [
+    (0, "PUBLISHED", "ran:DONE"),
+    (1, "FAILED", "ran:FAILED"),
+])
+def test_worker_request_finished_at_uses_pipeline_record_time(
+    tmp_path, monkeypatch, con, exit_code, outcome, expected_result,
+):
+    root, data_dir = _prepare_worker_completion_test(tmp_path, monkeypatch)
+    tick_started = datetime(2026, 9, 18, 20, 30, tzinfo=CST)
+    pipeline_finished = "2026-09-18T12:31:09+00:00"
+    request_id = scheduler.request_run(
+        con, source="manual", requested_by="user:test", now=tick_started)
+
+    def fake_run(*, json_out, **_kwargs):
+        json_out.write_text(json.dumps({
+            "trading_day": "2026-09-18", "snapshot_id": "snap-test",
+            "outcome": outcome, "reason": "test result",
+            "started_at": "2026-09-18T12:30:00+00:00",
+            "finished_at": pipeline_finished, "steps": [],
+        }), encoding="utf-8")
+        return exit_code, "test result"
+
+    monkeypatch.setattr(worker, "_run_pipeline", fake_run)
+    result = worker.tick(con, worker_id="w1", data_dir=data_dir,
+                         schedule=scheduler.load_schedule(con), now=tick_started)
+
+    assert result == expected_result
+    row = con.execute("SELECT status, finished_at FROM pipeline_run_request "
+                      "WHERE request_id=?", (request_id,)).fetchone()
+    assert row["status"] == ("DONE" if exit_code == 0 else "FAILED")
+    assert row["finished_at"] == pipeline_finished
+    assert scheduler.last_run(con)["finishedAt"] == pipeline_finished
+    history = con.execute("SELECT source, snapshot_id, outcome, finished_at FROM pipeline_run_history "
+                          "WHERE request_id=?", (request_id,)).fetchone()
+    assert dict(history) == {"source": "manual", "snapshot_id": "snap-test",
+                             "outcome": outcome, "finished_at": pipeline_finished}
+
+
+def test_worker_pipeline_exception_finishes_at_injected_clock(tmp_path, monkeypatch, con):
+    _root, data_dir = _prepare_worker_completion_test(tmp_path, monkeypatch)
+    tick_started = datetime(2026, 9, 18, 20, 30, tzinfo=CST)
+    pipeline_finished = datetime(2026, 9, 18, 20, 31, tzinfo=CST)
+    monkeypatch.setattr(scheduler, "market_now", lambda: pipeline_finished)
+
+    def fail_to_start_pipeline(**_kwargs):
+        raise OSError("subprocess could not be started")
+
+    monkeypatch.setattr(worker, "_run_pipeline", fail_to_start_pipeline)
+    request_id = scheduler.request_run(
+        con, source="manual", requested_by="user:test", now=tick_started)
+
+    result = worker.tick(con, worker_id="w1", data_dir=data_dir,
+                         schedule=scheduler.load_schedule(con), now=tick_started)
+
+    expected = pipeline_finished.astimezone(timezone.utc).isoformat()
+    assert result == "ran:FAILED"
+    row = con.execute("SELECT status, exit_code, detail, finished_at "
+                      "FROM pipeline_run_request WHERE request_id=?",
+                      (request_id,)).fetchone()
+    assert row["status"] == "FAILED" and row["exit_code"] == 1
+    assert "subprocess could not be started" in row["detail"]
+    assert row["finished_at"] == expected
+    last = scheduler.last_run(con)
+    assert last["outcome"] == "FAILED" and last["finishedAt"] == expected
+
+
+def test_worker_preflight_failure_uses_injected_completion_clock(tmp_path, monkeypatch, con):
+    _root, data_dir = _prepare_worker_completion_test(tmp_path, monkeypatch)
+    monkeypatch.setattr(worker, "_preflight", lambda *a, **kw: ["missing input"])
+    tick_started = datetime(2026, 9, 18, 20, 30, tzinfo=CST)
+    preflight_finished = datetime(2026, 9, 18, 20, 31, tzinfo=CST)
+    monkeypatch.setattr(scheduler, "market_now", lambda: preflight_finished)
+    request_id = scheduler.request_run(
+        con, source="manual", requested_by="user:test", now=tick_started)
+
+    result = worker.tick(con, worker_id="w1", data_dir=data_dir,
+                         schedule=scheduler.load_schedule(con), now=tick_started)
+
+    expected = preflight_finished.astimezone(timezone.utc).isoformat()
+    assert result == "ran:FAILED"
+    row = con.execute("SELECT status, detail, finished_at FROM pipeline_run_request "
+                      "WHERE request_id=?", (request_id,)).fetchone()
+    assert row["status"] == "FAILED" and row["detail"] == "missing input"
+    assert row["finished_at"] == expected
+    assert scheduler.last_run(con)["finishedAt"] == expected
+    history = con.execute("SELECT outcome, exit_code, snapshot_id FROM pipeline_run_history "
+                          "WHERE request_id=?", (request_id,)).fetchone()
+    assert dict(history) == {"outcome": "FAILED", "exit_code": 2, "snapshot_id": None}
+
+
+def test_completed_request_history_survives_a_later_skip_and_rejects_rewrite(con):
+    started = datetime(2026, 9, 18, 20, 30, tzinfo=CST)
+    first = scheduler.request_run(con, source="scheduler", requested_by="scheduler", now=started)
+    assert scheduler.claim_next(con, worker_id="test", now=started)["request_id"] == first
+    step = {"step": "publish", "ok": True, "seconds": 0.2}
+    record = {"outcome": "PUBLISHED", "snapshot_id": "snap-first",
+              "trading_day": "2026-09-18", "data_last_day": "2026-09-18",
+              "steps": [step], "calendarGate": {"isTradingDay": True},
+              "artifactDirectory": "/archive/first"}
+    scheduler.finish_request(con, request_id=first, status="DONE", exit_code=0,
+                             detail="published", now=started, record=record)
+
+    later = started + timedelta(days=1)
+    second = scheduler.request_run(con, source="manual", requested_by="user:test", now=later)
+    assert scheduler.claim_next(con, worker_id="test", now=later)["request_id"] == second
+    scheduler.finish_request(con, request_id=second, status="DONE", exit_code=0,
+                             detail="closed", now=later,
+                             record={"outcome": "SKIPPED", "trading_day": "2026-09-19",
+                                     "calendarGate": {"isTradingDay": False}})
+
+    with pytest.raises(ScheduleError, match="已结束"):
+        scheduler.finish_request(con, request_id=first, status="FAILED", exit_code=1,
+                                 detail="rewrite", now=later, record={"outcome": "FAILED"})
+    rows = list(con.execute("SELECT * FROM pipeline_run_history ORDER BY finished_at"))
+    assert [row["request_id"] for row in rows] == [first, second]
+    assert rows[0]["outcome"] == "PUBLISHED" and rows[0]["snapshot_id"] == "snap-first"
+    assert rows[0]["data_last_day"] == "2026-09-18"
+    assert json.loads(rows[0]["calendar_gate_json"]) == {"isTradingDay": True}
+    assert rows[0]["artifact_dir"] == "/archive/first" and json.loads(rows[0]["steps_json"]) == [step]
+    assert rows[1]["outcome"] == "SKIPPED"
+    assert json.loads(rows[1]["calendar_gate_json"]) == {"isTradingDay": False}
+    assert scheduler.last_run(con)["requestId"] == second
+
+
+def test_latest_summary_error_rolls_back_request_and_history(con):
+    scheduler.record_last_run(con, request_id=None, source="scheduler",
+                              record={"outcome": "FAILED"}, exit_code=1)
+    latest = scheduler.last_run(con)
+    request_id = scheduler.request_run(con, source="scheduler", requested_by="scheduler")
+    assert scheduler.claim_next(con, worker_id="test")["request_id"] == request_id
+    con.execute("CREATE TRIGGER force_summary_error BEFORE UPDATE ON pipeline_last_run "
+                "BEGIN SELECT RAISE(ABORT, 'test summary error'); END")
+    with pytest.raises(sqlite3.IntegrityError, match="test summary error"):
+        scheduler.finish_request(con, request_id=request_id, status="DONE", exit_code=0,
+                                 detail="publish", record={"outcome": "PUBLISHED"})
+    assert scheduler.pending_request(con)["status"] == "CLAIMED"
+    assert con.execute("SELECT count(*) FROM pipeline_run_history").fetchone()[0] == 0
+    assert scheduler.last_run(con) == latest
+
+
+def test_manual_request_waiting_on_writer_reuses_committed_retry(tmp_path):
+    database = tmp_path / "concurrent.sqlite"
+    writer = connect(database)
+    apply_migrations(writer)
+    waiting = Event()
+
+    def manual_request():
+        connection = connect(database)
+        connection.set_trace_callback(lambda sql: waiting.set()
+                                      if sql.strip().upper() == "BEGIN IMMEDIATE" else None)
+        try:
+            return scheduler.request_run(connection, source="manual", requested_by="user:test")
+        finally:
+            connection.close()
+
+    try:
+        writer.execute("BEGIN IMMEDIATE")
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            request = executor.submit(manual_request)
+            assert waiting.wait(3), "manual request did not reach its write transaction"
+            writer.execute("INSERT INTO pipeline_run_request "
+                           "(request_id,source,requested_by,requested_at,status) VALUES "
+                           "('run_retry','scheduler','bounded-retry','2026-10-26T12:30:00+00:00','PENDING')")
+            writer.execute("COMMIT")
+            assert request.result(timeout=5) == "run_retry"
+        assert writer.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0] == 1
+    finally:
+        if writer.in_transaction:
+            writer.rollback()
+        writer.close()
+
+
+def test_worker_keeps_legacy_lock_and_does_not_queue_retry(tmp_path, monkeypatch, con):
+    original = b"pid=18544 at=2026-10-29T13:09:13.346410+00:00\n"
+    finished, lock_path = _seed_retryable_worker_failure(
+        con, tmp_path, monkeypatch, lock_bytes=original)
+    before = con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0]
+
+    result = worker.tick(
+        con, worker_id="w1", data_dir=tmp_path / "data",
+        schedule=scheduler.load_schedule(con),
+        now=finished + timedelta(minutes=15),
+    )
+
+    assert result == "idle"
+    assert con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0] == before
+    assert lock_path.read_bytes() == original
+
+
+def test_worker_archives_current_container_orphan_before_bounded_retry(
+    tmp_path, monkeypatch, con,
+):
+    lock_path = tmp_path / "deploy" / "agentctl-q0" / "daily-run.lock"
+    monkeypatch.setattr(pipeline, "_pid_namespace_id", lambda: "pid:[4026533001]")
+    monkeypatch.setattr(pipeline, "_boot_id", lambda: "01234567-89ab-cdef-0123-456789abcdef")
+    monkeypatch.setattr(pipeline, "_container_id", lambda: "a" * 64)
+    monkeypatch.setattr(pipeline, "_process_start_ticks", lambda _pid: "12345")
+    line = pipeline._owner_line(
+        lock_path, pid=987654,
+        at=datetime(2026, 9, 18, 20, 29, tzinfo=CST).astimezone(timezone.utc),
+    )
+    original = (line + "\n").encode("utf-8")
+    finished, lock_path = _seed_retryable_worker_failure(
+        con, tmp_path, monkeypatch, lock_bytes=original)
+    lock_path.with_name(lock_path.name + ".lease").write_bytes(b"\0")
+    monkeypatch.setattr(pipeline, "_pid_exists", lambda _pid: False)
+    before = con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0]
+
+    result = worker.tick(
+        con, worker_id="w1", data_dir=tmp_path / "data",
+        schedule=scheduler.load_schedule(con),
+        now=finished + timedelta(minutes=15),
+    )
+
+    assert result == "fired"
+    assert con.execute("SELECT COUNT(*) FROM pipeline_run_request").fetchone()[0] == before + 1
+    archive = list(lock_path.parent.glob("daily-run.lock.orphaned-*"))
+    assert len(archive) == 1 and archive[0].read_bytes() == original
+    assert not lock_path.exists()
 
 
 # ====================================================================== 校验

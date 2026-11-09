@@ -307,6 +307,7 @@ class ArchivedModelProvider:
     """
 
     provider_name = "archive-replay"
+    replay_only = True
 
     def __init__(
         self,

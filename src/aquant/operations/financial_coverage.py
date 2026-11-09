@@ -166,6 +166,7 @@ def build_financial_coverage_report(*, snapshot_dir: str | Path, snapshot_id: st
                             if actual_input["financial_input_status"] == "ACCEPTED" and
                             actual_input["financial_inputs"]["latest_period_end"] == target.isoformat() else None)
         bridge_status = "ACCEPTED" if financial_bridge is not None else actual_input["financial_input_status"]
+        bridge_reason = None
         bridge_cutoff = ref.as_of_time
         if financial_bridge is None and covered + pending == required_count and template == "ORDINARY":
             try:
@@ -175,7 +176,12 @@ def build_financial_coverage_report(*, snapshot_dir: str | Path, snapshot_id: st
                     financial_bridge = bridge.as_dict()
                     bridge_status = "NEXT_CUTOFF_PENDING"
                     bridge_cutoff = pending_cutoff
-            except (S2ComputationError, PitViolation, ValueError):
+            except (S2ComputationError, PitViolation, ValueError) as exc:
+                if (isinstance(exc, S2ComputationError) and
+                        exc.code == "S2_COMPARABILITY_UNVERIFIED"):
+                    bridge_status = exc.code
+                    bridge_reason = exc.message
+                    bridge_cutoff = pending_cutoff
                 pass
         factor_complete = iid in formal_signals
         exclusion = "S2_FINANCIAL_FACT_MISSING"
@@ -207,6 +213,8 @@ def build_financial_coverage_report(*, snapshot_dir: str | Path, snapshot_id: st
                                   "factorExclusionCode": exclusion,
                                   "factorExclusionReason": reason, "metricPeriods": pairs,
                                   "financialInputs": financial_bridge, "financialInputStatus": bridge_status,
+                                  **({"financialInputReason": bridge_reason}
+                                     if bridge_reason is not None else {}),
                                   "financialInputCutoffAt": bridge_cutoff.isoformat(),
                                   "marketCap": actual_input["market_cap"],
                                   "signal": formal_signals.get(iid)},

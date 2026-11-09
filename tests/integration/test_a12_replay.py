@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+import json
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -27,6 +30,7 @@ from aquant.domain.ai.archive import (  # noqa: E402
 )
 from aquant.domain.data.db import apply_migrations  # noqa: E402
 from aquant.domain.ai.model import ModelResponse  # noqa: E402
+from aquant.domain.evidence.store import record_evidence  # noqa: E402
 from main import build_state, create_app  # noqa: E402
 
 
@@ -35,13 +39,16 @@ class FixedResearchProvider:
 
     provider_name = "q5-a12-fixture"
     model_name = "research-model-v1"
+    test_only = True
 
     def complete(self, request) -> ModelResponse:
         # This is intentionally JSON-shaped so the archived bytes are also a
         # plausible structured research result.  The declared digest is wrong
         # on purpose: the product must hash the response bytes it received.
+        citation_ids = re.findall(r"\[citation_id: ([^\]\n]+)\]", request.context)
         return ModelResponse(
-            text='{"factor":"F10","value":42,"source":"fixed-input"}',
+            text=json.dumps({"answer": "固定摘录记录 F10=42。",
+                             "citationIds": citation_ids[:1]}, ensure_ascii=False),
             provider=self.provider_name,
             model=self.model_name,
             content_hash="sha256:" + "0" * 64,
@@ -56,18 +63,30 @@ def test_fixed_input_and_archived_output_replay_keep_artifact_hash_and_register_
     state = build_state(tmp_path)
     state.model_provider = FixedResearchProvider()
     app = create_app(state=state)
-    body = {
-        "purpose": "Q5 A12 固定输入研究",
-        "materials": [
-            {
-                "source_id": "cninfo",
-                "text": "固定输入材料：F10=42",
-                "contains_personal_data": False,
-            }
-        ],
-    }
+    source_text = "固定输入材料：F10=42"
+    record_evidence(
+        state.con, instrument_id="SYN.A.600519", source_id="synthetic-fixture",
+        source_url="https://example.invalid/fixed-input.pdf", source_title="A12 合成证据",
+        source_text=source_text,
+        available_at=datetime(2026, 9, 7, 15, 0, tzinfo=timezone.utc),
+        fact_summary="固定输入 F10=42", verification_status="VERIFIED",
+        extra={"announced_on": "2026-09-07", "citations": [source_text]},
+    )
 
     with TestClient(app) as client:
+        card_response = client.get(
+            "/api/v1/instruments/SYN.A.600519/research",
+            params={"trading_day": "2026-09-08"},
+        )
+        assert card_response.status_code == 200, card_response.text
+        card = card_response.json()
+        body = {
+            "card_id": card["cardId"],
+            "question_id": "EVIDENCE_SUMMARY",
+            "citation_ids": [next(item["citationId"] for item in card["evidence"]
+                                  if item["quote"] == source_text)],
+            "confirm_external_send": True,
+        }
         first_response = client.post(
             "/api/v1/assistant/messages",
             json=body,
@@ -85,8 +104,8 @@ def test_fixed_input_and_archived_output_replay_keep_artifact_hash_and_register_
         assert archive.input_hash == original["input_hash"]
         assert output_hash(archive.output_text) == archive.output_hash
         assert archive.artifact_hash == structured_artifact_hash(archive.output_text)
-        assert first["contentHash"] == archive.output_hash
-        assert first["artifactHash"] == archive.artifact_hash
+        assert original["content_hash"] == archive.output_hash
+        assert original["artifact_hash"] == archive.artifact_hash
 
         # The second request uses the unchanged fixed body and the persisted
         # response through the product replay endpoint.  It crosses the same
@@ -98,10 +117,12 @@ def test_fixed_input_and_archived_output_replay_keep_artifact_hash_and_register_
         )
         assert replay_response.status_code == 200, replay_response.text
         replay = replay_response.json()
-        assert replay["text"] == archive.output_text
-        assert replay["contentHash"] == archive.output_hash
-        assert replay["contentHash"] == first["contentHash"]
-        assert replay["artifactHash"] == archive.artifact_hash
+        replay_call = next(item for item in model_calls(state.con)
+                           if item["model_call_id"] == replay["modelCallId"])
+        assert replay["text"] == first["text"]
+        assert replay["citationIds"] == first["citationIds"]
+        assert replay_call["content_hash"] == archive.output_hash
+        assert replay_call["artifact_hash"] == archive.artifact_hash
 
         registrations = list_model_runs(state.con)
         relevant = [
@@ -145,22 +166,40 @@ def test_replay_rejects_changed_fixed_input(tmp_path):
     state = build_state(tmp_path)
     state.model_provider = FixedResearchProvider()
     app = create_app(state=state)
-    body = {
-        "purpose": "Q5 A12 固定输入研究",
-        "materials": [
-            {"source_id": "cninfo", "text": "固定输入材料", "contains_personal_data": False}
-        ],
-    }
+    source_text = "固定输入材料：F10=42"
+    record_evidence(
+        state.con, instrument_id="SYN.A.600519", source_id="synthetic-fixture",
+        source_url="https://example.invalid/fixed-input.pdf", source_title="A12 合成证据",
+        source_text=source_text,
+        available_at=datetime(2026, 9, 7, 15, 0, tzinfo=timezone.utc),
+        fact_summary="固定输入 F10=42", verification_status="VERIFIED",
+        extra={"announced_on": "2026-09-07", "citations": [source_text]},
+    )
     with TestClient(app) as client:
-        first = client.post(
+        card_response = client.get(
+            "/api/v1/instruments/SYN.A.600519/research",
+            params={"trading_day": "2026-09-08"},
+        )
+        assert card_response.status_code == 200, card_response.text
+        card = card_response.json()
+        body = {
+            "card_id": card["cardId"],
+            "question_id": "EVIDENCE_SUMMARY",
+            "citation_ids": [next(item["citationId"] for item in card["evidence"]
+                                  if item["quote"] == source_text)],
+            "confirm_external_send": True,
+        }
+        first_response = client.post(
             "/api/v1/assistant/messages", json=body,
             headers={"X-Aquant-Subject": "user:a12"},
-        ).json()
+        )
+        assert first_response.status_code == 200, first_response.text
+        first = first_response.json()
         original = next(
             item for item in model_calls(state.con)
             if item["model_call_id"] == first["modelCallId"]
         )
-        changed = {**body, "purpose": "Q5 A12 改变输入后不得复用"}
+        changed = {**body, "question_id": "EVIDENCE_LIMITATIONS"}
         response = client.post(
             "/api/v1/assistant/replay",
             json={**changed, "archive_id": original["archive_id"]},

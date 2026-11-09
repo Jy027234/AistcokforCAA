@@ -192,12 +192,18 @@ def _build_document(
         bars_all, window_start=window_start, window_end=window_end, window=window)
     if not days:
         raise UniverseSnapshotError("快照窗口为空：检查 --window-start / --window 与缓存")
+    picked = pool.get("instruments") or []
+    if not isinstance(picked, list) or not picked:
+        raise UniverseSnapshotError("研究池没有 instruments")
+    expected_pool_ids = [str(entry.get("instrument_id") or "").strip() for entry in picked]
     market_caps = None
     if market_caps_path.is_file():
         try:
             market_caps = load_sidecar(
                 market_caps_path, expected_as_of=days[-1],
-                archive_root=market_caps_archive_root)
+                archive_root=market_caps_archive_root,
+                cutoff=financial_cutoff,
+                expected_instrument_ids=expected_pool_ids)
         except DecisionMarketCapError as exc:
             raise UniverseSnapshotError(str(exc)) from exc
     kept = set(days)
@@ -209,10 +215,6 @@ def _build_document(
         len(calendar_days) >= MIN_LISTING_CALENDAR_DAYS,
         f"{len(calendar_days)} 个交易日（行情窗口 {len(days)} 日）",
     )
-    picked = pool.get("instruments") or []
-    if not isinstance(picked, list) or not picked:
-        raise UniverseSnapshotError("研究池没有 instruments")
-
     instruments: list[dict] = []
     quotes: list[dict] = []
     missing = 0

@@ -1,7 +1,9 @@
 import type {
   DataStatus, ResearchCard, ResearchCandidatesResponse, S2DiagnosticPreviewResponse,
 } from "./types";
-import type { FinancialCoverageReport } from "./financialCoverage";
+import type {
+  FinancialCoverageJobState, FinancialCoverageJobSubmission, FinancialCoverageReport,
+} from "./financialCoverage";
 
 /** 工作台 API 客户端。
  *
@@ -19,6 +21,75 @@ export interface ApiError {
   objectId?: string;
   retryable: boolean;
   repairAction: string;
+  blockers?: { code?: string; message?: string; repairAction?: string }[];
+  budget?: AssistantBudgetResult;
+}
+
+export type AssistantQuestionId =
+  | "EVIDENCE_SUMMARY" | "EVIDENCE_LIMITATIONS" | "MISSING_INFORMATION";
+
+export interface AssistantBudgetResult {
+  status: "RESERVED" | "SETTLED" | "HELD" | "UNAVAILABLE";
+  reservedUsageCostUpperBoundMicroCny?: number;
+  inputTokensReserved?: number;
+  outputTokensReserved?: number;
+  usageCostUpperBoundMicroCny?: number | null;
+  dailyCapMicroCny?: number;
+  requestedUsageCostUpperBoundMicroCny?: number;
+  priceVersion?: string;
+  costBasis?: "REGISTERED_PRICE_UPPER_BOUND";
+  unaccountedLegacyCalls?: number;
+  reservationExceeded?: boolean;
+  message?: string;
+}
+
+export interface AssistantBudgetReadiness {
+  configured: boolean;
+  model?: string;
+  priceVersion?: string;
+  priceSource?: string;
+  priceEffectiveFrom?: string;
+  inputPriceUpperBoundMicroCnyPerMillionTokens?: number;
+  outputPriceUpperBoundMicroCnyPerMillionTokens?: number;
+  dailyCapMicroCny?: number;
+  currency?: string;
+  costBasis?: "REGISTERED_PRICE_UPPER_BOUND";
+  accountingNote?: string;
+  usage?: {
+    status: "AVAILABLE" | "UNKNOWN_USAGE";
+    budgetDay: string;
+    usageCostUpperBoundMicroCny: number | null;
+    remainingBudgetMicroCny: number | null;
+    dailyCapMicroCny: number;
+    unaccountedLegacyCalls: number;
+    currency: string;
+    costBasis: "REGISTERED_PRICE_UPPER_BOUND";
+  };
+}
+
+export interface AssistantReadiness {
+  enabled: boolean;
+  mode: string;
+  blockingIssues: { code: string; message: string; repairAction: string }[];
+  budget?: AssistantBudgetReadiness;
+}
+
+export interface AssistantAnswer {
+  modelCallId: string;
+  text: string;
+  citationIds: string[];
+  citations: {
+    citationId: string; documentId?: string; documentHash: string;
+    quoteHash: string; sourceId: string; availableAt?: string;
+    locatorKind: string; locatorStart: number | null; locatorEnd: number | null;
+    announcementId?: string; eventId?: string; receiptId?: string; title?: string;
+    publishedDate?: string; page?: number; url?: string; snapshotId?: string;
+    instrumentId?: string;
+  }[];
+  basedOn: { snapshotId: string; dataMode: string; asOfTime: string };
+  researchBinding?: { snapshotId: string; asOfTime: string; dataAsOf: string; instrumentId: string };
+  budget?: AssistantBudgetResult | null;
+  note: string;
 }
 
 export interface ResearchSimulationContext {
@@ -298,12 +369,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = payload as Record<string, unknown> | null;
     const nested = (body?.detail ?? body) as Record<string, unknown> | null;
     const envelope = (nested?.error ?? nested) as Partial<ApiError> | null;
+    const errorDetail = envelope as (Partial<ApiError> & {
+      repair_action?: string;
+      blockers?: ApiError["blockers"];
+    }) | null;
     throw new AquantApiError(res.status, {
       code: envelope?.code ?? "HTTP_" + res.status,
       message: envelope?.message ?? (typeof body?.detail === "string" ? body.detail : "请求被拒绝（HTTP " + res.status + "）"),
       objectId: envelope?.objectId,
       retryable: envelope?.retryable ?? false,
-      repairAction: envelope?.repairAction ?? "检查输入后重试",
+      repairAction: envelope?.repairAction ?? errorDetail?.repair_action ?? "检查输入后重试",
+      blockers: errorDetail?.blockers,
+      budget: errorDetail?.budget,
     });
   }
   return payload as T;
@@ -680,9 +757,26 @@ export interface ScheduleStatus {
   checkedAt: string;
 }
 
+let inFlightSnapshotCatalog: Promise<SnapshotCatalogResponse> | null = null;
+
+function loadSnapshotCatalog(): Promise<SnapshotCatalogResponse> {
+  if (inFlightSnapshotCatalog) return inFlightSnapshotCatalog;
+
+  const pending = request<SnapshotCatalogResponse>("/api/v1/snapshots").finally(() => {
+    if (inFlightSnapshotCatalog === pending) inFlightSnapshotCatalog = null;
+  });
+  inFlightSnapshotCatalog = pending;
+  return pending;
+}
 
 export const api = {
   financialCoverage: () => request<FinancialCoverageReport>("/api/v1/research/financial-coverage"),
+  submitFinancialCoverageJob: () => request<FinancialCoverageJobSubmission>(
+    "/api/v1/research/financial-coverage/jobs", { method: "POST" }),
+  getFinancialCoverageJob: (jobId: string, signal?: AbortSignal) => request<FinancialCoverageJobState>(
+    "/api/v1/research/jobs/" + encodeURIComponent(jobId), { signal }),
+  retryFinancialCoverageJob: (jobId: string) => request<FinancialCoverageJobSubmission>(
+    "/api/v1/research/financial-coverage/jobs/" + encodeURIComponent(jobId) + "/retry", { method: "POST" }),
   engineeringSimulationRuns: () => request<{ runs: EngineeringSimulationRun[] }>("/api/v1/engineering/simulation/runs"),
   engineeringAttributions: () => request<{ reports: SimulationAttributionReport[] }>("/api/v1/engineering/simulation/attributions"),
   forwardComparisons: () => request<{ series: ForwardComparisonSeries[] }>("/api/v1/comparisons/forward"),
@@ -709,7 +803,7 @@ export const api = {
 
   fees: () => request<FeeStatus>("/api/v1/fees"),
 
-  snapshots: () => request<SnapshotCatalogResponse>("/api/v1/snapshots"),
+  snapshots: loadSnapshotCatalog,
 
   candidates: (snapshotId?: string) => request<CandidatesResponse>(
     "/api/v1/candidates" + (snapshotId
@@ -811,6 +905,17 @@ export const api = {
       "/api/v1/instruments/" + encodeURIComponent(instrumentId) + "/research" +
       "?trading_day=" + encodeURIComponent(tradingDay),
     ),
+
+  assistantReadiness: () =>
+    request<AssistantReadiness>("/api/v1/assistant/readiness"),
+
+  assistantMessage: (body: {
+    question_id: AssistantQuestionId; confirm_external_send: boolean;
+  } & ({ card_id: string; citation_ids: string[] } | {
+    snapshot_id: string; instrument_id: string; receipt_ids: string[];
+  })) => request<AssistantAnswer>("/api/v1/assistant/messages", {
+    method: "POST", body: JSON.stringify(body),
+  }),
 
   /** 未审阅 PDF 候选的独立诊断预览，不进入研究卡、正式因子或实验。 */
   s2DiagnosticPreview: () =>

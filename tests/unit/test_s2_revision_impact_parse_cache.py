@@ -1,9 +1,12 @@
 """Warm pure parses cannot suppress original archive or relationship checks."""
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError
 from datetime import date
 import json
 import sqlite3
+from threading import Barrier, Event
+from time import monotonic, sleep
 from types import SimpleNamespace
 
 import pypdf
@@ -51,6 +54,133 @@ def test_fixed_68_sources_stay_warm_without_retaining_unbounded_memory(monkeypat
     assert info['hits'] == 68 and info['entries'] == 68
     assert info['bytes'] <= info['maxBytes']
     assert all(isinstance(pages, tuple) for pages in before)
+
+
+def test_concurrent_same_page_key_shares_one_parse(monkeypatch):
+    calls = []
+    entered, release = Event(), Event()
+
+    def reader(stream, **kwargs):
+        body = stream.read()
+        calls.append(body)
+        entered.set()
+        assert release.wait(timeout=3)
+        return SimpleNamespace(pages=(SimpleNamespace(extract_text=lambda: 'same page'),))
+
+    monkeypatch.setattr(pypdf, 'PdfReader', reader)
+    monkeypatch.setattr(impact, '_pages', REAL_PAGES)
+    body = b'%PDF-same-concurrent-source'
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(impact._pages, body, code_fingerprint='parser-v1')
+        assert entered.wait(timeout=3)
+        second = pool.submit(impact._pages, body, code_fingerprint='parser-v1')
+        try:
+            deadline = monotonic() + 3
+            while impact._page_parse_cache.info()['coalesced'] < 1 and monotonic() < deadline:
+                sleep(0.001)
+            assert impact._page_parse_cache.info()['coalesced'] == 1
+        finally:
+            release.set()
+        assert first.result(timeout=3) == second.result(timeout=3) == ('same page',)
+
+    info = impact._page_parse_cache.info()
+    assert calls == [body]
+    assert info['misses'] == 2 and info['coalesced'] == 1
+
+
+def test_different_page_keys_parse_independently(monkeypatch):
+    calls = []
+    barrier = Barrier(2)
+
+    def reader(stream, **kwargs):
+        body = stream.read()
+        calls.append(body)
+        barrier.wait(timeout=3)
+        return SimpleNamespace(pages=(SimpleNamespace(extract_text=lambda: body.decode()),))
+
+    monkeypatch.setattr(pypdf, 'PdfReader', reader)
+    monkeypatch.setattr(impact, '_pages', REAL_PAGES)
+    bodies = (b'%PDF-first-source', b'%PDF-second-source')
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = [pool.submit(impact._pages, body, code_fingerprint='parser-v1')
+                   for body in bodies]
+        assert [future.result(timeout=4) for future in results] == [
+            (body.decode(),) for body in bodies]
+
+    info = impact._page_parse_cache.info()
+    assert set(calls) == set(bodies)
+    assert info['misses'] == 2 and info['coalesced'] == 0
+
+
+def test_concurrent_same_section_key_shares_one_parse(monkeypatch):
+    calls = []
+    entered, release = Event(), Event()
+    parsed = StatementSections('sha256:source', ())
+
+    def extract(body, *, period_end, roles):
+        calls.append((body, period_end, roles))
+        entered.set()
+        assert release.wait(timeout=3)
+        return parsed
+
+    monkeypatch.setattr(impact, 'extract_statement_sections', extract)
+    args = (b'%PDF-same-section-source', '2025-06-30')
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(impact._sections, *args, code_fingerprint='parser-v1')
+        assert entered.wait(timeout=3)
+        second = pool.submit(impact._sections, *args, code_fingerprint='parser-v1')
+        try:
+            deadline = monotonic() + 3
+            while impact._section_parse_cache.info()['coalesced'] < 1 and monotonic() < deadline:
+                sleep(0.001)
+            assert impact._section_parse_cache.info()['coalesced'] == 1
+        finally:
+            release.set()
+        assert first.result(timeout=3) is parsed
+        assert second.result(timeout=3) is parsed
+
+    info = impact._section_parse_cache.info()
+    assert calls == [(args[0], date.fromisoformat(args[1]), ('合并',))]
+    assert info['misses'] == 2 and info['coalesced'] == 1
+
+
+def test_failed_singleflight_wakes_waiters_and_allows_retry(monkeypatch):
+    calls = []
+    entered, release = Event(), Event()
+
+    def reader(stream, **kwargs):
+        body = stream.read()
+        calls.append(body)
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(timeout=3)
+            raise ValueError('synthetic parser failure')
+        return SimpleNamespace(pages=(SimpleNamespace(extract_text=lambda: 'recovered'),))
+
+    monkeypatch.setattr(pypdf, 'PdfReader', reader)
+    monkeypatch.setattr(impact, '_pages', REAL_PAGES)
+    body = b'%PDF-retry-after-failure'
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(impact._pages, body, code_fingerprint='parser-v1')
+        assert entered.wait(timeout=3)
+        second = pool.submit(impact._pages, body, code_fingerprint='parser-v1')
+        try:
+            deadline = monotonic() + 3
+            while impact._page_parse_cache.info()['coalesced'] < 1 and monotonic() < deadline:
+                sleep(0.001)
+            assert impact._page_parse_cache.info()['coalesced'] == 1
+        finally:
+            release.set()
+        with pytest.raises(ValueError, match='synthetic parser failure'):
+            first.result(timeout=3)
+        with pytest.raises(ValueError, match='synthetic parser failure'):
+            second.result(timeout=3)
+
+    assert impact._pages(body, code_fingerprint='parser-v1') == ('recovered',)
+    assert impact._pages(body, code_fingerprint='parser-v1') == ('recovered',)
+    info = impact._page_parse_cache.info()
+    assert len(calls) == 2
+    assert info['misses'] == 3 and info['coalesced'] == 1 and info['hits'] == 1
 
 
 def test_actual_bytes_and_parser_code_changes_force_a_new_pure_parse(monkeypatch):

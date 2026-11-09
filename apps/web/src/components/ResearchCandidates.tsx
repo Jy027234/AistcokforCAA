@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { api, AquantApiError } from "../lib/api";
 import { formatAsOf } from "../lib/format";
 import type { ResearchCandidate, ResearchCandidateFactorId, ResearchCandidatesResponse, ResearchCandidatesView, ResearchValue } from "../lib/types";
+import { ResearchAssistantPanel, type ResearchAssistantOption } from "./ResearchAssistantPanel";
 import { Badge, Callout, Card, Empty, Section, Stat } from "./ui";
 
 const PAGE_SIZE = 20;
@@ -129,7 +130,7 @@ export function ResearchCandidates({ onPrepareSimulation, focusedInstrumentId }:
       : { type: "add", candidate, snapshotKey: comparisonSnapshotKey(result) });
   };
   return <Section title="寻找值得研究的证券" hint="先看依据与反证，再决定是否检查模拟资格" dataSource="api">
-    <div style={{ display: "grid", gap: 16 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16 }}>
       <Card>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12 }}>
           <label className="note" htmlFor="research-candidates-search">搜索发布范围中的代码或名称
@@ -563,6 +564,20 @@ function CandidateDetail({ candidate, result, onCompare, comparing, comparisonFu
           </details>)}</div> : <p className="note">{isFinancial(candidate) ? "金融原报告指标尚未完整发布；需补齐报告期字段与原文核验，不使用普通工商现金质量解释。" : "未提供可复算的 TTM 财务桥；需补齐各报告期数据及公告引用。"}</p>}
       </details>
       <RecentAnnouncements candidate={candidate} />
+      <ResearchAssistantPanel
+        binding={{ kind: "VERIFIED_SCAN",
+          snapshotId: result.schema === "aquant.research-candidates.v2"
+            ? result.snapshotId ?? null : null,
+          instrumentId: candidate.instrumentId }}
+        options={(candidate.events ?? []).map((event) => ({
+          selectionId: event.receiptId ?? "",
+          label: event.title,
+          note: `${event.publishedDate}${event.page ? ` · 第 ${event.page} 页` : ""}`,
+          quote: event.quote,
+          eligible: Boolean(event.receiptId && event.sourceId && event.contentHash &&
+            event.page != null && event.startChar != null && event.endChar != null &&
+            event.quote.trim() && event.quote.length <= 1000),
+        } satisfies ResearchAssistantOption))} />
       <details><summary>市场历史上下文（独立日线窗口）</summary>
         {candidate.marketContext ? <><dl className="kv" style={{ marginTop: 6 }}><dt>日线截至日期</dt><dd>{candidate.marketContext.historyAsOf ?? "无历史日线"}</dd><dt>各自观察窗口</dt><dd>{candidate.marketContext.window}</dd>
           {candidate.marketContext.freshness && <><dt>日线新鲜度</dt><dd>{candidate.marketContext.freshness}</dd></>}

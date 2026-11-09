@@ -14,6 +14,10 @@ from aquant.domain.data.pit import AvailabilityBasis, PitMode, TimestampPrecisio
 from aquant.domain.data.snapshot import (
     DataMode, SnapshotDraft, SnapshotStore, write_dataset,
 )
+from aquant.operations import s2_readiness
+from aquant.operations.decision_market_caps import (
+    DecisionMarketCap, DecisionMarketCapSidecar, REPLAY_SCHEMA_VERSION,
+)
 from aquant.domain.fundamentals.fact_repository import (
     FactReviewBundle, FinancialFactRepository,
 )
@@ -228,6 +232,43 @@ def test_consistent_reviewed_bundles_count_and_expose_only_proof_refs(tmp_path):
     assert {item["bundle_id"] for item in report["evidence"][0]["review_bundles"]} == {
         review.bundle_id for _, review in bundles}
     assert "signal_rank" not in json.dumps(report)
+
+
+def test_replay_sidecar_loader_receives_frozen_snapshot_cutoff(tmp_path, monkeypatch):
+    iid = "SH.600000"
+    cutoff = datetime(2026, 9, 25, 8, 0, tzinfo=timezone.utc)
+    root, sid = _snapshot(
+        tmp_path, [_instrument(iid, "C39", cents=None)],
+        data_mode=DataMode.PRODUCTION, trading_day="2026-09-24", cutoff=cutoff)
+    observed = datetime(2026, 9, 24, 8, 0, tzinfo=timezone.utc)
+    derived = datetime(2026, 9, 25, 7, 0, tzinfo=timezone.utc)
+    sidecar = DecisionMarketCapSidecar(
+        source_id="tencent-qt", observed_at=observed.isoformat(),
+        market_cap_as_of="2026-09-24", receipt_id="rcpt-replay",
+        content_hash="sha256:" + "a" * 64,
+        items={iid: DecisionMarketCap(iid, 123456, "2026-09-24")},
+        schema_version=REPLAY_SCHEMA_VERSION, derived_at=derived.isoformat(),
+    )
+    seen = {}
+
+    def load(_path, *, expected_as_of, archive_root, cutoff):
+        seen.update(expected_as_of=expected_as_of, archive_root=archive_root, cutoff=cutoff)
+        return sidecar
+
+    monkeypatch.setattr(s2_readiness, "load_sidecar", load)
+    facts_db = tmp_path / "facts.sqlite"
+    FinancialFactRepository(facts_db)
+    report = build_s2_readiness_report(
+        snapshot_dir=root, snapshot_id=sid, facts_db=facts_db,
+        market_caps_path=tmp_path / "market-caps.json",
+        market_caps_archive_root=tmp_path / "archive",
+    )
+    assert seen == {
+        "expected_as_of": "2026-09-24",
+        "archive_root": tmp_path / "archive",
+        "cutoff": cutoff,
+    }
+    assert report["market_cap_evidence"]["derived_at"] == derived.isoformat()
 
 
 def test_unreviewed_successors_do_not_resurrect_reviewed_originals(tmp_path):

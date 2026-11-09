@@ -147,8 +147,8 @@ def build_fixture(data_dir: Path | None = None):
             "researchObservedAt": "2026-09-11T19:00:00+08:00", "researchAvailableAt": "2026-09-11T20:00:00+08:00",
             "researchDataAsOf": "2026-09-11", "researchOriginPath": str(path.resolve())}
 
-    def load_local_scan(path, *, limit=20, offset=0, q="", board="", industry="", view="candidates"):
-        packet = json.loads(path.read_text(encoding="utf-8"))
+    def load_local_scan(path, *, limit=20, offset=0, q="", board="", industry="", view="candidates", packet=None):
+        packet = deepcopy(packet) if packet is not None else json.loads(path.read_text(encoding="utf-8"))
         rows = [row for row in packet["candidates"]
             if (not q or q.casefold() in " ".join((row["instrumentId"], row["code"], row["displayName"])).casefold())
             and (not board or row["board"] == board) and (not industry or industry in row["industry"])
@@ -158,7 +158,7 @@ def build_fixture(data_dir: Path | None = None):
         return packet
 
     main.load_simulation_research = load_local_research
-    main.load_research_scan = load_local_scan
+    main.load_verified_research_scan = load_local_scan
     original_ref = state.reader.ref
     original_instruments = state.reader.instruments
     original_calendar = state.reader.trading_calendar

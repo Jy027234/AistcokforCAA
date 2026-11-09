@@ -1,0 +1,29 @@
+{
+  "schema": "aquant.research-candidates.v2",
+  "snapshotId": "research-closing-be87ed50d5523717f190",
+  "asOfTime": "2026-10-29T12:34:55.854556+00:00",
+  "dataAsOf": "2026-10-29",
+  "researchOnly": true,
+  "simulationAvailable": false,
+  "pitMode": "HISTORICAL_RECONSTRUCTED",
+  "candidates": [
+    {
+      "instrumentId": "SH.600415",
+      "events": [
+        {
+          "title": "关于召开2026年第三季度业绩说明会的公告",
+          "publishedDate": "2026-10-20",
+          "url": "https://static.cninfo.com.cn/finalpage/2026-10-20/1225610070.PDF",
+          "quote": "会议召开时间：2026 年10 月27 日（周二）15:00-16:00\n 会议召开地点：上海证券交易所上证路演中心（网址：\nhttps://roadshow",
+          "page": 1,
+          "sourceId": "event-1225610070",
+          "verificationStatus": "ARCHIVED_PDF_TEXT",
+          "receiptId": "rcpt_8a3aa89a458c6337bde683cf",
+          "contentHash": "sha256:6909ada3f907114b87ff18b381a32702f16983c2329999138104fc120081ef10",
+          "startChar": 155,
+          "endChar": 235
+        }
+      ]
+    }
+  ]
+}

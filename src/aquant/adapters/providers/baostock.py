@@ -44,6 +44,7 @@ from typing import Any, Callable, Iterable
 #: 新增目标必须显式改这里，不存在"配置一下就能连任意主机"。
 BAOSTOCK_HOST = "www.baostock.com"
 BAOSTOCK_PORT = 10030
+_UNSET_SOCKET_TIMEOUT = object()
 
 #: 已知的分类体系。证监会分类是 BaoStock 全量返回的唯一体系。
 CSRC_CLASSIFICATION = "证监会行业分类"
@@ -51,6 +52,60 @@ CSRC_CLASSIFICATION = "证监会行业分类"
 
 class BaostockUnavailable(RuntimeError):
     """登录失败或服务端不可用。调用方必须显式处理，不得静默降级。"""
+
+
+class _SocketEOFGuard:
+    """Raise on orderly socket close so BaoStock's recv loop can terminate."""
+
+    __slots__ = ("_socket",)
+
+    def __init__(self, sock: Any) -> None:
+        self._socket = sock
+
+    def recv(self, *args: Any, **kwargs: Any) -> bytes:
+        data = self._socket.recv(*args, **kwargs)
+        if data == b"":
+            raise ConnectionResetError("BaoStock socket closed before response completed")
+        return data
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._socket, name)
+
+
+def _guard_baostock_transport_for_login(bs: Any) -> Callable[[], None] | None:
+    """Wrap only this SDK singleton's connected socket while ``login`` runs."""
+
+    login = getattr(bs, "login", None)
+    login_globals = getattr(login, "__globals__", {})
+    socketutil = login_globals.get("sock")
+    context = login_globals.get("conx")
+    socket_util_type = getattr(socketutil, "SocketUtil", None)
+    if socket_util_type is None or context is None:
+        return None
+
+    socket_util = socket_util_type()
+    missing = object()
+    own_connect = getattr(socket_util, "__dict__", {}).get("connect", missing)
+    original_connect = getattr(socket_util, "connect", None)
+    if not callable(original_connect):
+        return None
+
+    def connect(*args: Any, **kwargs: Any) -> Any:
+        result = original_connect(*args, **kwargs)
+        current = getattr(context, "default_socket", None)
+        if current is not None and not isinstance(current, _SocketEOFGuard):
+            context.default_socket = _SocketEOFGuard(current)
+        return result
+
+    socket_util.connect = connect
+
+    def restore() -> None:
+        if own_connect is missing:
+            del socket_util.connect
+        else:
+            socket_util.connect = own_connect
+
+    return restore
 
 
 @dataclass
@@ -105,7 +160,7 @@ class BaostockClient:
         self.receipts: list[Receipt] = []
         self._query_timeout = (self.DEFAULT_QUERY_TIMEOUT
                                if query_timeout is None else query_timeout)
-        self._previous_default_timeout: Any = None
+        self._previous_default_timeout: Any = _UNSET_SOCKET_TIMEOUT
 
     # ------------------------------------------------------------ lifecycle
     def __enter__(self) -> "BaostockClient":
@@ -126,11 +181,17 @@ class BaostockClient:
         # 不改回去会污染同进程里其它库的网络行为。
         import socket as _socket
 
-        if self._query_timeout and self._previous_default_timeout is None:
+        if (self._query_timeout
+                and self._previous_default_timeout is _UNSET_SOCKET_TIMEOUT):
             self._previous_default_timeout = _socket.getdefaulttimeout()
             _socket.setdefaulttimeout(self._query_timeout)
 
-        result = bs.login()
+        restore_transport = _guard_baostock_transport_for_login(bs)
+        try:
+            result = bs.login()
+        finally:
+            if restore_transport is not None:
+                restore_transport()
         if result.error_code != "0":
             self._restore_socket_timeout()
             raise BaostockUnavailable(
@@ -138,11 +199,11 @@ class BaostockClient:
         self._bs = bs
 
     def _restore_socket_timeout(self) -> None:
-        if self._previous_default_timeout is not None:
+        if self._previous_default_timeout is not _UNSET_SOCKET_TIMEOUT:
             import socket as _socket
 
             _socket.setdefaulttimeout(self._previous_default_timeout)
-            self._previous_default_timeout = None
+            self._previous_default_timeout = _UNSET_SOCKET_TIMEOUT
 
     def logout(self) -> None:
         if self._bs is not None:
@@ -159,6 +220,9 @@ class BaostockClient:
     #: 我的采集脚本正是这样——前 79 只成功、之后连续 21 只报"用户未登录"，
     #: 而错误信息看起来像是调用方没登录，实际是服务端把会话踢了。
     SESSION_EXPIRED_CODES = ("10001001", "10001002")
+    # SDK maps a failed socket receive to this local code. The singleton
+    # connection may retain a partial response; reconnect before one retry.
+    RECEIVE_FAILED_CODES = ("10002007",)
 
     def _reconnect(self) -> None:
         """会话失效后重新登录。
@@ -214,7 +278,7 @@ class BaostockClient:
         return fields, rows
 
     def _run(self, call: "Callable[[], Any]", *, label: str) -> Any:
-        """执行一次查询，会话失效时**自动重连并重试一次**。
+        """执行一次查询，会话失效或接收失败时重连并重试一次。
 
         为什么可以自动重试：这些查询都是只读的，重试不改变任何状态。
         会话过期是服务端行为，不是调用方的错，把它暴露给调用方只会让
@@ -223,7 +287,8 @@ class BaostockClient:
         """
 
         result = call()
-        if getattr(result, "error_code", "0") in self.SESSION_EXPIRED_CODES:
+        if getattr(result, "error_code", "0") in (
+                self.SESSION_EXPIRED_CODES + self.RECEIVE_FAILED_CODES):
             self._reconnect()
             result = call()
         if getattr(result, "error_code", "0") != "0":

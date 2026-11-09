@@ -1,0 +1,164 @@
+{
+  "schema": "aistock.private-native-layouts.v1",
+  "fixtures": [
+    {
+      "path": "tests/fixtures/cninfo_002517_sparse_revenue_note/native_note160.json",
+      "source": [
+        {
+          "url": "https://static.cninfo.com.cn/finalpage/2025-04-26/1223305372.PDF",
+          "announcement_id": "1223305372",
+          "source_pdf_sha256": "504eba93168ff0a51e2b25d81d15a60de21b90a3aef141f7ff80593cca2c1dcb"
+        }
+      ],
+      "description": "Selected native page-layout regression input for the sparse revenue-note parser.",
+      "sha256": "59c6287e7dd4dfa562690aa2921786c99b12e1c12ce22a6aadc4151fbe6a73da"
+    },
+    {
+      "path": "tests/fixtures/cninfo_002602_native_revenue_no_note/native_note_p188.json",
+      "source": [
+        {
+          "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225261915.PDF",
+          "announcement_id": "1225261915",
+          "source_pdf_sha256": "9a1a8175f9949af08a3b864fbc64ec03457b69286bb38d0caaad0ad7950904c3"
+        }
+      ],
+      "description": "Selected native page-layout regression input for the revenue-note parser.",
+      "sha256": "e5ba9897f18a230d29e5b80abe6ab8b5c9ba257381f9ac8e8e41e86ca89bd203"
+    },
+    {
+      "path": "tests/fixtures/cninfo_002602_native_revenue_no_note/native_primary_p99.json",
+      "source": [
+        {
+          "url": "https://static.cninfo.com.cn/finalpage/2026-04-30/1225261915.PDF",
+          "announcement_id": "1225261915",
+          "source_pdf_sha256": "9a1a8175f9949af08a3b864fbc64ec03457b69286bb38d0caaad0ad7950904c3"
+        }
+      ],
+      "description": "Selected native page-layout regression input for the primary-statement parser.",
+      "sha256": "cd4a9ce49cfbe3b4509cdde3fbaf598cfcead0dbcfef4503990d332101ab4efe"
+    },
+    {
+      "path": "tests/fixtures/cninfo_002946_interleaved_cash/gansu_h125_unknown_fx.json",
+      "source": [
+        {
+          "source_pdf_sha256": "8529c1ff4bba5aa155cdca6c5716e623372f5d5c543c1e7128c4c3cff8712564"
+        }
+      ],
+      "description": "Source-linked statement-state regression record for identity and strictness checks.",
+      "sha256": "013940b2ef7fb52526a58f435b1d6aac58fc0a423fded714f949d559262c96ce"
+    },
+    {
+      "path": "tests/fixtures/cninfo_002946_interleaved_cash/native_p103_p104_with_cover_chain.json",
+      "source": [
+        {
+          "url": "https://static.cninfo.com.cn/finalpage/2026-03-23/1225022253.PDF",
+          "announcement_id": "1225022253",
+          "source_pdf_sha256": "5b1a27b2bc5297f992e0197209ad8ceeb1ad7623cd22f372dc2d594cfd968a97"
+        }
+      ],
+      "description": "Selected native page-layout regression input with a cover identity chain.",
+      "sha256": "7437e618145218ca75e99995c07891f2148c4611e198e9cff395bdbfd1fddadf"
+    },
+    {
+      "path": "tests/fixtures/cninfo_002946_interleaved_cash/native_p103_p104.json",
+      "source": [
+        {
+          "url": "https://static.cninfo.com.cn/finalpage/2026-03-23/1225022253.PDF",
+          "announcement_id": "1225022253",
+          "source_pdf_sha256": "5b1a27b2bc5297f992e0197209ad8ceeb1ad7623cd22f372dc2d594cfd968a97"
+        }
+      ],
+      "description": "Duplicate selected native page-layout regression input; retained locally and unreferenced by tests.",
+      "status": "unreferenced",
+      "sha256": "038c80432bdd326b41feca546fb16a0c68111c4de81a11a1065d04998d6cd17c"
+    },
+    {
+      "path": "tests/fixtures/cninfo_002946_interleaved_cash/old3_known_components.json",
+      "source": [
+        {
+          "recorded_source_sha256": "f5c14f01ab9bac4a4b221451a688d0f8f978321ce1c0a630428a258ad8f15cd0"
+        }
+      ],
+      "description": "Historical known-component regression record for preservation checks.",
+      "sha256": "fa67fe0131909e5d9a9846bce9a7492d4b3e4237f8007fd91e1c40abdc2d75e5"
+    },
+    {
+      "path": "tests/fixtures/cninfo_600066_native_revenue/native-revenue-diagnostics.json",
+      "source": [],
+      "description": "Parser diagnostic metadata paired with local native-layout regression input.",
+      "sha256": "59c0ec185951448adc624af32f4a8a2d424588f018ce3c4e948d1a48ec1af726"
+    },
+    {
+      "path": "tests/fixtures/cninfo_600066_native_revenue/native-revenue-words.json",
+      "source": [],
+      "description": "Selected native page-layout regression input for the revenue parser.",
+      "sha256": "7497c7000c5b1afe833b18ceb28aab807c2391487f08473af018b9b95b42ae9f"
+    },
+    {
+      "path": "tests/fixtures/cninfo_600066_native_revenue_history44/history-source-diagnostic.json",
+      "source": [
+        {
+          "announcement_id": "1220982528",
+          "source_pdf_sha256": "e1cffd3343136dc7b4e8b3d03c5abb96a0d1ed8b0a13951fb7f9bc0e95e95492"
+        },
+        {
+          "announcement_id": "1222974533",
+          "source_pdf_sha256": "5edfe6e4ac095d6c28e17903cc87e284b5d8f75ba3be3f4515a0fbb92f5bc023"
+        }
+      ],
+      "description": "Source identification and section diagnostic metadata for historical parser checks.",
+      "sha256": "c0580d49dd4aeb09acdbfd8ffbae0b8664c24a893a0a74a8a95b2e584f01b7a2"
+    },
+    {
+      "path": "tests/fixtures/cninfo_600066_native_revenue_history44/native-revenue-words.json",
+      "source": [
+        {
+          "announcement_id": "1220982528",
+          "source_pdf_sha256": "e1cffd3343136dc7b4e8b3d03c5abb96a0d1ed8b0a13951fb7f9bc0e95e95492"
+        },
+        {
+          "announcement_id": "1222974533",
+          "source_pdf_sha256": "5edfe6e4ac095d6c28e17903cc87e284b5d8f75ba3be3f4515a0fbb92f5bc023"
+        }
+      ],
+      "description": "Selected native page-layout regression input paired by index with its diagnostic metadata.",
+      "sha256": "7b6b10f8c70280641604f3560f14865e946f49a950c67389337e69c3d448245d"
+    },
+    {
+      "path": "tests/fixtures/cninfo_601021_h1_note62/native_income_p65_p66.json",
+      "source": [
+        {
+          "url": "https://static.cninfo.com.cn/finalpage/2025-08-29/1224612122.PDF",
+          "announcement_id": "1224612122",
+          "source_pdf_sha256": "f35123d312ac87bfd88f84460a9ea5f95339f4dd9d29cc1eef6729fd07b75baa"
+        }
+      ],
+      "description": "Selected native page-layout regression input for half-year primary statements.",
+      "sha256": "9a9cf22241a6635f33800aa090efff1e9d8c51f743040debd50cdb363bb1d3d7"
+    },
+    {
+      "path": "tests/fixtures/cninfo_601021_h1_note62/native_mixed_income_p71.json",
+      "source": [
+        {
+          "url": "https://static.cninfo.com.cn/finalpage/2026-08-29/1225524501.PDF",
+          "announcement_id": "1225524501",
+          "source_pdf_sha256": "2cd1b85a405db6b6dcf2593bb49029763a019e0b50fae12f21e217b52d51556c"
+        }
+      ],
+      "description": "Selected native page-layout regression input for mixed-font half-year statements.",
+      "sha256": "a7de293d7b8c5c7f1d10b8378b17d076cd41796031019b0929158e8b345bc884"
+    },
+    {
+      "path": "tests/fixtures/cninfo_601021_h1_note62/native_note_p134_p135.json",
+      "source": [
+        {
+          "url": "https://static.cninfo.com.cn/finalpage/2025-08-29/1224612122.PDF",
+          "announcement_id": "1224612122",
+          "source_pdf_sha256": "f35123d312ac87bfd88f84460a9ea5f95339f4dd9d29cc1eef6729fd07b75baa"
+        }
+      ],
+      "description": "Selected native page-layout regression input for half-year note statements.",
+      "sha256": "37dc4b187e2cc922501082e6f89394ebfeb8ecf70f8669c73bf9275e079d5855"
+    }
+  ]
+}

@@ -22,8 +22,13 @@
     全部知识就是"怎么起它、怎么看退出码"。
   * **不用线程池并发跑多次**：同一时刻只允许一次运行。`daily_run` 自己
     有锁，但让 worker 也串行可以省掉一类"两次运行交错"的排查。
-  * **不自动重试失败的运行**：失败已经告警并留痕，自动重试会把
-    "数据源坏了"变成"每 30 秒重试一次"，把告警淹没。
+  * 一般失败保持终态并留痕。仅当 RESEARCH_SIMULATION 的同一日定时任务
+    失败记录与本次证据共同确认两次 BaoStock 登录接收超时、一次已清理的
+    登录阶段 10002007 网络接收失败，或当前绑定池中每只未完成证券都有明确
+    的 10002007 查询传输失败时，且调度仍启用、已间隔至少 15 分钟、没有待处理
+    请求或日更锁，最多登记两次同日恢复请求。
+    晚间登录故障的最后一次恢复最早于北京时间 21:45 登记。
+    `requested_by` 的日期和序号标记阻止重启后重复登记；不循环重试。
 
 用法
 ====
@@ -38,6 +43,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -45,14 +51,15 @@ import sys
 import threading
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, time as clock_time, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from aquant.domain.data.db import apply_migrations, connect  # noqa: E402
+from aquant.domain.data.db import apply_migrations, connect, write_tx  # noqa: E402
 from aquant.operations import scheduler  # noqa: E402
+from aquant.operations.pipeline import recover_orphaned_pipeline_lock  # noqa: E402
 
 #: 仓库里默认的快照数据目录。与 `daily_run` 的输出目录、API 的
 #: `AQUANT_DATA_DIR` 指向同一个地方——三者不一致的话，界面读的是
@@ -68,6 +75,14 @@ RUN_TIMEOUT_SECONDS = 60 * 60
 # replace it remain compatible; the real subprocess still receives the exact
 # data root through this short-lived worker-local context.
 _PIPELINE_DATA_DIR: Path | None = None
+DAILY_TIMEOUT_RETRY_REQUESTED_BY = "scheduler:baostock-login-timeout-retry"
+DAILY_TIMEOUT_RETRY_DELAY = timedelta(minutes=15)
+DAILY_TIMEOUT_RETRY_LIMIT = 2
+DAILY_TIMEOUT_RETRY_KIND = "BAOSTOCK_LOGIN_TIMEOUT"
+DAILY_CAPTURE_RETRY_KIND = "BAOSTOCK_CAPTURE_TRANSPORT_FAILURE"
+DAILY_LOGIN_RECEIVE_RETRY_KIND = "BAOSTOCK_LOGIN_RECEIVE_FAILURE"
+EVENING_LOGIN_RETRY_WINDOW_START = clock_time(20, 30)
+EVENING_LOGIN_FINAL_RETRY_NOT_BEFORE = clock_time(21, 45)
 
 
 def log(message: str) -> None:
@@ -154,6 +169,228 @@ def _load_record(json_out: Path) -> dict:
         return {}
 
 
+def _aware_utc(value: object) -> datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None
+    return parsed.astimezone(timezone.utc)
+
+
+def _retry_marker_for_day(day: str, attempt: int = 1) -> str:
+    return f"{DAILY_TIMEOUT_RETRY_REQUESTED_BY}:{day}:{attempt}"
+
+
+def _next_retry_marker(con, day: str) -> tuple[str, int] | None:
+    prefix = f"{DAILY_TIMEOUT_RETRY_REQUESTED_BY}:{day}:"
+    rows = con.execute("SELECT requested_by FROM pipeline_run_request "
+                       "WHERE substr(requested_by,1,?)=?",
+                       (len(prefix), prefix)).fetchall()
+    used: list[int] = []
+    valid_attempts = {str(number): number
+                       for number in range(1, DAILY_TIMEOUT_RETRY_LIMIT + 1)}
+    for row in rows:
+        suffix = row["requested_by"][len(prefix):]
+        if suffix not in valid_attempts:
+            return None
+        used.append(valid_attempts[suffix])
+    if (len(used) != len(set(used))
+            or sorted(used) != list(range(1, len(used) + 1))):
+        return None
+    attempt = len(used) + 1
+    if attempt > DAILY_TIMEOUT_RETRY_LIMIT:
+        return None
+    return _retry_marker_for_day(day, attempt), attempt
+
+
+def _capture_retry_hint_is_current(record: dict) -> bool:
+    hint = record.get("retryableFailure")
+    if not isinstance(hint, dict):
+        return False
+    if hint.get("kind") == DAILY_TIMEOUT_RETRY_KIND:
+        return True
+    if hint.get("kind") == DAILY_LOGIN_RECEIVE_RETRY_KIND:
+        attempt_dir = record.get("artifactDirectory")
+        evidence_path = hint.get("loginAttemptsPath")
+        expected_hash = hint.get("loginAttemptsSha256")
+        if (not isinstance(attempt_dir, str) or not attempt_dir
+                or not isinstance(evidence_path, str) or not evidence_path
+                or not isinstance(expected_hash, str) or not expected_hash.startswith("sha256:")):
+            return False
+        try:
+            root = Path(attempt_dir).resolve(strict=True)
+            evidence_dir = Path(attempt_dir) / "simulation-evidence"
+            if evidence_dir.is_symlink():
+                return False
+            evidence_root = evidence_dir.resolve(strict=True)
+            expected_path = evidence_root / "login-attempts.json"
+            path = Path(evidence_path)
+            if (not evidence_root.is_relative_to(root) or path.is_symlink()
+                    or path.resolve(strict=True) != expected_path
+                    or not expected_path.is_file()):
+                return False
+            raw = expected_path.read_bytes()
+            if "sha256:" + hashlib.sha256(raw).hexdigest() != expected_hash:
+                return False
+            packet = json.loads(raw)
+            attempts = packet.get("attempts") if isinstance(packet, dict) else None
+            if (not isinstance(packet, dict)
+                    or packet.get("schema") != "aquant.baostock_login_attempts.v1"
+                    or packet.get("provider") != "baostock"
+                    or packet.get("status") != "FAILED"
+                    or not isinstance(attempts, list) or len(attempts) != 1):
+                return False
+            attempt = attempts[0]
+            if not isinstance(attempt, dict):
+                return False
+            cleanup = attempt.get("cleanup") if isinstance(attempt, dict) else None
+            return bool(
+                attempt.get("attempt") == 1
+                and attempt.get("status") == "failed"
+                and attempt.get("retryable") is False
+                and attempt.get("error_type") == "BaostockUnavailable"
+                and attempt.get("error_code") == "10002007"
+                and isinstance(attempt.get("error"), str)
+                and "10002007" in attempt["error"]
+                and any(token in attempt["error"].lower() for token in ("receive", "recv", "接收"))
+                and isinstance(attempt.get("diagnostic"), str)
+                and ("BaoStock socket closed before response completed" in attempt["diagnostic"]
+                     or "接收数据异常" in attempt["diagnostic"])
+                and any(token in attempt["diagnostic"].lower() for token in ("receive", "recv", "接收"))
+                and isinstance(cleanup, dict)
+                and cleanup.get("socket_closed") is True
+                and cleanup.get("context_cleared") is True)
+        except (OSError, ValueError, TypeError, RuntimeError):
+            return False
+    if hint.get("kind") != DAILY_CAPTURE_RETRY_KIND:
+        return False
+    missing = hint.get("missingInstrumentIds")
+    attempt_dir = record.get("artifactDirectory")
+    if (not isinstance(attempt_dir, str) or not attempt_dir
+            or not isinstance(hint.get("checkpointPath"), str)
+            or not isinstance(hint.get("checkpointSha256"), str)
+            or not hint["checkpointSha256"].startswith("sha256:")
+            or not isinstance(missing, list) or not missing
+            or any(not isinstance(iid, str) or not iid for iid in missing)
+            or len(missing) != len(set(missing))):
+        return False
+    try:
+        attempt_root = Path(attempt_dir).resolve(strict=True)
+        evidence_dir = Path(attempt_dir) / "simulation-evidence"
+        if evidence_dir.is_symlink():
+            return False
+        root = evidence_dir.resolve(strict=True)
+        if not root.is_relative_to(attempt_root):
+            return False
+        checkpoint = Path(hint["checkpointPath"])
+        if checkpoint.is_symlink() or checkpoint.resolve(strict=True) != root / "checkpoint.json":
+            return False
+        digest = "sha256:" + hashlib.sha256(checkpoint.read_bytes()).hexdigest()
+    except (OSError, ValueError, RuntimeError):
+        return False
+    return digest == hint["checkpointSha256"]
+
+
+def _retry_candidate(con, *, root: Path, schedule: scheduler.RunSchedule,
+                     now: datetime) -> tuple[str, str, int] | None:
+    """Return (market day, requested_by marker) only for a current matching failure."""
+
+    if (os.environ.get("AQUANT_DAILY_MODE") != "RESEARCH_SIMULATION"
+            or not schedule.enabled or now.tzinfo is None or now.utcoffset() is None):
+        return None
+    market_now = now.astimezone(scheduler.MARKET_TIMEZONE)
+    market_day = market_now.date().isoformat()
+    latest = scheduler.last_run(con)
+    record = _load_record(root / "deploy" / "agentctl-q0" / "last-run.json")
+    if not isinstance(record, dict) or latest is None:
+        return None
+    day = record.get("trading_day")
+    if (day != market_day or record.get("outcome") != "FAILED"
+            or record.get("source") != "scheduler"
+            or record.get("mode") != "RESEARCH_SIMULATION"
+            or latest.get("outcome") != "FAILED"
+            or latest.get("source") != "scheduler"
+            or latest.get("tradingDay") != day
+            or latest.get("finishedAt") != record.get("finished_at")
+            or not isinstance(record.get("retryableFailure"), dict)):
+        return None
+    if not _capture_retry_hint_is_current(record):
+        return None
+    try:
+        parsed_day = datetime.fromisoformat(day).date()
+    except (TypeError, ValueError):
+        return None
+    if parsed_day.isoformat() != day:
+        return None
+    started = _aware_utc(record.get("started_at"))
+    finished = _aware_utc(record.get("finished_at"))
+    moment = now.astimezone(timezone.utc)
+    if (started is None or finished is None or finished < started or finished > moment
+            or started.astimezone(scheduler.MARKET_TIMEZONE).date() != parsed_day
+            or finished.astimezone(scheduler.MARKET_TIMEZONE).date() != parsed_day
+            or moment - finished < DAILY_TIMEOUT_RETRY_DELAY):
+        return None
+    request_id = latest.get("requestId")
+    if not request_id:
+        return None
+    request = con.execute(
+        "SELECT source,status FROM pipeline_run_request WHERE request_id=?",
+        (request_id,)).fetchone()
+    if request is None or request["source"] != "scheduler" or request["status"] != "FAILED":
+        return None
+    next_marker = _next_retry_marker(con, day)
+    if next_marker is None:
+        return None
+    marker, attempt = next_marker
+    if attempt == 2:
+        failure_kind = record["retryableFailure"]["kind"]
+        failed_local_time = started.astimezone(scheduler.MARKET_TIMEZONE).time()
+        if (failure_kind in (DAILY_TIMEOUT_RETRY_KIND, DAILY_LOGIN_RECEIVE_RETRY_KIND)
+                and failed_local_time >= EVENING_LOGIN_RETRY_WINDOW_START
+                and market_now.time() < EVENING_LOGIN_FINAL_RETRY_NOT_BEFORE):
+            return None
+        prior_marker = _retry_marker_for_day(day, 1)
+        prior = con.execute("SELECT request_id,status FROM pipeline_run_request "
+                            "WHERE requested_by=?", (prior_marker,)).fetchone()
+        if (prior is None or prior["status"] != "FAILED"
+                or latest.get("requestId") != prior["request_id"]):
+            return None
+    if scheduler.pending_request(con) is not None:
+        return None
+    lock_path = root / "deploy" / "agentctl-q0" / "daily-run.lock"
+    lock = recover_orphaned_pipeline_lock(lock_path)
+    if lock.status not in {"MISSING", "RECOVERED"}:
+        log(f"有限重试暂不登记：日更锁未能安全恢复（{lock.detail}）")
+        return None
+    if lock.status == "RECOVERED":
+        log(f"已保留并恢复孤儿日更锁：{lock.archive_path}")
+    return day, marker, attempt
+
+
+def _request_same_day_timeout_retry(con, *, root: Path,
+                                    now: datetime) -> str | None:
+    """Atomically deduplicate and register one dated request through the worker path."""
+
+    with write_tx(con):
+        candidate = _retry_candidate(
+            con, root=root, schedule=scheduler.load_schedule(con), now=now)
+        if candidate is None:
+            return None
+        day, marker, attempt = candidate
+        request_id = "run_" + uuid.uuid4().hex[:16]
+        reason = f"同日第 {attempt} 次有限恢复：{day}"
+        con.execute(
+            "INSERT INTO pipeline_run_request (request_id,source,reason,requested_by,"
+            "requested_at,status) VALUES (?,?,?,?,?,'PENDING')",
+            (request_id, "scheduler", reason, marker,
+             now.astimezone(timezone.utc).isoformat()))
+    return request_id
+
+
 def tick(con, *, worker_id: str, data_dir: Path, schedule: scheduler.RunSchedule,
          now: datetime, dry_run: bool = False) -> str:
     """处理一轮。返回这一步做了什么（给日志与测试断言用）。
@@ -177,6 +414,14 @@ def tick(con, *, worker_id: str, data_dir: Path, schedule: scheduler.RunSchedule
         log(f"到点：登记运行请求 {request_id}")
         return "fired"
 
+    if pending is None and _retry_candidate(con, root=ROOT, schedule=schedule, now=now):
+        if dry_run:
+            return "fired"
+        request_id = _request_same_day_timeout_retry(con, root=ROOT, now=now)
+        if request_id is not None:
+            log(f"同日 BaoStock 瞬断恢复：登记一次 scheduler 请求 {request_id}")
+            return "fired"
+
     claimed = scheduler.claim_next(con, worker_id=worker_id, now=now)
     if claimed is None:
         return "idle"
@@ -186,13 +431,10 @@ def tick(con, *, worker_id: str, data_dir: Path, schedule: scheduler.RunSchedule
     if problems:
         detail = "；".join(problems)
         log("预检未通过：" + detail)
+        finished_at = scheduler.market_now()
         scheduler.finish_request(con, request_id=claimed["request_id"],
-                                 status="FAILED", exit_code=2, detail=detail, now=now)
-        scheduler.record_last_run(con, request_id=claimed["request_id"],
-                                  source=claimed["source"],
-                                  record={"outcome": "FAILED", "reason": detail,
-                                          "finished_at": now.isoformat()},
-                                  exit_code=2, now=now)
+                                 status="FAILED", exit_code=2, detail=detail,
+                                 now=finished_at, record={"outcome": "FAILED", "reason": detail})
         return "ran:FAILED"
 
     json_out = ROOT / "deploy" / "agentctl-q0" / "last-run.json"
@@ -201,21 +443,47 @@ def tick(con, *, worker_id: str, data_dir: Path, schedule: scheduler.RunSchedule
     global _PIPELINE_DATA_DIR
     previous_data_dir = _PIPELINE_DATA_DIR
     _PIPELINE_DATA_DIR = data_dir
+    pipeline_error: Exception | None = None
     try:
         code, tail = _run_pipeline(
             interpreter=interpreter,
             window_start=schedule.window_start or "2026-06-22",
             source=claimed["source"], json_out=json_out)
+    except Exception as exc:
+        pipeline_error = exc
+        code, tail = 1, f"流水线执行异常：{type(exc).__name__}: {exc}"
+        log(tail)
     finally:
         _PIPELINE_DATA_DIR = previous_data_dir
     record = _load_record(json_out)
     status = "DONE" if code == 0 else "FAILED"
+    if pipeline_error is not None:
+        record.update({
+            "trading_day": record.get("trading_day")
+            or now.astimezone(scheduler.MARKET_TIMEZONE).date().isoformat(),
+            "snapshot_id": record.get("snapshot_id") or "pending",
+            "outcome": "FAILED",
+            "reason": tail,
+            "started_at": record.get("started_at")
+            or now.astimezone(timezone.utc).isoformat(),
+            "source": record.get("source") or claimed["source"],
+        })
+    elif not record:
+        record = {
+            "trading_day": now.astimezone(scheduler.MARKET_TIMEZONE).date().isoformat(),
+            "snapshot_id": "pending",
+            "outcome": status,
+            "reason": tail or None,
+            "started_at": now.astimezone(timezone.utc).isoformat(),
+            "source": claimed["source"],
+        }
+    # A pipeline record carries its real completion timestamp. If the child
+    # failed before producing one (timeout/startup exception), use the current
+    # worker clock rather than the tick's frozen request-claim timestamp.
+    finished_at = _aware_utc(record.get("finished_at")) or scheduler.market_now()
     scheduler.finish_request(con, request_id=claimed["request_id"], status=status,
                              exit_code=code, detail=tail or record.get("reason") or "",
-                             now=now)
-    scheduler.record_last_run(con, request_id=claimed["request_id"],
-                              source=claimed["source"], record=record,
-                              exit_code=code, now=now)
+                             now=finished_at, record=record)
     return f"ran:{status}"
 
 

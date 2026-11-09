@@ -59,6 +59,7 @@ def setup(tmp_path, monkeypatch):
         return source, dict(binding, researchSnapshotId=source["snapshotId"],
                             researchContentHash=file_hash(path), researchOriginPath=str(path))
     monkeypatch.setattr("main.load_simulation_research", load_local_fixture)
+    monkeypatch.setattr("main.load_simulation_research_context", load_local_fixture)
     state = build_state(tmp_path / "app")
     original_ref = state.reader.ref
     monkeypatch.setattr(state.reader, "ref", lambda sid: replace(original_ref(sid), data_mode="PRODUCTION", watermark=None))
@@ -102,8 +103,12 @@ def setup(tmp_path, monkeypatch):
         yield client, state, body
 
 
-def test_pending_draft_survives_refresh_without_plan_or_account(setup):
+def test_pending_draft_survives_refresh_without_plan_or_account(setup, monkeypatch):
     client, state, body = setup
+    import main
+    def context_loader_must_not_run(path):
+        raise AssertionError("draft preview must keep using the full research packet")
+    monkeypatch.setattr(main, "load_simulation_research_context", context_loader_must_not_run)
     first = client.post("/api/v1/research/simulation/draft", json=body, headers=USER)
     assert first.status_code == 200, first.text
     payload = first.json()
@@ -127,6 +132,22 @@ def test_context_limit_exposes_whole_verified_pool_without_changing_candidate_co
     assert len(first["candidates"]) == 1 and len(complete["candidates"]) == 2
     assert first["eligibleCandidateCount"] == complete["eligibleCandidateCount"] == 2
     assert client.get("/api/v1/research/simulation/context?limit=5001").status_code == 422
+
+
+def test_context_get_uses_context_loader_only(setup, monkeypatch):
+    client, _, _ = setup
+    import main
+    calls = []
+    original_context_loader = main.load_simulation_research_context
+    def tracked_context_loader(path):
+        calls.append(path)
+        return original_context_loader(path)
+    monkeypatch.setattr(main, "load_simulation_research",
+                        lambda path: pytest.fail("context GET must use the verified narrow projection"))
+    monkeypatch.setattr(main, "load_simulation_research_context", tracked_context_loader)
+    response = client.get("/api/v1/research/simulation/context")
+    assert response.status_code == 200, response.text
+    assert len(calls) == 1
 
 
 def test_ready_preview_uses_existing_single_use_confirmation_and_records_origin(setup):

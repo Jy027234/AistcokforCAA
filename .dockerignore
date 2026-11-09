@@ -21,3 +21,9 @@ deploy/screens
 deploy/agentctl-q0/*.log
 deploy/agentctl-q0/daily-runs.jsonl
 deploy/agentctl-q0/daily-run.lock
+
+# Local execution trees include backups, credentials and third-party originals.
+work/
+tmp/
+.secrets/
+src/aquant/adapters/providers/_pdf_page_corpus_data/

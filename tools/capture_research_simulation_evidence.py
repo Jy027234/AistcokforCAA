@@ -178,6 +178,56 @@ def save(path: Path, obj: object) -> None:
     temp.replace(path)
 
 
+def preserve_failed_login_evidence(attempts_path: Path) -> None:
+    """Copy a terminal failure to a content-addressed file and atomic index."""
+    if not attempts_path.is_file():
+        return
+    raw = attempts_path.read_bytes()
+    try:
+        packet = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError(
+            "existing BaoStock login evidence is malformed; refusing to overwrite"
+        ) from exc
+    if not isinstance(packet, dict) or packet.get("status") != "FAILED":
+        return
+
+    sha256 = "sha256:" + hashlib.sha256(raw).hexdigest()
+    archive_relative = Path("login-attempts-failures") / f"{sha256[7:]}.json"
+    archive_path = attempts_path.parent / archive_relative
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    if archive_path.exists():
+        if archive_path.read_bytes() != raw:
+            raise RuntimeError("failed BaoStock login evidence hash path contains different bytes")
+    else:
+        temp = archive_path.with_suffix(archive_path.suffix + ".tmp")
+        temp.write_bytes(raw)
+        temp.replace(archive_path)
+
+    index_path = attempts_path.parent / "login-attempts-failure-index.json"
+    if index_path.exists():
+        index = json.loads(index_path.read_text(encoding="utf-8"))
+        if (not isinstance(index, dict)
+                or index.get("schema") != "aquant.baostock_failed_login_evidence_index.v1"
+                or not isinstance(index.get("entries"), list)):
+            raise ValueError("failed BaoStock login evidence index is malformed")
+    else:
+        index = {"schema": "aquant.baostock_failed_login_evidence_index.v1",
+                 "entries": []}
+
+    relative_path = archive_relative.as_posix()
+    existing = next((item for item in index["entries"]
+                     if isinstance(item, dict) and item.get("sha256") == sha256), None)
+    if existing is not None and existing.get("path") != relative_path:
+        raise ValueError("failed BaoStock login evidence index path conflicts with its hash")
+    if existing is None:
+        index["entries"].append({
+            "path": relative_path,
+            "sha256": sha256,
+        })
+        save(index_path, index)
+
+
 def _login_error_code(exc: Exception) -> str | None:
     match = re.search(r"\b(\d{8})\b", str(exc))
     return match.group(1) if match else None
@@ -227,6 +277,9 @@ def login_with_single_retry(client: BaostockClient, attempts_path: Path, *,
                             sleep_fn=time.sleep,
                             delay_seconds: int = LOGIN_RETRY_DELAY_SECONDS) -> list[dict]:
     """Log in once, retrying one confirmed socket timeout after a fixed pause."""
+    # Preserve a previous run's terminal record before the public current file
+    # is reused by this invocation. The current filename and schema stay stable.
+    preserve_failed_login_evidence(attempts_path)
     attempts: list[dict] = []
     original_socket_timeout = socket.getdefaulttimeout()
     client._capture_original_socket_timeout = original_socket_timeout
@@ -274,6 +327,14 @@ def login_with_single_retry(client: BaostockClient, attempts_path: Path, *,
             attempts.append(entry)
             document["status"] = "FAILED"
             save(attempts_path, document)
+            try:
+                preserve_failed_login_evidence(attempts_path)
+            except Exception as archive_exc:
+                # Keep the provider error primary; the canonical record is saved.
+                exc.add_note(
+                    f"Failed to archive BaoStock login evidence at {attempts_path}: "
+                    f"{type(archive_exc).__name__}: {archive_exc}"
+                )
             if retryable:
                 raise RuntimeError(
                     f"BaoStock login timed out after one retry; see {attempts_path}") from exc
@@ -616,6 +677,10 @@ def finalize_capture_package(*, cp: dict, research: dict, selected: list[dict],
     from copy import deepcopy
     cp = deepcopy(cp)
     ASOF, OUT, RESEARCH = target_day, Path(output_dir), Path(research_path)
+    if not preserve_existing:
+        # A resumed loop may skip its final checkpoint interval. Record this
+        # packaging attempt even when the remaining queries all failed.
+        cp["updated_at"] = now()
     target_date = date.fromisoformat(ASOF)
     year_start, year_end = calendar_range(target_date)
     _trading_days, start_day = trading_window(calendar_raw, ASOF)
